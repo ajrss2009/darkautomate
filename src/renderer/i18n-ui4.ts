@@ -115,6 +115,6 @@ const T: Array<[string, string, string]> = [
   ["Arquivo .plugin", ".plugin file", "Archivo .plugin"],
   ["Exportar .plugin", "Export .plugin", "Exportar .plugin"],
   ["Arquivo .plugin do Claude (zip com .claude-plugin/plugin.json)", "Claude .plugin file (zip with .claude-plugin/plugin.json)", "Archivo .plugin de Claude (zip con .claude-plugin/plugin.json)"],
-  ["Grava um arquivo .plugin (zip no formato do Claude) para instalar no Claude ou em outro FilmForge", "Saves a .plugin file (zip in Claude's format) to install in Claude or another FilmForge", "Guarda un archivo .plugin (zip en el formato de Claude) para instalar en Claude o en otro FilmForge"],
+  ["Grava um arquivo .plugin (zip no formato do Claude) para instalar no Claude ou em outro Dark Automate", "Saves a .plugin file (zip in Claude's format) to install in Claude or another Dark Automate", "Guarda un archivo .plugin (zip en el formato de Claude) para instalar en Claude o en otro Dark Automate"],
 ];
 export default T;

@@ -265,7 +265,7 @@ function usageView(c: AutoCtx): HTMLElement[] {
           u.error ? h('div', { class: 'muted' }, `ℹ️ ${u.error}`) : h('div', { class: 'us-wins' }, ...u.windows.map(win)),
           u.note ? h('div', { class: 'muted small' }, u.note) : null,
           h('div', { class: 'muted small us-src' }, u.source));
-      })), h('div', { class: 'muted small' }, 'Claude e Codex mostram o limite oficial do plano (sessão de 5 h e semana). O OpenCode não tem limite próprio (depende do provedor do modelo): mostra tokens e custo. O Google não publica a cota do Antigravity: o FilmForge soma os tokens reais de cada chamada que ele faz, por conta.'));
+      })), h('div', { class: 'muted small' }, 'Claude e Codex mostram o limite oficial do plano (sessão de 5 h e semana). O OpenCode não tem limite próprio (depende do provedor do modelo): mostra tokens e custo. O Google não publica a cota do Antigravity: o Dark Automate soma os tokens reais de cada chamada que ele faz, por conta.'));
     } catch (e) { box.replaceChildren(h('div', { class: 'tag failed' }, '⛔ ' + (e as Error).message)); }
   };
   void load();

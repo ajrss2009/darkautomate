@@ -12,7 +12,7 @@
   },
   "build": {
     "appId": "dev.filmforge.app",
-    "productName": "FilmForge",
+    "productName": "Dark Automate",
     "files": [
       "dist/**/*",
       "package.json"
@@ -40,7 +40,8 @@
         "nsis",
         "portable"
       ],
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico"
     },
     "mac": {
       "target": [
@@ -55,7 +56,13 @@
     },
     "directories": {
       "output": "release"
-    }
+    },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "shortcutName": "Dark Automate"
+    },
+    "afterPack": "scripts/after-pack.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -69,4 +76,3 @@
     "ws": "^8.18.0"
   }
 }
-

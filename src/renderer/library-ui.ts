@@ -659,7 +659,7 @@ export async function openSkillFromVideos(c: Ctx, onDone: (k: Skill) => void, pr
   })() }, '🎬 Analisar vídeos e criar a skill');
   const bg = h('div', { class: 'modal-bg', id: 'skill-videos-modal' }, h('div', { class: 'modal pmodal' },
     h('div', { class: 'row' }, h('h3', {}, '🎬 Nova skill a partir de vídeos'), h('span', { class: 'sp' }), h('button', { onclick: () => { void forge['skillFromVideosCancel']().catch(() => {}); close(); } }, '✕')),
-    h('p', { class: 'muted' }, 'O app baixa os vídeos (até 10 min cada), extrai quadros-chave e a transcrição (e apaga tudo isso no fim), e um provedor com visão escreve uma skill no padrão do FilmForge — copiando o ESTILO (estrutura, ritmo, visual, tom), nunca o conteúdo. A skill é salva com um nome único e já vem com a rota sugerida.'),
+    h('p', { class: 'muted' }, 'O app baixa os vídeos (até 10 min cada), extrai quadros-chave e a transcrição (e apaga tudo isso no fim), e um provedor com visão escreve uma skill no padrão do Dark Automate — copiando o ESTILO (estrutura, ritmo, visual, tom), nunca o conteúdo. A skill é salva com um nome único e já vem com a rota sugerida.'),
     h('h4', {}, '1 · Vídeos de referência'), links,
     h('div', { class: 'row' }, h('button', { id: 'sv-file', onclick: () => void (async () => {
       const f = (await forge['openFile']({ title: 'Vídeo de referência', filters: [{ name: 'Vídeo', extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v'] }] })) as string | null;
@@ -706,7 +706,7 @@ async function openImportClaudeSkill(c: Ctx, onDone: (k: Skill) => void) {
   })() }, '📥 Importar');
   const bg = h('div', { class: 'modal-bg', id: 'skill-claude-modal' }, h('div', { class: 'modal pmodal' },
     h('div', { class: 'row' }, h('h3', {}, '📥 Importar skill (SKILL.md do Claude)'), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
-    h('p', { class: 'muted' }, 'A pasta inteira da skill (SKILL.md + sub-skills, referências e modelos) vira um plugin; o FilmForge cria uma skill ligada a ele — cada etapa aponta para a sub-skill certa (roteiro, gancho, thumbnail, SEO…) — e uma rota própria, cópia da rota-base escolhida, para você ajustar.'),
+    h('p', { class: 'muted' }, 'A pasta inteira da skill (SKILL.md + sub-skills, referências e modelos) vira um plugin; o Dark Automate cria uma skill ligada a ele — cada etapa aponta para a sub-skill certa (roteiro, gancho, thumbnail, SEO…) — e uma rota própria, cópia da rota-base escolhida, para você ajustar.'),
     h('div', { class: 'row' }, src, pickFile, pickDir),
     h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Rota-base (será copiada)', route), h('label', {}, 'Idioma dos vídeos', lang), name),
     h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Refinar as instruções por etapa com IA (opcional)', harness)),
@@ -752,7 +752,7 @@ async function openSkillFromDoc(c: Ctx, onDone: (k: Skill) => void) {
   })() }, '📄 Criar a skill');
   const bg = h('div', { class: 'modal-bg', id: 'skill-doc-modal' }, h('div', { class: 'modal pmodal' },
     h('div', { class: 'row' }, h('h3', {}, '📄 Skill a partir de documento'), h('span', { class: 'sp' }), h('button', { onclick: () => { void forge['skillFromVideosCancel']().catch(() => {}); close(); } }, '✕')),
-    h('p', { class: 'muted' }, 'Converte um documento com os prompts e regras de um canal (temas, roteiro, ritmo, thumbnails, SEO) numa skill do FilmForge, preservando as regras concretas. Use a rota "Animação 2D cinematográfica (motor do plugin)" para produzir com o motor de um plugin.'),
+    h('p', { class: 'muted' }, 'Converte um documento com os prompts e regras de um canal (temas, roteiro, ritmo, thumbnails, SEO) numa skill do Dark Automate, preservando as regras concretas. Use a rota "Animação 2D cinematográfica (motor do plugin)" para produzir com o motor de um plugin.'),
     h('div', { class: 'row' }, h('button', { id: 'sd-pick', onclick: () => void (async () => { const f = (await forge['openFile']({ title: 'Documento de prompts', filters: [{ name: 'Documento', extensions: ['docx', 'md', 'txt'] }] })) as string | null; if (f) { file = f; fileLbl.textContent = '📄 ' + f.split(/[\\/]/).pop(); } })() }, '📂 Escolher documento'), fileLbl),
     h('div', { class: 'row' }, h('label', {}, 'Quem escreve', harness), modelBox, h('label', {}, 'Idioma dos vídeos', lang)),
     h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Rota', route), name),
@@ -1104,7 +1104,7 @@ export async function renderSettings(c: Ctx, reload = true) {
     const plugins = (await forge['listPlugins']()) as PluginInfo[];
     const urlIn = h('input', { placeholder: 'https://github.com/dono/repo (ou dono/repo)', class: 'grow' }) as HTMLInputElement;
     body.append(h('h3', {}, 'Plugins (formato Claude)'),
-      h('p', { class: 'muted' }, 'Um plugin é uma pasta com .claude-plugin/plugin.json e, opcionalmente, skills/, commands/, agents/, hooks/ e .mcp.json. O FilmForge não executa o plugin: ele injeta as instruções no prompt de todas as etapas (além do "use [plugin]"), então funciona com qualquer provedor. Nos projetos, os plugins são opcionais.'),
+      h('p', { class: 'muted' }, 'Um plugin é uma pasta com .claude-plugin/plugin.json e, opcionalmente, skills/, commands/, agents/, hooks/ e .mcp.json. O Dark Automate não executa o plugin: ele injeta as instruções no prompt de todas as etapas (além do "use [plugin]"), então funciona com qualquer provedor. Nos projetos, os plugins são opcionais.'),
       h('div', { class: 'row' },
         h('button', { class: 'primary', id: 'plugin-install-dir', onclick: () => void guard(async () => {
           const k = (await forge['installPluginFolder']()) as PluginInfo | null;
@@ -1156,8 +1156,8 @@ export async function renderSettings(c: Ctx, reload = true) {
       httpState.textContent = 'parado';
     };
     body.append(
-      h('h3', {}, 'FilmForge como servidor MCP'),
-      h('p', { class: 'muted' }, 'O FilmForge fala MCP padrão em dois transportes: stdio (Claude Desktop, Claude Code, Cursor, OpenCode, VS Code, LM Studio) e Streamable HTTP/SSE (ChatGPT, Claude remoto e qualquer cliente por URL). O servidor expõe projetos, criação, execução, status, cenas, logs, rotas, skills, provedores, plugins e recursos.'),
+      h('h3', {}, 'Dark Automate como servidor MCP'),
+      h('p', { class: 'muted' }, 'O Dark Automate fala MCP padrão em dois transportes: stdio (Claude Desktop, Claude Code, Cursor, OpenCode, VS Code, LM Studio) e Streamable HTTP/SSE (ChatGPT, Claude remoto e qualquer cliente por URL). O servidor expõe projetos, criação, execução, status, cenas, logs, rotas, skills, provedores, plugins e recursos.'),
       h('div', { class: 'card' },
         h('h4', {}, 'stdio — Claude Desktop / Claude Code / Cursor / VS Code'),
         h('div', { class: 'row' }, h('strong', {}, 'Comando'), h('span', { class: 'muted' }, `${info.command} --mcp`),
@@ -1178,7 +1178,7 @@ export async function renderSettings(c: Ctx, reload = true) {
           h('button', { onclick: () => void guard(async () => { await forge['copyText'](JSON.stringify({ mcpServers: { filmforge: { url: info.httpUrl, transport: 'streamable-http' } } }, null, 2)); toast('Configuração HTTP copiada'); }) }, 'Copiar configuração')),
         h('div', { class: 'muted' }, 'Também escuta SSE legado em /sse. Para o ChatGPT na nuvem, exponha esta porta por um túnel HTTPS (Cloudflare Tunnel/ngrok) e use a URL pública terminando em /mcp. Para clientes locais, use http://127.0.0.1:3333/mcp.'),
         httpConfig,
-        h('div', { class: 'muted' }, 'CLI: FilmForge.exe --mcp-http 3333 --mcp-host 127.0.0.1 (opcional: --mcp-token SEU_TOKEN). Variáveis: FILMFORGE_MCP_PORT, FILMFORGE_MCP_HOST, FILMFORGE_MCP_TOKEN.')),
+        h('div', { class: 'muted' }, 'CLI: Dark Automate.exe --mcp-http 3333 --mcp-host 127.0.0.1 (opcional: --mcp-token SEU_TOKEN). Variáveis: FILMFORGE_MCP_PORT, FILMFORGE_MCP_HOST, FILMFORGE_MCP_TOKEN.')),
       h('h3', {}, `Ferramentas expostas (${info.tools.length})`),
       h('div', { class: 'card' }, ...info.tools.map((t) => h('div', { class: 'muted' }, h('strong', {}, t.name), ' — ', t.description))),
       h('h3', {}, 'Recursos (resources)'),
@@ -1215,7 +1215,7 @@ export async function renderSettings(c: Ctx, reload = true) {
   }
 
   if (cfgTab === 'local') {
-    body.append(h('h3', {}, 'ComfyUI'), h('p', { class: 'muted' }, 'Onde o ComfyUI está rodando. Os workflows (formato API) ficam na pasta workflows/ do FilmForge.'));
+    body.append(h('h3', {}, 'ComfyUI'), h('p', { class: 'muted' }, 'Onde o ComfyUI está rodando. Os workflows (formato API) ficam na pasta workflows/ do Dark Automate.'));
     s.comfyServers.forEach((srv, i) => {
       const out = h('span', {});
       body.append(h('div', { class: 'card', 'data-comfy': srv.id },
@@ -1404,7 +1404,7 @@ export async function renderSettings(c: Ctx, reload = true) {
     const pi = (await forge['portableInfo']()) as { portable: boolean; root?: string; reason?: string; settingsFile: string; workspace: string; plugins: string; projects: string };
     const pout = h('div', { class: 'muted', id: 'cfg-portable-out' });
     body.append(h('h3', {}, '🎒 Perfil portátil'),
-      h('p', { class: 'muted' }, 'Tudo o que você cria ou altera — skills (inclusive as padrão que você personalizou), rotas, tipos, agentes, plugins, vozes, perfis de provedores e chaves de API — é gravado em disco na hora e fica permanente. Para levar para outro PC, exporte o perfil: ele vira a pasta FilmForgeData. Coloque o FilmForge portátil (.exe) ao lado dela e abre tudo igual; a letra do drive pode mudar.'),
+      h('p', { class: 'muted' }, 'Tudo o que você cria ou altera — skills (inclusive as padrão que você personalizou), rotas, tipos, agentes, plugins, vozes, perfis de provedores e chaves de API — é gravado em disco na hora e fica permanente. Para levar para outro PC, exporte o perfil: ele vira a pasta FilmForgeData. Coloque o Dark Automate portátil (.exe) ao lado dela e abre tudo igual; a letra do drive pode mudar.'),
       h('div', { class: 'card', id: 'cfg-portable' },
         h('div', { class: 'row' }, pi.portable ? h('span', { class: 'tag done' }, `✓ modo portátil (${pi.reason})`) : h('span', { class: 'tag' }, 'instalação normal')),
         h('div', { class: 'muted small' }, `Configurações e chaves de API: ${pi.settingsFile} (+ .keyring na mesma pasta — copie os dois juntos)`), h('div', { class: 'muted small' }, `Biblioteca e vozes: ${pi.workspace}`),

@@ -127,7 +127,7 @@ const T: Array<[string, string, string]> = [
   ["Extensão", "Extension", "Extensión"],
   ["Idiomas (busca em cada um e compara)", "Languages (searches each one and compares)", "Idiomas (busca en cada uno y compara)"],
   ["Cole a URL de um repositório do GitHub ou escolha uma pasta. Plugins do Claude (skills, comandos, agentes) entram como estão; coleções de prompts de estilo são convertidas para o formato Claude.", "Paste a GitHub repository URL or choose a folder. Claude plugins (skills, commands, agents) are installed as they are; style-prompt collections are converted to the Claude format.", "Pega la URL de un repositorio de GitHub o elige una carpeta. Los plugins de Claude (skills, comandos, agentes) entran tal cual; las colecciones de prompts de estilo se convierten al formato Claude."],
-  ["Recursos usados pelo FilmForge", "Resources used by FilmForge", "Recursos usados por FilmForge"],
+  ["Recursos usados pelo Dark Automate", "Resources used by Dark Automate", "Recursos usados por Dark Automate"],
   ["Exemplos que vêm no repositório", "Examples included in the repository", "Ejemplos incluidos en el repositorio"],
   ["Todos os projetos são salvos nesta pasta (uma subpasta por projeto). Ao trocar, você pode mover os projetos existentes para o novo local; os caminhos internos são atualizados.", "All projects are saved in this folder (one subfolder per project). When changing it, you can move existing projects to the new location; internal paths are updated.", "Todos los proyectos se guardan en esta carpeta (una subcarpeta por proyecto). Al cambiarla, puedes mover los proyectos existentes a la nueva ubicación; las rutas internas se actualizan."],
 ];

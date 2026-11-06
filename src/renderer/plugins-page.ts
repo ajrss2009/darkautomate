@@ -31,7 +31,7 @@ const MUSIC_LABEL: Record<string, string> = {
 
 let player: HTMLAudioElement | undefined;
 
-/** Etapas do FilmForge com nome legível (adaptação dos plugins). */
+/** Etapas do Dark Automate com nome legível (adaptação dos plugins). */
 const STEP_PT: Record<string, string> = {
   brief: '🧭 brief', ideation: '💡 ideias', script: '📝 roteiro', scene_plan: '🎬 cenas', asset_design: '🎭 elenco', image: '🖼 imagem', video: '🎥 vídeo',
   code_scene: '💻 cena por código', motion_graphics: '📊 motion', narration: '🎙 narração', music: '🎵 trilha', thumbnail: '🖼 thumbnail', metadata: '🔎 SEO/metadados', review: '✅ revisão',
@@ -55,7 +55,7 @@ export async function renderPluginsPage(c: PluginsCtx): Promise<void> {
   const audio = ((await guard(() => forge['pluginAudioStatus']())) ?? { lib: null, python: null }) as { lib: string | null; python: string | null };
   const url = h('input', { id: 'pl-url', class: 'wide', placeholder: 'https://github.com/dono/repositorio  (ou dono/repositorio)' }) as HTMLInputElement;
   const busy = h('span', { class: 'muted', id: 'pl-busy' });
-  /* instalar com IA: depois de instalar, a IA adapta o plugin ao FilmForge (o que entra em cada etapa) */
+  /* instalar com IA: depois de instalar, a IA adapta o plugin ao Dark Automate (o que entra em cada etapa) */
   const adaptAfter = h('input', { type: 'checkbox', id: 'pl-adapt-after' }) as HTMLInputElement; adaptAfter.checked = true;
   const who = await adaptPicker(c, 'pl-install');
   const install = (fn: () => Promise<(PluginInfo & { also?: string[] }) | null>) => void guard(async () => {
@@ -65,7 +65,7 @@ export async function renderPluginsPage(c: PluginsCtx): Promise<void> {
       if (p) {
         toast(`Plugin "${p.name}" instalado${p.styles?.length ? ` com ${p.styles.length} estilos` : p.items?.length ? ` (${p.items.length} skills/comandos/agentes)` : ''}${p.also?.length ? ` + ${p.also.length} outro(s) do mesmo repositório: ${p.also.join(', ')}` : ''}. Já pode marcar no Novo projeto.`);
         if (adaptAfter.checked && !p.kit && !p.styles?.length) {
-          busy.textContent = `⏳ adaptando "${p.name}" ao FilmForge…`;
+          busy.textContent = `⏳ adaptando "${p.name}" ao Dark Automate…`;
           try { const a = (await forge['adaptPlugin'](p.id, who.value())) as { summary: string }; toast(`Adaptado: ${a.summary}`); }
           catch (e) { toast(`Instalado, mas a adaptação falhou: ${(e as Error).message} — o plugin entra inteiro em todas as etapas até você adaptar.`, true); }
         }
@@ -105,17 +105,17 @@ export async function renderPluginsPage(c: PluginsCtx): Promise<void> {
         h('button', { class: 'primary', id: 'pl-install-url', onclick: () => { if (!url.value.trim()) return toast('Cole a URL do repositório.', true); install(() => forge['installPluginUrl'](url.value.trim())); } }, '⬇ Instalar do GitHub'),
         h('button', { id: 'pl-install-dir', onclick: () => install(async () => { const d = await forge['openDir']({ title: 'Pasta do plugin' }); return d ? forge['installPluginFolder'](d) : null; }) }, '📁 De uma pasta'),
         h('button', { id: 'pl-install-file', title: 'Arquivo .plugin do Claude (zip com .claude-plugin/plugin.json)', onclick: () => install(() => forge['installPluginFile']()) }, '📦 Arquivo .plugin')),
-      h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Sem adaptar, o plugin inteiro entra em todas as etapas. Adaptado, cada skill/comando entra só nas etapas em que serve, com o formato de saída traduzido e a lista do que não roda aqui.' }, adaptAfter, '🧠 Adaptar ao FilmForge depois de instalar'), who.el),
+      h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Sem adaptar, o plugin inteiro entra em todas as etapas. Adaptado, cada skill/comando entra só nas etapas em que serve, com o formato de saída traduzido e a lista do que não roda aqui.' }, adaptAfter, '🧠 Adaptar ao Dark Automate depois de instalar'), who.el),
       busy),
     audioCard,
     ...(cards.length ? cards : [h('p', { class: 'muted' }, 'Nenhum plugin instalado ainda. Experimente: https://github.com/Vincentwei1021/mg-styles-15')]));
 }
 
 const KIT_LABEL: Record<string, [string, string]> = {
-  player: ['🎬 Motor de animação próprio (player + engine)', 'Cada cena do FilmForge vira um "shot" do motor do plugin (registerShot): personagens, luz, câmera, gradação e barras saem do código testado do plugin, não reinventados pela IA.'],
+  player: ['🎬 Motor de animação próprio (player + engine)', 'Cada cena do Dark Automate vira um "shot" do motor do plugin (registerShot): personagens, luz, câmera, gradação e barras saem do código testado do plugin, não reinventados pela IA.'],
   pages: ['🎬 Biblioteca de estilos (páginas renderizadas pelo plugin)', 'Cada estilo tem STYLE.md, demo e o kit /core/lib.js. Escolha o estilo no projeto: cada cena vira uma página nesse estilo (READY/render(t)), renderizada com a biblioteca do plugin, com correção de erros e revisão visual.'],
   'node-film': ['🧩 Biblioteca de desenho (lib/*.mjs)', 'Filmes escritos para Node (film.mjs) rodam aqui no navegador. Nas cenas por código, a IA importa a biblioteca do plugin (personagens, texturas, pincel).'],
-  piece: ['🎬 Motor de animação próprio (peças montadas)', 'O plugin monta peças (piece.json + src/) num HTML único; por enquanto o FilmForge usa o motor dele para a prévia.'],
+  piece: ['🎬 Motor de animação próprio (peças montadas)', 'O plugin monta peças (piece.json + src/) num HTML único; por enquanto o Dark Automate usa o motor dele para a prévia.'],
 };
 
 function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
@@ -132,10 +132,10 @@ function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
     h('div', { class: 'col' },
       h('button', { class: 'primary', onclick: () => c.useInProject(p.id) }, '＋ Usar em novo projeto'),
       h('button', { onclick: () => void guard(async () => promptModal(p.name, (await forge['pluginPrompt']([p.id])) as string)) }, '👁 Ver o que entra no prompt'),
-      h('button', { title: 'Grava um arquivo .plugin (zip no formato do Claude) para instalar no Claude ou em outro FilmForge', onclick: () => void guard(async () => { const f = await forge['exportPluginFile'](p.id) as string | null; if (f) toast(`Plugin exportado: ${f}`); }) }, '📦 Exportar .plugin'),
+      h('button', { title: 'Grava um arquivo .plugin (zip no formato do Claude) para instalar no Claude ou em outro Dark Automate', onclick: () => void guard(async () => { const f = await forge['exportPluginFile'](p.id) as string | null; if (f) toast(`Plugin exportado: ${f}`); }) }, '📦 Exportar .plugin'),
       h('button', { class: 'danger', onclick: () => void guard(async () => { if (!await askConfirm(`Remover o plugin "${p.name}"?`)) return; await forge['removePlugin'](p.id); toast('Plugin removido.'); await renderPluginsPage(c); }) }, 'Remover')));
   const gallery = p.styles?.length ? h('div', { class: 'pl-gallery' }, ...p.styles.map((st) => styleCard(c, p, st))) : null;
-  const res = p.resources?.length ? h('div', { class: 'pl-res' }, h('strong', {}, 'Recursos usados pelo FilmForge'),
+  const res = p.resources?.length ? h('div', { class: 'pl-res' }, h('strong', {}, 'Recursos usados pelo Dark Automate'),
     ...p.resources.map((r) => h('div', { class: 'muted' }, `${r.ready ? '✓' : '✗'} ${r.label}`))) : null;
   /* plugin Claude comum: um cartão por skill/comando/agente, com a descrição do próprio plugin */
   const ICON = { skill: '🧠', command: '⌨️', agent: '🤖' } as const;
@@ -149,7 +149,7 @@ function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
   const readme = p.readme ? h('details', { class: 'pl-readme' }, h('summary', {}, '📖 Sobre (README do repositório)'), ...p.readme.split(/\n\n/).map((x) => h('p', { class: 'muted' }, x))) : null;
   const files = p.items?.filter((it) => it.files?.length).map((it) => skillFiles(it.name, it.files!)) ?? [];
   const ex = p.examples?.length ? h('div', { class: 'pl-ex' }, h('strong', {}, '🎬 Exemplos que vêm no repositório: '), ...p.examples.map((x) => h('span', { class: 'tag' }, x))) : null;
-  const req = p.requires?.length ? h('div', { class: 'muted small' }, `⚙️ O plugin declara ${p.requires.join(', ')} para o renderizador próprio dele. No FilmForge não é preciso instalar: as cenas usam o canvas do navegador (o app fornece o adaptador) e o app faz a renderização, os efeitos e a trilha.`) : null;
+  const req = p.requires?.length ? h('div', { class: 'muted small' }, `⚙️ O plugin declara ${p.requires.join(', ')} para o renderizador próprio dele. No Dark Automate não é preciso instalar: as cenas usam o canvas do navegador (o app fornece o adaptador) e o app faz a renderização, os efeitos e a trilha.`) : null;
   const kitBox = p.kit ? h('div', { class: 'pl-kit' },
     p.preview ? h('video', { class: 'pl-preview', src: c.forge.mediaUrl(p.preview), autoplay: true, loop: true, muted: true, playsinline: true, controls: true })
       : h('div', { class: 'pl-preview-empty muted' }, '🎬 Prévia ainda não gerada'),
@@ -163,7 +163,7 @@ function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
     p.source ? h('div', { class: 'muted small' }, `origem: ${p.source}`) : null);
 }
 
-/** Adaptação ao FilmForge: o que entra em cada etapa, o que não roda, e os botões adaptar/desfazer/ver por etapa. */
+/** Adaptação ao Dark Automate: o que entra em cada etapa, o que não roda, e os botões adaptar/desfazer/ver por etapa. */
 function adaptBox(c: PluginsCtx, p: PluginInfo): HTMLElement | null {
   if (p.kit || p.styles?.length || !p.items?.length) return null;
   const { forge, guard, toast } = c;
@@ -175,7 +175,7 @@ function adaptBox(c: PluginsCtx, p: PluginInfo): HTMLElement | null {
   });
   void (async () => {
     const who = await adaptPicker(c, `pl-ad-${p.id}`);
-    const go = h('button', { class: 'small primary', 'data-act': 'adapt', onclick: (e) => run(e.currentTarget as HTMLButtonElement, who.value) }, p.adaptation ? '↻ Adaptar de novo' : '🧠 Adaptar ao FilmForge');
+    const go = h('button', { class: 'small primary', 'data-act': 'adapt', onclick: (e) => run(e.currentTarget as HTMLButtonElement, who.value) }, p.adaptation ? '↻ Adaptar de novo' : '🧠 Adaptar ao Dark Automate');
     if (!p.adaptation) {
       box.replaceChildren(h('div', { class: 'row' }, h('span', { class: 'tag running' }, '⚠ não adaptado'), h('span', { class: 'muted small grow' }, 'O plugin inteiro entra em TODAS as etapas (prompts maiores, instruções fora de lugar).'), who.el, go));
       return;
@@ -183,7 +183,7 @@ function adaptBox(c: PluginsCtx, p: PluginInfo): HTMLElement | null {
     const a = p.adaptation;
     const stepSel = h('select', { class: 'small' }, ...Object.keys(a.steps).map((k) => h('option', { value: k }, STEP_PT[k] ?? k))) as HTMLSelectElement;
     box.replaceChildren(
-      h('div', { class: 'row' }, h('span', { class: 'tag done' }, '✓ adaptado ao FilmForge'), h('span', { class: 'muted small grow' }, `${a.summary} · por ${a.by} · ${new Date(a.createdAt).toLocaleDateString()}`)),
+      h('div', { class: 'row' }, h('span', { class: 'tag done' }, '✓ adaptado ao Dark Automate'), h('span', { class: 'muted small grow' }, `${a.summary} · por ${a.by} · ${new Date(a.createdAt).toLocaleDateString()}`)),
       h('div', { class: 'pl-chips' }, ...Object.entries(a.steps).map(([k, ids]) => h('span', { class: 'tag', title: ids.join('\n') }, `${STEP_PT[k] ?? k}: ${ids.length}`))),
       a.ignore.length ? h('div', { class: 'muted small' }, `🚫 não roda aqui (a IA é avisada para ignorar): ${a.ignore.join(' · ')}`) : '',
       h('div', { class: 'row' },
@@ -194,7 +194,7 @@ function adaptBox(c: PluginsCtx, p: PluginInfo): HTMLElement | null {
   return box;
 }
 
-/** Fluxo ilustrado: como o plugin entra na produção do FilmForge. */
+/** Fluxo ilustrado: como o plugin entra na produção do Dark Automate. */
 function usageFlow(p: PluginInfo): HTMLElement {
   const lib = p.items?.some((it) => it.files?.some((f) => /^lib\/.+\.m?js$/i.test(f)));
   const steps: Array<[string, string, string]> = [
@@ -203,7 +203,7 @@ function usageFlow(p: PluginInfo): HTMLElement {
     lib ? ['🧩', 'Cenas usam a biblioteca', 'Cada cena por código é uma página HTML que importa a biblioteca do plugin (lib/…) — o app fornece o adaptador do canvas.'] : ['✍️', 'Roteiro e cenas no estilo', 'Roteiro, planejamento, código e SEO seguem as regras do plugin.'],
     ['🎬', 'O app finaliza', 'Renderiza quadro a quadro, mixa narração, efeitos (window.__forge.sfx) e trilha.'],
   ];
-  return h('div', { class: 'pl-flow' }, h('strong', {}, 'Como este plugin é usado no FilmForge'),
+  return h('div', { class: 'pl-flow' }, h('strong', {}, 'Como este plugin é usado no Dark Automate'),
     h('div', { class: 'pl-flow-row' }, ...steps.flatMap(([ic, t, d], i) => [h('div', { class: 'pl-flow-step' }, h('div', { class: 'pl-ic' }, ic), h('strong', {}, t), h('div', { class: 'muted small' }, d)), i < steps.length - 1 ? h('div', { class: 'pl-arrow' }, '➜') : null])),
     lib ? h('div', { class: 'muted small' }, 'Rota indicada: uma com cenas por código (ex.: "Explicativo por código" ou "Stickman por código + efeitos e trilha programáticos").') : null);
 }
@@ -256,7 +256,7 @@ async function openStyle(c: PluginsCtx, p: PluginInfo, st: PluginStyle) {
       box,
       st.summary ? h('p', {}, st.summary) : null,
       st.sfx ? h('p', { class: 'muted' }, `🔊 Efeitos típicos: ${st.sfx}`) : null,
-      h('details', {}, h('summary', {}, 'Prompt que o FilmForge envia às etapas com este estilo'), h('pre', { class: 'pl-prompt', id: 'pl-style-prompt' }, '…')),
+      h('details', {}, h('summary', {}, 'Prompt que o Dark Automate envia às etapas com este estilo'), h('pre', { class: 'pl-prompt', id: 'pl-style-prompt' }, '…')),
       h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { onclick: close }, 'Fechar'), h('button', { class: 'primary', onclick: () => { close(); c.useInProject(p.id, st.id); } }, '＋ Usar este estilo num novo projeto'))));
   document.body.append(bg);
   void guard(async () => {

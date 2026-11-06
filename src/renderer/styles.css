@@ -4,6 +4,10 @@
 body { margin:0; height:100vh; display:grid; grid-template-columns:220px 1fr; grid-template-rows:34px 1fr; background:var(--bg); color:var(--txt); font:14px/1.45 system-ui, sans-serif; }
 aside { background:var(--panel); border-right:1px solid var(--line); padding:16px; display:flex; flex-direction:column; gap:12px; }
 aside h1 { font-size:18px; margin:0; }
+aside h1.brand { display:flex; align-items:center; gap:9px; font-size:16px; letter-spacing:.2px; white-space:nowrap; }
+aside h1.brand .brand-logo { width:30px; height:30px; flex:none; filter:drop-shadow(0 2px 6px rgba(124,92,255,.35)); }
+aside h1.brand .brand-name { font-weight:800; background:linear-gradient(90deg,var(--txt),#b9a6ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+:root[data-theme="light"] aside h1.brand .brand-name { background-image:linear-gradient(90deg,var(--txt),var(--acc)); }
 aside small { color:var(--mut); margin-top:auto; }
 nav { display:flex; flex-direction:column; gap:4px; }
 button, select, input, textarea { font:inherit; color:var(--txt); background:var(--input); border:1px solid var(--line); border-radius:8px; padding:7px 10px; }

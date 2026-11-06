@@ -45,6 +45,7 @@ import { generateSkillFromVideos, type SkillGenInput } from './skillgen';
 import { closeBrowser, flowCredits, flowDiagnose, flowGenerate } from './flow';
 import { DEFAULT_FISH_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
 import * as ops from './ops';
+import { APP_NAME } from '../shared/brand';
 import * as tle from './timeline-edit';
 import { exportForEditor } from './nle-export';
 import { LANGUAGE_KINDS, fitSceneSfx, llmJson, rewriteScenes, translateProject } from './editor';
@@ -71,6 +72,8 @@ import * as memory from './memory-integration';
 /** Barra superior sem menu e sem ícone: só os botões da janela, na cor do tema. */
 const overlayFor = (t?: string) => (t === 'light' ? { color: '#f4f5f7', symbolColor: '#111111', height: 34 } : { color: '#000000', symbolColor: '#ffffff', height: 34 });
 const bgFor = (t?: string) => (t === 'light' ? '#f4f5f7' : '#000000');
+/** ícone da janela: no app empacotado vem do próprio .exe; rodando do código-fonte, do build/icon.png */
+const appIcon = () => { const f = path.join(__dirname, '..', '..', 'build', 'icon.png'); return fs.existsSync(f) ? f : undefined; };
 
 /** Reescreve caminhos absolutos dentro de um JSON (projeto movido de pasta). */
 function rewritePaths(file: string, from: string, to: string) {
@@ -101,6 +104,10 @@ const dumpErr = (tag: string, e: unknown) => {
 process.on('uncaughtException', (e) => dumpErr('uncaught', e));
 process.on('unhandledRejection', (e) => dumpErr('rejection', e));
 
+/* nome exibido: Dark Automate. A pasta de dados continua a mesma de sempre (%APPDATA%\filmforge) — mudar o nome do
+   produto não pode trocar a pasta, senão as configurações, chaves e projetos "somem". */
+app.setName(APP_NAME);
+app.setPath('userData', path.join(app.getPath('appData'), 'filmforge'));
 /* modo portátil: decidido ANTES do app ficar pronto (userData só pode mudar aqui) */
 const normalUserData = app.getPath('userData');
 const dataRoot = resolveDataRoot({ packaged: app.isPackaged, execPath: process.execPath });
@@ -404,7 +411,7 @@ function importPortableProfile(src: string): { from: string; copied: string[] } 
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1400, height: 880, title: 'FilmForge', backgroundColor: bgFor(settings.theme),
+    width: 1400, height: 880, title: APP_NAME, icon: appIcon(), backgroundColor: bgFor(settings.theme),
     titleBarStyle: 'hidden', ...(process.platform !== 'darwin' ? { titleBarOverlay: overlayFor(settings.theme) } : {}),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -469,7 +476,7 @@ function pushActiveRuns() {
   const withTotal = runs.filter((r) => r.total);
   const frac = withTotal.length ? withTotal.reduce((a, r) => a + Math.min(1, (r.done ?? 0) / (r.total || 1)), 0) / withTotal.length : -1;
   try { win.setProgressBar(runs.length ? (frac >= 0 ? Math.max(0.02, frac) : 2) : -1, { mode: runs.length ? (frac >= 0 ? 'normal' : 'indeterminate') : 'none' }); } catch { /* sem barra de tarefas */ }
-  const title = runs.length ? `▶ ${frac >= 0 ? Math.round(frac * 100) + '% · ' : ''}${runs.length > 1 ? `${runs.length} vídeos` : runs[0]!.name} — FilmForge` : 'FilmForge';
+  const title = runs.length ? `▶ ${frac >= 0 ? Math.round(frac * 100) + '% · ' : ''}${runs.length > 1 ? `${runs.length} vídeos` : runs[0]!.name} — ${APP_NAME}` : APP_NAME;
   if (win.getTitle() !== title) win.setTitle(title);
   const sig = JSON.stringify(runs.map((r) => [r.id, r.step, r.done, r.total, r.etaMs]));
   if (sig !== lastRunsSig) { lastRunsSig = sig; win.webContents.send('run:event', { t: 'runs.active', runs }); }
@@ -884,12 +891,12 @@ function registerIpc() {
   h('channel:status', () => cloneState);
   /* clones: pacote portátil (.ffclone), importação (recria skill, rota, dobras e template) e exclusão */
   h('channel:export', async (id: string) => {
-    const r = await dialog.showSaveDialog(win!, { title: 'Exportar canal clonado', defaultPath: path.join(app.getPath('documents'), `${id}.ffclone`), filters: [{ name: 'Canal clonado do FilmForge', extensions: ['ffclone'] }] });
+    const r = await dialog.showSaveDialog(win!, { title: 'Exportar canal clonado', defaultPath: path.join(app.getPath('documents'), `${id}.ffclone`), filters: [{ name: `Canal clonado do ${APP_NAME}`, extensions: ['ffclone'] }] });
     if (r.canceled || !r.filePath) return null;
     return cloneStore(settings, app.getVersion()).exportPackage(id, r.filePath);
   });
   h('channel:import', async () => {
-    const r = await dialog.showOpenDialog(win!, { title: 'Importar canal clonado', properties: ['openFile'], filters: [{ name: 'Canal clonado do FilmForge', extensions: ['ffclone', 'zip'] }] });
+    const r = await dialog.showOpenDialog(win!, { title: 'Importar canal clonado', properties: ['openFile'], filters: [{ name: `Canal clonado do ${APP_NAME}`, extensions: ['ffclone', 'zip'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
     const c = cloneStore(settings, app.getVersion()).importPackage(r.filePaths[0]);
     /* a skill e a rota viajam dentro do clone: recria na biblioteca deste PC se não existirem */

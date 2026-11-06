@@ -152,7 +152,7 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
           ...pending.map((p) => h('div', { class: 'row' }, h('span', { class: 'grow' }, `🧬 ${p.name}`), h('span', { class: 'muted small' }, p.ready.length ? `pronto: ${p.ready.join(', ')}` : 'análise feita'),
             h('button', { class: 'small primary', 'data-resume': p.dir, onclick: () => void openCloneDialog(c, p.url, p.name, p.dir) }, '↻ Retomar')))) : null;
         const importBtn = h('div', { class: 'row' }, h('span', { class: 'muted small grow' }, `🧬 ${list.length} canal(is) clonado(s) · salvos no workspace (portáteis)`),
-          h('button', { class: 'small', id: 'vf-clone-import', title: 'Importa um .ffclone exportado de outro FilmForge (recria skill, rota, dobras e template)', onclick: () => void c.guard(async () => { const r = (await c.forge['channelImport']()) as CloneResult | null; if (r) { c.toast(`Clone importado: ${r.brand.names?.[0] ?? r.skill.name}`); paint(); } }) }, '⬆ Importar canal (.ffclone)'));
+          h('button', { class: 'small', id: 'vf-clone-import', title: 'Importa um .ffclone exportado de outro Dark Automate (recria skill, rota, dobras e template)', onclick: () => void c.guard(async () => { const r = (await c.forge['channelImport']()) as CloneResult | null; if (r) { c.toast(`Clone importado: ${r.brand.names?.[0] ?? r.skill.name}`); paint(); } }) }, '⬆ Importar canal (.ffclone)'));
         box.replaceChildren(foldCard ?? '', pend ?? '', importBtn, list.length ? h('div', { class: 'vf-chgrid' }, ...list.map((r) => h('div', { class: 'card vf-ch' },
           r.files.banner ? h('img', { class: 'vf-clone-banner', src: c.forge.mediaUrl(r.files.banner), alt: '' }) : null,
           h('div', { class: 'row' }, h('strong', { class: 'grow' }, `🧬 ${r.brand.names?.[0] ?? r.skill.name}`), r.dna ? h('span', { class: 'tag done', title: 'Clone com DNA completo (visual, câmeras, roteiro, títulos, thumbnail, idiomas)' }, 'DNA v2') : h('span', { class: 'tag' }, 'v1')),
@@ -526,7 +526,7 @@ async function openCloneReport(c: VideosCtx, r: CloneResult): Promise<void> {
     ...r.warnings.map((w) => h('div', { class: 'tag running' }, '⚠ ' + w)),
     h('div', { class: 'row actions' },
       h('span', { class: 'muted small' }, `🧠 skill "${r.skill.name}" · 🛣️ rota "${r.route.name}"`), h('span', { class: 'sp' }),
-      h('button', { title: 'Pacote .ffclone com o clone inteiro (DNA, skill, rota, dobras, imagens) para outro FilmForge', onclick: () => void c.guard(async () => { const f = (await c.forge['channelExport'](r.id)) as string | null; if (f) c.toast(`Clone exportado: ${f}`); }) }, '📦 Exportar'),
+      h('button', { title: 'Pacote .ffclone com o clone inteiro (DNA, skill, rota, dobras, imagens) para outro Dark Automate', onclick: () => void c.guard(async () => { const f = (await c.forge['channelExport'](r.id)) as string | null; if (f) c.toast(`Clone exportado: ${f}`); }) }, '📦 Exportar'),
       h('button', { onclick: () => { close(); c.openSkills(); } }, '🧠 Abrir skills'), h('button', { onclick: () => { close(); c.openRoutes(); } }, '🛣️ Abrir rotas'),
       h('button', { onclick: () => { close(); c.newProject(bendIdea(r.bends[r.chosenBend] ?? { title: brandName, angle: '', why: '' }), r.skill.id, foldAt(r.chosenBend)?.id); } }, '＋ Novo projeto'), produce)));
   document.body.append(bg);
