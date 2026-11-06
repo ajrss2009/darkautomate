@@ -145,7 +145,7 @@ export async function silenceTrim(ffmpeg: string, input: string, output: string,
 
 /** Volume padrão dos efeitos sonoros sob a narração (15%). */
 export const SFX_DEFAULT_VOLUME = 0.15;
-export interface SegmentInput { visual?: string; audio?: string; seconds: number; effects?: SceneEffects; loop?: boolean; sfx?: string; sfxVolume?: number }
+export interface SegmentInput { visual?: string; audio?: string; seconds: number; effects?: SceneEffects; loop?: boolean; sfx?: string; sfxVolume?: number; /** segundos pulados no começo do visual (vídeo), da narração e dos efeitos (corte do editor) */ trimStart?: number; /** volume da narração (1 = 100%) */ narrationVolume?: number }
 
 /** Filtros de vídeo dos efeitos da cena (Ken Burns, cor, desfoque, fade). */
 /** Filtros de cor (cena e vídeo final). */
@@ -265,17 +265,20 @@ export async function makeSegment(ffmpeg: string, seg: SegmentInput, out: string
   const af = audioFades(seg.effects, seg.seconds);
   const args: string[] = ['-y'];
   const isVideo = !!seg.visual && /\.(mp4|webm|mov|mkv|gif)$/i.test(seg.visual);
+  const ss = seg.trimStart && seg.trimStart > 0 ? ['-ss', seg.trimStart.toFixed(3)] : [];
   if (!seg.visual) args.push('-f', 'lavfi', '-i', `color=c=black:s=${w}x${h}:r=30`);
-  else if (isVideo) { if (seg.loop !== false) args.push('-stream_loop', '-1'); args.push('-i', seg.visual); }
+  else if (isVideo) { if (seg.loop !== false) args.push('-stream_loop', '-1'); args.push(...ss, '-i', seg.visual); }
   else args.push('-loop', '1', '-framerate', '30', '-i', seg.visual);
-  if (seg.audio) args.push('-i', seg.audio); else args.push('-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo');
+  if (seg.audio) args.push(...ss, '-i', seg.audio); else args.push('-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo');
+  /* volume da narração (slider do editor) */
+  const nv = Math.max(0, Math.min(2, seg.narrationVolume ?? 1)), nvf = Math.abs(nv - 1) > 0.005 ? `volume=${nv.toFixed(2)}` : '';
   /* efeitos sonoros da cena somados à narração (volume próprio, sem abaixar a voz) */
   const sfxVol = Math.max(0, Math.min(1.5, seg.sfxVolume ?? SFX_DEFAULT_VOLUME));
   const withSfx = !!seg.sfx && fs.existsSync(seg.sfx) && sfxVol > 0;
-  if (withSfx) args.push('-i', seg.sfx!);
+  if (withSfx) args.push(...ss, '-i', seg.sfx!);
   const audioArgs = withSfx
-    ? ['-filter_complex', `[1:a]aformat=channel_layouts=stereo,apad[n];[2:a]aformat=channel_layouts=stereo,volume=${sfxVol.toFixed(2)}[x];[n][x]amix=inputs=2:duration=first:normalize=0${af.length ? ',' + af.join(',') : ''}[a]`, '-map', '0:v:0', '-map', '[a]']
-    : ['-map', '0:v:0', '-map', '1:a:0', ...(af.length ? ['-af', af.join(',')] : [])];
+    ? ['-filter_complex', `[1:a]aformat=channel_layouts=stereo${nvf ? ',' + nvf : ''},apad[n];[2:a]aformat=channel_layouts=stereo,volume=${sfxVol.toFixed(2)}[x];[n][x]amix=inputs=2:duration=first:normalize=0${af.length ? ',' + af.join(',') : ''}[a]`, '-map', '0:v:0', '-map', '[a]']
+    : ['-map', '0:v:0', '-map', '1:a:0', ...((af.length || nvf) ? ['-af', [nvf, ...af].filter(Boolean).join(',')] : [])];
   args.push(...audioArgs, '-t', seg.seconds.toFixed(3), '-vf', vf,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-ar', '44100', '-ac', '2', out);
   await run(ffmpeg, args, signal);

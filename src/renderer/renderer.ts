@@ -76,6 +76,10 @@ interface Forge {
   deleteScenes(id: string, sceneIds: string[]): Promise<Project>;
   moveScene(id: string, sceneId: string, toIndex: number): Promise<Project>;
   duplicateScene(id: string, sceneId: string): Promise<Project>;
+  trimScene(id: string, sceneId: string, o: { cutStart?: number; cutEnd?: number }): Promise<Project>;
+  splitScene(id: string, sceneId: string, at: number): Promise<{ project: Project; scene: Scene }>;
+  insertClip(id: string, where: { at: 'start' | 'end' } | { at: 'before' | 'after'; sceneId: string } | { at: 'time'; time: number }, file?: string): Promise<{ project: Project; scene: Scene } | null>;
+  exportEditor(id: string, target: 'davinci' | 'capcut'): Promise<{ dir: string; main: string; notes: string[] }>;
   rewriteScenes(id: string, o: unknown): Promise<{ project: Project; result: { summary: string } }>;
   visualPrompt(id: string, o: unknown): Promise<{ project: Project }>;
   regenerate(id: string, o: unknown): Promise<{ project: Project }>;
@@ -126,6 +130,8 @@ let current: Project | undefined;
 let selected: string[] = [];          // ids de cenas selecionadas (ordem de clique)
 let anchor: string | undefined;
 let pxPerSec = 48;
+/** cursor da timeline (segundos do vídeo): onde "Dividir", "Cortar início/fim" e "Inserir no cursor" agem */
+let cursorT = 0;
 let projChecked = new Set<string>();
 /* fila do lote: ids de projetos; persiste no localStorage */
 const QKEY = 'filmforge.batchQueue';
@@ -1288,6 +1294,7 @@ function showScene(sc: Scene | undefined, autoplay = false, enter?: { kind: stri
 }
 
 function setPlayhead(t: number) {
+  cursorT = Math.max(0, t);
   const ph = $('#playhead'); if (ph) ph.style.left = `${t * pxPerSec}px`;
   const tc = $('#tc'); if (tc && current) tc.textContent = `${fmtTc(t)} / ${fmtTc(current.scenes.reduce((a, s) => a + dur(s), 0))}`;
 }
@@ -1409,34 +1416,97 @@ function openSfxDialog(p: Project, ids: string[]) {
   document.body.append(bg);
 }
 
-/** Cabeçalho da faixa de efeitos: volume (0–150%, padrão 15%) e mudo — prévia na hora, vídeo na próxima renderização. */
-function sfxHead(p: Project): HTMLElement {
-  const vol = Math.round((p.sfxVolume ?? 0.15) * 100);
-  const range = h('input', { type: 'range', min: '0', max: '150', step: '1', value: String(vol), 'data-field': 'sfx-vol', title: 'Volume dos efeitos sonoros' }) as HTMLInputElement;
-  const lbl = h('span', { class: 'mvol' }, p.sfxVolume === 0 ? 'mudo' : `${vol}%`);
-  const save = (v: number | null) => void guard(async () => { current = await forge.updateProject(p.id, { sfxVolume: v }); toast(v === 0 ? 'Efeitos sonoros no mudo. Renderize o final para aplicar.' : 'Volume dos efeitos salvo. Renderize o final para aplicar.'); renderEditor(true); });
-  range.addEventListener('input', () => { lbl.textContent = range.value === '0' ? 'mudo' : `${range.value}%`; if (preview.x) preview.x.volume = Math.min(1, Number(range.value) / 100); });
-  range.addEventListener('change', () => save(Number(range.value) / 100));
-  return h('div', { class: 'tname mhead' }, 'Efeitos sonoros (código)',
-    h('button', { class: `small mute${p.sfxVolume === 0 ? ' on' : ''}`, 'data-act': 'sfx-mute', title: p.sfxVolume === 0 ? 'Tirar do mudo' : 'Mutar os efeitos', onclick: () => save(p.sfxVolume === 0 ? 0.15 : 0) }, p.sfxVolume === 0 ? '🔇' : '🔊'),
-    range, lbl, p.sfxVolume !== undefined && p.sfxVolume !== 0.15 ? h('button', { class: 'small', title: 'Voltar a 15%', onclick: () => save(null) }, '↺') : null);
+/**
+ * Slider de volume das faixas (narração, efeitos, música): trilho preenchido até o valor, % grande e dB, marca do
+ * padrão, mudo, voltar ao padrão (↺ ou duplo clique), roda do mouse (±5%) e setas. A prévia muda na hora; o vídeo
+ * muda na próxima renderização.
+ */
+function volSlider(o: { key: 'narr' | 'sfx' | 'music'; label: string; icon: string; value: number | undefined; def: number; max: number;
+  onPreview?: (v: number) => void; onSave: (v: number | null) => Promise<void> | void; extra?: HTMLElement | null }): HTMLElement {
+  const muted = o.value === 0, pct = Math.round((o.value ?? o.def) * 100), maxPct = Math.round(o.max * 100), defPct = Math.round(o.def * 100);
+  const range = h('input', { type: 'range', min: '0', max: String(maxPct), step: '1', value: String(muted ? 0 : pct), 'data-field': `${o.key}-vol`, title: `${o.label}: arraste, use a roda do mouse ou as setas · duplo clique volta a ${defPct}%` }) as HTMLInputElement;
+  const num = h('span', { class: 'vnum' }), db = h('span', { class: 'vdb' });
+  const paint = () => {
+    const v = Number(range.value);
+    range.style.setProperty('--pct', `${(v / maxPct) * 100}%`);
+    range.style.setProperty('--def', `${(defPct / maxPct) * 100}%`);
+    range.classList.toggle('hot', v > 100);
+    num.textContent = v === 0 ? 'mudo' : `${v}%`;
+    db.textContent = v === 0 ? '−∞ dB' : `${(20 * Math.log10(v / 100)).toFixed(1).replace('.', ',')} dB`;
+  };
+  paint();
+  let saveT = 0;
+  const commit = () => { window.clearTimeout(saveT); saveT = window.setTimeout(() => void guard(async () => { await o.onSave(Number(range.value) / 100); }), 350); };
+  range.addEventListener('input', () => { paint(); o.onPreview?.(Number(range.value) / 100); });
+  range.addEventListener('change', commit);
+  range.addEventListener('dblclick', () => { range.value = String(defPct); paint(); o.onPreview?.(o.def); void guard(async () => { await o.onSave(null); }); });
+  range.addEventListener('wheel', (e) => { e.preventDefault(); range.value = String(Math.max(0, Math.min(maxPct, Number(range.value) + (e.deltaY < 0 ? 5 : -5)))); paint(); o.onPreview?.(Number(range.value) / 100); commit(); }, { passive: false });
+  return h('div', { class: `tname mhead vol-${o.key}` },
+    h('span', { class: 'vlabel' }, `${o.icon} ${o.label}`),
+    h('button', { class: `small mute${muted ? ' on' : ''}`, 'data-act': `${o.key}-mute`, title: muted ? 'Tirar do mudo' : 'Mutar', onclick: () => void guard(async () => { await o.onSave(muted ? o.def : 0); }) }, muted ? '🔇' : '🔊'),
+    h('span', { class: 'vwrap' }, range), num, db,
+    o.value !== undefined && o.value !== o.def ? h('button', { class: 'small', title: `Voltar a ${defPct}%`, onclick: () => void guard(async () => { await o.onSave(null); }) }, '↺') : null,
+    o.extra ?? null);
 }
+const volSave = (p: Project, field: 'narrationVolume' | 'sfxVolume' | 'musicVolume', what: string) => async (v: number | null) => {
+  current = await forge.updateProject(p.id, { [field]: v });
+  toast(v === 0 ? `${what} no mudo. Renderize o final para aplicar.` : `Volume ${what === 'Música' ? 'da música' : what === 'Narração' ? 'da narração' : 'dos efeitos'} salvo${v === null ? ' (padrão)' : `: ${Math.round(v * 100)}%`}. Renderize o final para aplicar.`);
+  renderEditor(true);
+};
+/** Faixa da narração: volume 0–200% (padrão 100%). */
+const narrHead = (p: Project) => volSlider({ key: 'narr', label: 'Narração', icon: '🎙️', value: p.narrationVolume, def: 1, max: 2,
+  onPreview: (v) => { if (preview.a) preview.a.volume = Math.min(1, v); }, onSave: volSave(p, 'narrationVolume', 'Narração') });
+/** Faixa de efeitos: volume 0–150% (padrão 15%). */
+const sfxHead = (p: Project) => volSlider({ key: 'sfx', label: 'Efeitos sonoros', icon: '💥', value: p.sfxVolume, def: 0.15, max: 1.5,
+  onPreview: (v) => { if (preview.x) preview.x.volume = Math.min(1, v); }, onSave: volSave(p, 'sfxVolume', 'Efeitos sonoros') });
+/** Faixa de música: volume 0–100% (padrão 15%; vídeo livre 35%). */
+const musicHead = (p: Project) => volSlider({ key: 'music', label: 'Música', icon: '🎵', value: p.musicVolume, def: p.scenes.length ? 0.15 : 0.35, max: 1,
+  onSave: volSave(p, 'musicVolume', 'Música'),
+  extra: h('button', { class: 'small', 'data-act': 'music-edit', title: 'Adicionar, trocar, gerar ou remover a trilha sonora', onclick: () => void openMusicDialog(p) }, 'trocar trilha') });
 
-/** Cabeçalho da faixa de música: volume (0–100%) e mudo — valem na próxima renderização. */
-function musicHead(p: Project): HTMLElement {
-  const def = p.scenes.length ? 0.15 : 0.35;   // vídeo livre não tem narração: a trilha é o som principal
-  const vol = Math.round((p.musicVolume ?? def) * 100);
-  const range = h('input', { type: 'range', min: '0', max: '100', step: '1', value: String(vol), 'data-field': 'music-vol', title: 'Volume da trilha' }) as HTMLInputElement;
-  const lbl = h('span', { class: 'mvol' }, p.musicVolume === 0 ? 'mudo' : `${vol}%`);
-  const save = (v: number | null) => void guard(async () => { current = await forge.updateProject(p.id, { musicVolume: v }); toast(v === 0 ? 'Música no mudo. Renderize o final para aplicar.' : 'Volume da música salvo. Renderize o final para aplicar.'); renderEditor(true); });
-  range.addEventListener('input', () => { lbl.textContent = range.value === '0' ? 'mudo' : `${range.value}%`; });
-  range.addEventListener('change', () => save(Number(range.value) / 100));
-  return h('div', { class: 'tname mhead' }, 'Música',
-    h('button', { class: `small mute${p.musicVolume === 0 ? ' on' : ''}`, 'data-act': 'music-mute', title: p.musicVolume === 0 ? 'Tirar do mudo' : 'Mutar a música', onclick: () => save(p.musicVolume === 0 ? def : 0) }, p.musicVolume === 0 ? '🔇' : '🔊'),
-    range, lbl, p.musicVolume !== undefined ? h('button', { class: 'small', title: 'Voltar ao volume padrão', onclick: () => save(null) }, '↺') : null,
-    h('button', { class: 'small', 'data-act': 'music-edit', title: 'Adicionar, trocar, gerar ou remover a trilha sonora', onclick: () => void openMusicDialog(p) }, '🎵'));
+/** Ferramentas da timeline: dividir e cortar no cursor, inserir clipe (empurra o resto), duplicar e excluir. */
+function tlTools(p: Project): HTMLElement {
+  const i = selIndex(), sc = p.scenes[i], a = sc ? sceneStart(p, i) : 0, rel = cursorT - a, len = sc ? dur(sc) : 0;
+  const inside = !!sc && rel > 0.2 && rel < len - 0.2 && selected.length === 1;
+  const act = (msg: string, fn: () => Promise<Project>) => () => void guard(async () => { stopPlay(); current = await fn(); media = await forge.projectMedia(p.id); toast(msg); renderEditor(true); });
+  const split = act('Clipe dividido no cursor.', async () => { const r = await forge.splitScene(p.id, sc!.id, rel); selected = [r.scene.id]; anchor = r.scene.id; return r.project; });
+  const cutIn = act('Início do clipe cortado — o resto da timeline foi puxado.', () => forge.trimScene(p.id, sc!.id, { cutStart: rel }));
+  const cutOut = act('Fim do clipe cortado — o resto da timeline foi puxado.', () => forge.trimScene(p.id, sc!.id, { cutEnd: len - rel }));
+  const insert = (where: Parameters<typeof forge.insertClip>[1]) => void guard(async () => {
+    menu.classList.remove('open'); stopPlay();
+    const r = await forge.insertClip(p.id, where); if (!r) return;
+    current = r.project; selected = [r.scene.id]; anchor = r.scene.id; cursorT = sceneStart(current, current.scenes.findIndex((x) => x.id === r.scene.id));
+    media = await forge.projectMedia(p.id);
+    toast(`Clipe "${r.scene.title}" inserido (${dur(r.scene).toFixed(1)} s) — o que vinha depois foi empurrado. Renderize o final para gravar.`); renderEditor(true);
+  });
+  const menu = h('div', { class: 'tl-menu' },
+    h('button', { 'data-act': 'ins-start', onclick: () => insert({ at: 'start' }) }, '⏮ No início do vídeo'),
+    h('button', { 'data-act': 'ins-cursor', onclick: () => insert({ at: 'time', time: cursorT }) }, `⌖ No cursor (${cursorT.toFixed(1).replace('.', ',')} s${inside ? ' — divide o clipe' : ''})`),
+    sc ? h('button', { 'data-act': 'ins-before', onclick: () => insert({ at: 'before', sceneId: sc.id }) }, `↤ Antes da cena ${sc.index}`) : null,
+    sc ? h('button', { 'data-act': 'ins-after', onclick: () => insert({ at: 'after', sceneId: sc.id }) }, `↦ Depois da cena ${sc.index}`) : null,
+    h('button', { 'data-act': 'ins-end', onclick: () => insert({ at: 'end' }) }, '⏭ No fim do vídeo'));
+  const insBtn = h('button', { class: 'tool', 'data-act': 'tl-insert', title: 'Inserir um vídeo ou imagem do computador: tudo o que vem depois é empurrado (ripple)', onclick: (e) => { e.stopPropagation(); menu.classList.toggle('open'); } }, '＋ Inserir clipe ▾');
+  document.addEventListener('click', () => menu.classList.remove('open'), { once: true });
+  const why = !sc ? 'Selecione um clipe' : selected.length > 1 ? 'Selecione um clipe só' : 'Clique dentro do clipe (longe das bordas) para pôr o cursor';
+  return h('div', { class: 'tl-tools', id: 'tl-tools' },
+    h('button', { class: 'tool', 'data-act': 'tl-split', disabled: !inside, title: inside ? `Dividir a cena ${sc!.index} em ${rel.toFixed(2).replace('.', ',')} s (S)` : why, onclick: split }, '✂ Dividir'),
+    h('button', { class: 'tool', 'data-act': 'tl-cut-in', disabled: !inside, title: inside ? `Cortar o início até o cursor — tira ${rel.toFixed(2).replace('.', ',')} s (Q)` : why, onclick: cutIn }, '⇤ Cortar início'),
+    h('button', { class: 'tool', 'data-act': 'tl-cut-out', disabled: !inside, title: inside ? `Cortar do cursor até o fim — tira ${(len - rel).toFixed(2).replace('.', ',')} s (W)` : why, onclick: cutOut }, 'Cortar fim ⇥'),
+    h('span', { class: 'tl-ins' }, insBtn, menu),
+    h('button', { class: 'tool', 'data-act': 'tl-dup', disabled: !sc || selected.length !== 1, title: 'Duplicar o clipe (a cópia entra logo depois e empurra o resto)', onclick: act('Clipe duplicado.', () => forge.duplicateScene(p.id, sc!.id)) }, '⧉ Duplicar'),
+    h('button', { class: 'tool danger', 'data-act': 'tl-del', disabled: !selected.length, title: 'Excluir os clipes selecionados e puxar o resto da timeline (Delete)', onclick: () => $<HTMLButtonElement>('.del-scene')?.click() }, '🗑 Excluir'),
+    h('span', { class: 'tl-cursor muted' }, `cursor ${fmtTc(cursorT)}.${String(Math.floor((cursorT % 1) * 10))}`),
+    h('span', { class: 'sp' }),
+    h('button', { class: 'tool', 'data-act': 'exp-davinci', title: 'Exporta a timeline (XML) com os clipes, a narração, os efeitos, a música e as legendas para o DaVinci Resolve', onclick: () => void exportTo(p, 'davinci') }, '⇪ DaVinci Resolve'),
+    h('button', { class: 'tool', 'data-act': 'exp-capcut', title: 'Exporta uma pasta pronta para o CapCut: clipes numerados, faixas de áudio e legendas .srt', onclick: () => void exportTo(p, 'capcut') }, '⇪ CapCut'));
 }
-
+async function exportTo(p: Project, target: 'davinci' | 'capcut') {
+  await guard(async () => {
+    busy = `Exportando para ${target === 'davinci' ? 'o DaVinci Resolve' : 'o CapCut'}…`; renderEditor(true);
+    try { const r = await forge.exportEditor(p.id, target); toast(`Exportado: ${r.dir}${r.notes.length ? ` (${r.notes.join('; ')})` : ''} — veja COMO-IMPORTAR.txt`); }
+    finally { busy = ''; renderEditor(true); }
+  });
+}
 /** Trilha sonora: escolher um arquivo, gerar por código ou remover — e aplicar no vídeo final. */
 async function openMusicDialog(p: Project) {
   const moods = (await guard(() => forge.musicMoods())) ?? [];
@@ -1657,6 +1727,7 @@ function timeline(p: Project): HTMLElement {
     const t = (e as MouseEvent).offsetX / pxPerSec; let acc = 0;
     const i = p.scenes.findIndex((s) => { acc += dur(s); return t < acc; });
     const idx = i < 0 ? p.scenes.length - 1 : i; if (idx < 0) return;
+    cursorT = Math.min(t, total);
     if (playing) void playScene(idx); else { selected = [p.scenes[idx]!.id]; anchor = selected[0]; renderEditor(true); }
   });
 
@@ -1686,7 +1757,11 @@ function timeline(p: Project): HTMLElement {
       hasFx ? h('span', { class: 'fxbadge', title: 'Esta cena tem efeitos — clique para abrir o exibidor', onclick: (e) => { e.stopPropagation(); openFxViewer(p, [sc.id], 'filter'); } }, icon('fx')) : null,
       h('div', { class: 'rz', title: 'Arraste para ajustar a duração' }));
     clip.style.left = `${x}px`; clip.style.width = `${w - 2}px`;
-    clip.addEventListener('click', (e) => selectScene(sc.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }));
+    clip.addEventListener('click', (e) => {
+      /* o clique também posiciona o cursor no ponto exato do clipe (para dividir/cortar ali) */
+      const r = clip.getBoundingClientRect(); cursorT = sceneStart(p, idx) + Math.max(0, Math.min(dur(sc), (e.clientX - r.left) / pxPerSec));
+      selectScene(sc.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+    });
     clip.addEventListener('dblclick', () => { void playScene(idx); });
     clip.addEventListener('dragstart', (e) => { e.dataTransfer?.setData('text/plain', sc.id); });
     clip.addEventListener('dragover', (e) => { e.preventDefault(); clip.classList.add('over'); });
@@ -1727,10 +1802,12 @@ function timeline(p: Project): HTMLElement {
     const m = h('div', { class: `bar m${media.music ? '' : ' empty'}`, 'data-act': 'music-bar', title: 'Clique para adicionar, trocar ou gerar a trilha sonora', onclick: () => void openMusicDialog(p) }, media.music ? '♪ ' + basename(media.music) : '+ trilha sonora');
     m.style.left = '0px'; m.style.width = `${Math.max(160, span)}px`; mTrack.append(m);
   }
-  const ph = h('div', { id: 'playhead', class: 'playhead' });
-  ph.style.left = `${sceneStart(p, selIndex()) * pxPerSec}px`;
+  const ph = h('div', { id: 'playhead', class: 'playhead' }, h('span', { class: 'ph-knob' }));
+  /* cursor: fica onde foi clicado se estiver dentro da cena selecionada; senão vai para o início dela */
+  { const a = sceneStart(p, selIndex()), b = a + (p.scenes[selIndex()] ? dur(p.scenes[selIndex()]!) : 0); if (!(cursorT >= a && cursorT <= b)) cursorT = a; }
+  ph.style.left = `${cursorT * pxPerSec}px`;
   const inner = h('div', { class: 'tl-inner' }, ruler, ...fxTracks(p),
-    h('div', { class: 'tname' }, 'Vídeo'), vTrack, h('div', { class: 'tname' }, 'Narração'), aTrack, h('div', { class: 'tname' }, 'Legendas'), sTrack, sfxHead(p), xTrack, musicHead(p), mTrack, ph);
+    h('div', { class: 'tname' }, 'Vídeo'), vTrack, narrHead(p), aTrack, h('div', { class: 'tname' }, 'Legendas'), sTrack, sfxHead(p), xTrack, musicHead(p), mTrack, ph);
   inner.style.width = `${width}px`;
   return h('div', { class: 'tl', id: 'tl' }, inner);
 }
@@ -2493,7 +2570,8 @@ function renderEditor(keepScroll = false) {
           h('p', { class: 'muted' }, p.skill?.freeform ? 'Esta skill não gera cenas: o harness executa o prompt e entrega o vídeo final, que aparece aqui.' : 'As cenas aparecem depois da etapa "Planejar cenas". Use ▶ Executar rota.'),
           h('pre', { class: 'outstyle' }, p.idea)),
         productionCard(p), voiceCard(p), attachmentsCard(p), pluginsCard(p))),
-    h('div', { class: 'tl-bar' }, h('strong', {}, 'Timeline'), h('span', { class: 'muted' }, 'clique na régua para ir a um ponto · duplo clique na cena para reproduzir · arraste para reordenar · puxe a borda para mudar a duração'), h('span', { class: 'sp' }), h('label', { class: 'inline' }, 'Zoom', zoom)),
+    h('div', { class: 'tl-bar' }, h('strong', {}, 'Timeline'), h('span', { class: 'muted' }, 'clique no clipe ou na régua para pôr o cursor · duplo clique reproduz · arraste para reordenar · puxe a borda para mudar a duração'), h('span', { class: 'sp' }), h('label', { class: 'inline' }, 'Zoom', zoom)),
+    ...(p.scenes.length ? [tlTools(p)] : []),
     timeline(p));
   main.classList.add('ed');
   if (p.scenes.length) showScene(first);
@@ -2509,6 +2587,11 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowLeft') jump(-1);
   else if (e.key === ' ') { e.preventDefault(); if (playing) stopPlay(); else void playScene(selIndex()); }
   else if (e.key === 'Delete' && selected.length) $<HTMLButtonElement>('.del-scene')?.click();
+  else if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[sqw]$/i.test(e.key)) {
+    /* atalhos da timeline: S divide, Q corta o início, W corta o fim (no cursor) */
+    const b = $<HTMLButtonElement>(`[data-act="${({ s: 'tl-split', q: 'tl-cut-in', w: 'tl-cut-out' } as Record<string, string>)[e.key.toLowerCase()]}"]`);
+    if (b && !b.disabled) { e.preventDefault(); b.click(); }
+  }
 });
 
 /* ───────── aba Execução ───────── */

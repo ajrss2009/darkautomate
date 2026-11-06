@@ -458,6 +458,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       speaker: typeof s.speaker === 'string' && s.speaker.trim() ? s.speaker.trim() : undefined,
       userMedia: typeof s.userMedia === 'string' && s.userMedia.trim() ? s.userMedia.trim() : undefined,
       clipStart: Number(s.clipStart) > 0 ? Math.round(Number(s.clipStart) * 100) / 100 : undefined,
+      trimStart: Number(s.trimStart) > 0 ? Math.round(Number(s.trimStart) * 1000) / 1000 : undefined,
       clipCrop: s.clipCrop && Number(s.clipCrop.w) > 0 && Number(s.clipCrop.h) > 0
         ? { w: Math.round(Number(s.clipCrop.w)), h: Math.round(Number(s.clipCrop.h)), x: Math.max(0, Math.round(Number(s.clipCrop.x) || 0)), y: Math.max(0, Math.round(Number(s.clipCrop.y) || 0)) }
         : undefined,

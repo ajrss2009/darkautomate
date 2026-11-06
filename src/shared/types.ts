@@ -127,6 +127,8 @@ export interface Scene {
   userMedia?: string;                  // arquivo do usuário (assets/user) usado como visual desta cena
   /** trecho do vídeo do usuário a exibir: segundo inicial no arquivo (padrão 0) */
   clipStart?: number;
+  /** corte do início feito no editor (cortar/dividir clip): segundos pulados no visual, na narração e nos efeitos da cena */
+  trimStart?: number;
   /** recorte do vídeo do usuário (pixels da fonte) — ex.: cortar a barra de tarefas/OBS do rodapé */
   clipCrop?: { w: number; h: number; x?: number; y?: number };
   sfx?: string[];
@@ -456,6 +458,8 @@ export interface Project {
   musicVolume?: number;
   /** volume dos efeitos sonoros (0–1,5); vazio = 0,15 (15%) */
   sfxVolume?: number;
+  /** volume da narração (0–2); vazio = 1 (100%) */
+  narrationVolume?: number;
   /** elenco (skills com várias vozes): personagem → voz */
   cast?: CastMember[];
   /** perfil de executores aplicado na criação (id) */

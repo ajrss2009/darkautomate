@@ -45,6 +45,8 @@ import { generateSkillFromVideos, type SkillGenInput } from './skillgen';
 import { closeBrowser, flowCredits, flowDiagnose, flowGenerate } from './flow';
 import { DEFAULT_FISH_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
 import * as ops from './ops';
+import * as tle from './timeline-edit';
+import { exportForEditor } from './nle-export';
 import { LANGUAGE_KINDS, fitSceneSfx, llmJson, rewriteScenes, translateProject } from './editor';
 import * as sfx from './sfx';
 import { STOCK_SOURCES } from '../shared/stock-sources';
@@ -1535,8 +1537,50 @@ function registerIpc() {
   });
   h('scene:delete', (id: string, sceneIds: string[]) => {
     idle(id); const p = ops.readProject(settings, id);
+    tle.rippleDeleteSegments(p, sceneIds);              // trechos de efeito da timeline puxados junto
     for (const s of sceneIds) ops.deleteScene(settings, p, s);
     ops.saveProjectFile(settings, p); return p;
+  });
+  /* ferramentas da timeline: cortar, dividir e inserir clipe (com ripple) */
+  const realLen = async (p: Project, sceneId: string) => {
+    const sc = p.scenes.find((x) => x.id === sceneId);
+    if (!sc || sc.manualDuration) return;
+    const dir = path.join(projectDirOf(settings, p.id), 'scenes', sc.id, 'audio');
+    const a = fs.existsSync(dir) ? fs.readdirSync(dir).find((x) => x.startsWith('narration.') && !x.includes('.trim')) : undefined;
+    const d = a ? await ff.duration(settings.ffprobe, path.join(dir, a)).catch(() => 0) : 0;
+    if (d > 0.2) sc.durationSec = Math.round((d + 0.15) * 1000) / 1000;
+  };
+  h('scene:trim', async (id: string, sceneId: string, o: { cutStart?: number; cutEnd?: number }) => {
+    idle(id); const p = ops.readProject(settings, id);
+    await realLen(p, sceneId); tle.trimScene(settings, p, sceneId, o); ops.saveProjectFile(settings, p); return p;
+  });
+  h('scene:split', async (id: string, sceneId: string, at: number) => {
+    idle(id); const p = ops.readProject(settings, id);
+    await realLen(p, sceneId); const b = tle.splitScene(settings, p, sceneId, at); ops.saveProjectFile(settings, p); return { project: p, scene: b };
+  });
+  h('scene:insert-clip', async (id: string, where: tle.InsertWhere, file?: string) => {
+    idle(id);
+    if (!file) {
+      const r = await dialog.showOpenDialog(win!, { title: 'Inserir clipe na timeline', properties: ['openFile'], filters: [{ name: 'Vídeo ou imagem', extensions: ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi', 'gif', 'png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
+      if (r.canceled || !r.filePaths[0]) return null;
+      file = r.filePaths[0];
+    }
+    const p = ops.readProject(settings, id);
+    if (where.at === 'time') for (const sc of p.scenes) await realLen(p, sc.id);
+    const isVideo = /\.(mp4|mov|mkv|webm|m4v|avi|gif)$/i.test(file);
+    const secs = isVideo ? await ff.duration(settings.ffprobe, file).catch(() => 0) : 4;
+    const r = tle.insertClip(settings, p, { file, seconds: secs > 0 ? secs : 4, where });
+    /* o som do próprio clipe entra como a "narração" da cena (vídeo sem áudio fica mudo) */
+    if (isVideo) {
+      const out = path.join(r.dir, 'audio', 'narration.wav'); fs.mkdirSync(path.dirname(out), { recursive: true });
+      await ff.run(settings.ffmpeg, ['-y', '-i', file, '-vn', '-ac', '2', '-ar', '44100', out]).catch(() => fs.rmSync(out, { force: true }));
+    }
+    ops.saveProjectFile(settings, p); return { project: p, scene: r.scene };
+  });
+  h('project:export-editor', async (id: string, target: 'davinci' | 'capcut') => {
+    const p = ops.readProject(settings, id);
+    const r = await exportForEditor(settings, p, target);
+    shell.showItemInFolder(r.main); return r;
   });
   h('scene:move', (id: string, sceneId: string, toIndex: number) => {
     idle(id); const p = ops.readProject(settings, id);

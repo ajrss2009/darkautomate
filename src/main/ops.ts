@@ -31,7 +31,7 @@ export function saveProjectFile(s: Settings, p: Project, o: { scenes?: boolean }
     id: x.id, title: x.title, narration: x.narration, visualIntent: x.visualIntent,
     kind: x.kind, durationSec: x.durationSec, camera: x.camera, notes: x.notes, sfx: x.sfx, sfxCues: x.sfxCues,
     searchTerms: x.searchTerms, manualDuration: x.manualDuration, effects: x.effects, variation: x.variation,
-    videoPrompt: x.videoPrompt, speaker: x.speaker, userMedia: x.userMedia, clipStart: x.clipStart, clipCrop: x.clipCrop,
+    videoPrompt: x.videoPrompt, speaker: x.speaker, userMedia: x.userMedia, clipStart: x.clipStart, clipCrop: x.clipCrop, trimStart: x.trimStart,
   })), null, 2));
 }
 
@@ -65,7 +65,7 @@ export function cleanBypass(v: unknown): ExecutorBypass | undefined {
 }
 
 export function updateProject(s: Settings, id: string, patch: Partial<Pick<Project,
-  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic'>>): Project {
+  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic'>>): Project {
   const p = readProject(s, id);
   const allowed = ['name', 'idea', 'aspect', 'targetDurationSec', 'language', 'memories', 'quality', 'videoType', 'maxProductionMin', 'sceneConcurrency', 'subtitleStyle', 'scriptStyle', 'videoStyle', 'musicStyle', 'musicMode', 'waveform', 'plugins'];
   Object.assign(p, Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && allowed.includes(k))));
@@ -75,7 +75,7 @@ export function updateProject(s: Settings, id: string, patch: Partial<Pick<Proje
   if ('channelId' in patch) { if (patch.channelId) p.channelId = patch.channelId; else delete p.channelId; }
   if ('finalEffects' in patch) { const fe = cleanFinalEffects(patch.finalEffects); if (fe) p.finalEffects = fe; else delete p.finalEffects; }
   /* volumes da montagem (null = voltar ao padrão da rota) */
-  for (const [k, max] of [['musicVolume', 1], ['sfxVolume', 1.5]] as const) if (k in patch) {
+  for (const [k, max] of [['musicVolume', 1], ['sfxVolume', 1.5], ['narrationVolume', 2]] as const) if (k in patch) {
     const v = Number((patch as Record<string, unknown>)[k]);
     if ((patch as Record<string, unknown>)[k] === null || !Number.isFinite(v)) delete p[k]; else p[k] = Math.round(Math.min(max, Math.max(0, v)) * 100) / 100;
   }

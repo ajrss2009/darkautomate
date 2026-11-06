@@ -814,7 +814,7 @@ const stockExec = (_o: ExecutorOptions): Executor => async (c) => {
   return { files };
 };
 
-function sceneVisual(sceneDir: string, kind: Scene['kind']): string | undefined {
+export function sceneVisual(sceneDir: string, kind: Scene['kind']): string | undefined {
   const order: Record<Scene['kind'], string[]> = {
     image: ['frames/frame.png', 'clips/clip.mp4', 'clips/code.mp4', 'clips/motion.mp4'],
     video: ['clips/clip.mp4', 'frames/frame.png', 'clips/code.mp4', 'clips/motion.mp4'],
@@ -856,7 +856,7 @@ export function autoMotion(s: Scene, params: Record<string, unknown>): SceneEffe
   return Object.keys(e).length ? e : undefined;
 }
 
-function sceneAudio(sceneDir: string): string | undefined {  const dir = path.join(sceneDir, 'audio');
+export function sceneAudio(sceneDir: string): string | undefined {  const dir = path.join(sceneDir, 'audio');
   if (!fs.existsSync(dir)) return undefined;
   const f = fs.readdirSync(dir).find((x) => x.startsWith('narration.') && !x.includes('.trim'));
   return f ? path.join(dir, f) : undefined;
@@ -1513,14 +1513,14 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       if (visual && /\.(mp4|webm|mov|mkv|gif)$/i.test(visual)) {
         const vd = await ff.duration(c.settings.ffprobe, visual);
         /* só repete se o clipe for realmente mais curto que a cena (evita loop de 1 frame) */
-        loop = !(vd > 0 && vd + 0.05 >= seconds);
+        loop = !(vd > 0 && vd - (s.trimStart ?? 0) + 0.05 >= seconds);
       }
       const out = path.join(segDir, `${String(s.index).padStart(3, '0')}.mp4`);
       const sfxFile = path.join(dir, 'audio', 'sfx.wav');
       const sfxOk = sfx.validWav(sfxFile);
       if (!sfxOk && fs.existsSync(sfxFile)) c.log(`aviso: ${s.id}/audio/sfx.wav inválido (vazio ou corrompido) — cena montada sem efeitos sonoros; refaça "Efeitos sonoros" nesta cena para recuperá-los`);
       const effects = autoMotion(s, params);
-      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: c.project.sfxVolume ?? SFX_DEFAULT_VOLUME }, out, c.project.aspect, c.signal);
+      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: c.project.sfxVolume ?? SFX_DEFAULT_VOLUME, trimStart: s.trimStart, narrationVolume: c.project.narrationVolume }, out, c.project.aspect, c.signal);
       segs.push({ file: out, seconds, transition: effects?.transition, transitionSec: effects?.transitionSec });
       c.log(`segmento ${s.index}/${scenes.length} ok`);
     }
