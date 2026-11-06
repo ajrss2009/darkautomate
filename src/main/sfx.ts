@@ -83,7 +83,7 @@ export async function renderSfx(ffmpeg: string, id: string, out: string, signal?
   if (!d) throw new Error(`efeito sonoro desconhecido: ${id}`);
   const src = `aevalsrc='${d.expr}':s=44100:d=${d.dur}` + (d.post ? `,${d.post}` : '') + `,afade=t=out:st=${Math.max(0, d.dur - 0.05).toFixed(3)}:d=0.05`;
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  await writeAtomic(out, (tmp) => ff.run(ffmpeg, ['-y', '-f', 'lavfi', '-i', src, '-ac', '1', '-ar', '44100', tmp], signal));
+  await writeAtomic(out, (tmp) => runSfx(ffmpeg, ['-y', '-f', 'lavfi', '-i', src, '-ac', '1', '-ar', '44100', tmp], signal));
   return d.dur;
 }
 
@@ -123,9 +123,12 @@ export async function buildSceneSfx(ffmpeg: string, cues: SfxCue[], times: numbe
     if (!validWav(f)) await renderSfx(ffmpeg, c.name, f, signal);
     files.push(f);
   }
-  const parts = cues.map((c, i) => { const ms = Math.round(times[i]! * 1000); return `[${i}:a]volume=${(c.gain ?? 1).toFixed(2)},adelay=${ms}|${ms}[a${i}]`; });
-  const mix = `${cues.map((_, i) => `[a${i}]`).join('')}amix=inputs=${cues.length}:duration=longest:normalize=0,apad,atrim=0:${seconds.toFixed(3)}[o]`;
-  await writeAtomic(out, (tmp) => ff.run(ffmpeg, ['-y', ...files.flatMap((f) => ['-i', f]), '-filter_complex', [...parts, mix].join(';'), '-map', '[o]', '-ac', '2', '-ar', '44100', tmp], signal));
+  /* cada efeito já sai do tamanho exato da cena (apad finito + atrim) e só então é misturado: o "amix → apad sem fim →
+     atrim" antigo travava o ffmpeg para sempre em algumas combinações (parava em 256 KB, ~1,5 s, no fim do efeito longo) */
+  const sec = Math.max(0.1, seconds).toFixed(3);
+  const parts = cues.map((c, i) => { const ms = Math.round(times[i]! * 1000); return `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=${(c.gain ?? 1).toFixed(2)},adelay=${ms}|${ms},apad=whole_dur=${sec},atrim=end=${sec}[a${i}]`; });
+  const mix = `${cues.map((_, i) => `[a${i}]`).join('')}amix=inputs=${cues.length}:duration=longest:normalize=0[o]`;
+  await writeAtomic(out, (tmp) => runSfx(ffmpeg, ['-y', ...files.flatMap((f) => ['-i', f]), '-filter_complex', [...parts, mix].join(';'), '-map', '[o]', '-ac', '2', '-ar', '44100', tmp], signal));
 }
 
 /** WAV utilizável: existe, passa do cabeçalho e começa com RIFF/WAVE (um ffmpeg interrompido deixa 0 bytes). */
@@ -138,6 +141,20 @@ export function validWav(f: string): boolean {
     try { fs.readSync(fd, b, 0, 12, 0); } finally { fs.closeSync(fd); }
     return b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WAVE';
   } catch { return false; }
+}
+
+/**
+ * ffmpeg dos efeitos com prazo curto (45 s cada) e uma nova tentativa: um processo travado (disco ou antivírus
+ * segurando o arquivo) não consome mais o prazo inteiro da etapa — a mixagem de uma cena leva menos de 1 s.
+ */
+async function runSfx(ffmpeg: string, args: string[], signal?: AbortSignal): Promise<unknown> {
+  let last: unknown;
+  for (let i = 0; i < 2; i++) {
+    if (signal?.aborted) throw new Error('abortado');
+    const sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000);
+    try { return await ff.run(ffmpeg, args, sig); } catch (e) { last = e; if (signal?.aborted) throw e; }
+  }
+  throw last;
 }
 
 /** Grava num temporário e só troca o arquivo final se deu certo: falha ou aborto não deixam saída parcial. */

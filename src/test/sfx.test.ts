@@ -68,6 +68,13 @@ async function main() {
   assert.equal(sfx.validWav(track), false);
   await sfx.buildSceneSfx('ffmpeg', cues, times, 4, track, path.join(ws, 'parts'));
   assert.ok(sfx.validWav(track) && sfx.validWav(path.join(ws, 'parts', `${cues[0]!.name}.wav`)), 'faixa e partes refeitas');
+  /* regressão: impacto no 0 + baque em 1,2 s numa cena de 3 s travava o ffmpeg para sempre (amix → apad → atrim) */
+  {
+    const t0 = Date.now(), hang = path.join(ws, 'hang.wav');
+    await sfx.buildSceneSfx('ffmpeg', [{ name: 'impact', word: 'colidiu' }, { name: 'thud', at: 1.2 }], [0, 1.2], 3, hang, path.join(ws, 'parts'), AbortSignal.timeout(20_000));
+    assert.ok(Math.abs((await ff.duration('ffprobe', hang)) - 3) < 0.02, 'faixa do tamanho da cena');
+    assert.ok(Date.now() - t0 < 15_000, 'sem travar');
+  }
   /* ffmpeg que falha não deixa arquivo parcial nem estraga a faixa anterior */
   const before = fs.statSync(track).size;
   await assert.rejects(sfx.buildSceneSfx('ffmpeg', [{ name: 'nao-existe', at: 0 }], [0], 4, track, path.join(ws, 'parts')));
