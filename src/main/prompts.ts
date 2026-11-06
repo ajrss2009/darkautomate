@@ -11,6 +11,7 @@ import { readWords, wordsDigest, wordsPath } from './whisper';
 import { SFX_LIBRARY, sfxCatalogText } from './sfx';
 import { RETENTION_RULES, TITLE_RULES } from './youtube-rules';
 import { cartoon3dScenePrompt, storyboardFor, storyboardPrompt } from './cartoon3d';
+import { allThumbTemplates } from './thumb-render';
 
 /** Arquivo principal que cada etapa deve produzir. */
 export function primaryFile(kind: StepKind, c: Pick<ExecContext, 'projectDir' | 'outDir' | 'sceneDir'>): string {
@@ -339,8 +340,10 @@ function sceneContext(c: ExecContext): string {
 
 export function thumbnailPrompt(c: ExecContext): string {
   const p = c.project;
-  const list = c.settings.thumbnails ?? [];
+  const list = allThumbTemplates(c.settings);
   const tpl = list.find((t) => t.id === p.thumbnailTemplate) ?? list[0];
+  /* layout visual: a imagem é só o FUNDO — o título entra depois, desenhado por código */
+  const visual = !!(p.thumbDesign ?? tpl?.design);
   const vt = getVideoType(p.videoType);
   let title = p.name;
   if (p.titleModel?.chosen) title = p.titleModel.chosen;
@@ -359,7 +362,8 @@ export function thumbnailPrompt(c: ExecContext): string {
       .replace(/on the left|on the right/gi, 'in the upper half') + ' Keep the title text inside the central safe area.';
   return base.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => ({ title, thumb_text: thumbText, style: vt?.label ?? '', idea: p.idea, aspect: p.aspect })[k] ?? '') +
     (p.skill?.steps?.['thumbnail'] ? `. ${p.skill.steps['thumbnail']}` : '') + (p.videoStyle ? `. ${p.videoStyle}` : '') +
-    '. One clear focal point (40-60% of frame, rule of thirds), max 3 words of bold text with outline, 3-color high-contrast palette, legible at 168x94 px';
+    (visual ? '. BACKGROUND ONLY: absolutely NO text, letters, numbers or logos in the image (the title is added later); one clear focal point, leave clean space for the title, 3-color high-contrast palette'
+      : '. One clear focal point (40-60% of frame, rule of thirds), max 3 words of bold text with outline, 3-color high-contrast palette, legible at 168x94 px');
 }
 
 /** Etapas de texto que não precisam de ferramentas (a revisão usa ffprobe/ffmpeg e fica de fora). */
@@ -890,7 +894,7 @@ export function buildPrompt(c: ExecContext): string {
           const w = readWords(wordsPath(path.join(c.projectDir, 'scenes', s.id)));
           return { id: s.id, title: s.title, durationSec: Math.round((s.durationSec ?? 10) * 10) / 10, narration: s.narration, visualIntent: s.visualIntent, words: w?.words.length ? wordsDigest(w, 16) : undefined };
         });
-        return head + `\nIdeia: ${p.idea}\n${fs.existsSync(path.join(c.projectDir, 'script.md')) ? `Roteiro: ${path.join(c.projectDir, 'script.md')}. ` : ''}` + storyboardPrompt(file, board, p.aspect);
+        return head + `\nIdeia: ${p.idea}\n${fs.existsSync(path.join(c.projectDir, 'script.md')) ? `Roteiro: ${path.join(c.projectDir, 'script.md')}. ` : ''}` + storyboardPrompt(file, board, p.aspect, { long: p.skill?.id === 'cartoon-3d' || (p.targetDurationSec ?? 0) >= 120 || p.scenes.length > 8 });
       }
       return head +`\nIdeia: ${p.idea}\n${fs.existsSync(path.join(c.projectDir, 'script.md')) ? `Leia ${path.join(c.projectDir, 'script.md')}. ` : ''}Defina personagens, cenários e props recorrentes com descrições visuais consistentes, em Markdown. ` +
         `OBRIGATÓRIO: uma seção "## Personagens fixos" com UMA linha por personagem no formato "- **Nome**: aparência" (em inglês, 25–45 palavras: idade, porte, pele, rosto, cabelo, roupa, acessórios, traço marcante). Essa descrição será repetida literalmente em todo prompt de imagem, então não use nada que mude entre cenas.` +

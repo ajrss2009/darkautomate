@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Project, Settings } from '../shared/types';
+import { pluginsRoot } from './plugins';
 
 /*
  * KITS DE PLUGIN — plugins do Claude que trazem o PRÓPRIO motor de animação (código testado), não só instruções:
@@ -155,7 +156,22 @@ export async function ensureLibrary(kit: KitInfo, log: (l: string) => void, sign
 /* ───────── dependências do kit (three, fontes): baixadas do registro do npm, sem npm instalado ───────── */
 
 const SKIP_DEPS = /^(playwright(-core)?|puppeteer(-core)?|@playwright\/.*)$/;
-export const kitModulesDir = (s: Settings) => path.join(s.workspace, 'plugin-deps', 'node_modules');
+/**
+ * Dependências dos plugins ficam DENTRO da pasta de plugins (`_deps/node_modules`): copiar a pasta de plugins (ou o
+ * perfil portátil, ou o pacote .ffplugins) leva tudo junto e o plugin funciona em outro computador sem baixar nada.
+ * A pasta antiga (`<workspace>/plugin-deps`) é migrada na primeira vez.
+ */
+export function kitModulesDir(s: Settings): string {
+  const mods = path.join(pluginsRoot(s), '_deps', 'node_modules');
+  const old = path.join(s.workspace, 'plugin-deps', 'node_modules');
+  try {
+    if (!fs.existsSync(mods) && fs.existsSync(old) && path.resolve(old) !== path.resolve(mods)) {
+      fs.mkdirSync(path.dirname(mods), { recursive: true });
+      fs.cpSync(old, mods, { recursive: true });
+    }
+  } catch { /* sem permissão: baixa de novo quando precisar */ }
+  return mods;
+}
 
 function sysTar(): string { const t = process.platform === 'win32' ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar'; return fs.existsSync(t) ? t : 'tar'; }
 

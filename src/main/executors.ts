@@ -32,10 +32,12 @@ import { contractProblem, smallModelBudget } from './contract';
 import { voiceAccepted } from '../shared/voices';
 import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt } from './cast';
+import { projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
+import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 
 export type RenderHtml = (html: string, out: string, o: { w: number; h: number; ffmpeg: string; duration?: number; fps?: number; log?: (l: string) => void }) => Promise<void>;
 
-export interface ExecutorOptions { workflowsDir: string; toolsDir?: string; renderHtml?: RenderHtml; kitRender?: KitRenderer }
+export interface ExecutorOptions { workflowsDir: string; toolsDir?: string; renderHtml?: RenderHtml; kitRender?: KitRenderer; /** foto de página parada (thumbnails visuais) */ snapHtml?: SnapHtml }
 
 const ensureDir = (f: string) => fs.mkdirSync(path.dirname(f), { recursive: true });
 
@@ -1788,7 +1790,30 @@ export function importedScript(c: ExecContext): ExecResult | undefined {
 export function createExecutors(o: ExecutorOptions): Record<Binding['type'], Executor> {
   /* thumbnail em qualquer formato: 16:9 no YouTube, capa 9:16 em shorts/reels (antes era ignorada fora do 16:9) */
   const all: Record<Binding['type'], Executor> = { harness: harnessExec(o), api: apiExec(o), comfyui: comfyExec(o), wan2gp: wan2gpExec(o), stock: stockExec(o), builtin: builtinExec(o), manual: manualExec(o), flow: flowExec(o) };
-  return Object.fromEntries(Object.entries(all).map(([k, ex]) => [k, async (c: ExecContext) => userFiles(c) ?? importedScript(c) ?? ex(c)])) as Record<Binding['type'], Executor>;
+  return Object.fromEntries(Object.entries(all).map(([k, ex]) => [k, async (c: ExecContext) => userFiles(c) ?? importedScript(c) ?? (c.step.kind === 'thumbnail' ? visualThumb(c, o, ex) : ex(c))])) as Record<Binding['type'], Executor>;
+}
+
+/**
+ * Thumbnail visual: com um layout (template visual, estúdio do editor ou o padrão do quadro do vídeo), o texto e o
+ * desenho são feitos por código. Gerador de imagem (ComfyUI/OpenAI/Gemini/Flow) → a imagem dele vira o fundo;
+ * "quadro do vídeo" → o fundo é um quadro do final.mp4.
+ */
+async function visualThumb(c: ExecContext, o: ExecutorOptions, ex: Executor): Promise<ExecResult> {
+  const fromFrame = c.binding.type === 'builtin' && c.binding.tool === 'frame-thumbnail';
+  const design = projectThumbDesign(c.settings, c.project) ?? (fromFrame ? THUMB_DESIGN_TEMPLATES[0]!.design : undefined);
+  if (!design || !o.snapHtml) return ex(c);
+  let bgFile: string | undefined;
+  if (!fromFrame) {
+    const r = await ex(c);
+    bgFile = r.files.find((f) => /.(png|jpe?g|webp)$/i.test(f));
+    if (!bgFile) return r;
+  } else if (!fs.existsSync(primaryFile('edit', c))) throw new Error('final.mp4 ainda não existe');
+  const out = primaryFile('thumbnail', c);
+  const tmp = out.replace(/(.w+)$/, '.design$1');
+  const r = await renderThumb({ settings: c.settings, snap: o.snapHtml, projectDir: c.projectDir, project: c.project, design, out: tmp, bgFile, signal: c.signal });
+  fs.renameSync(tmp, out);
+  c.log(`thumbnail visual "${design.layout}" (${bgFile ? 'fundo da IA' : `quadro ${r.frames.map((t) => t.toFixed(1) + 's').join(' e ')} do vídeo`}) com o texto "${r.text}"`);
+  return { files: [out] };
 }
 
 /**

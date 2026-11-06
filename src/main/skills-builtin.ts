@@ -174,6 +174,27 @@ const CARTOON_3D_SHORT: Skill = {
 };
 
 /**
+ * Cartoon 3D (vídeos longos, 3 a 10 min): a mesma biblioteca e o mesmo visual do curta (storyboard, revisão de cena,
+ * cartoon3d), com estrutura de episódio — abertura, atos com capítulos, cenários recorrentes, elenco fixo que evolui,
+ * mais cenas (≈ 1 a cada 10–19 s) e respiros entre os atos para o ritmo não cansar.
+ */
+const CARTOON_3D_LONG: Skill = {
+  id: 'cartoon-3d', name: 'Cartoon 3D (episódio longo, 2D em mundo 3D)', builtin: true, codeKit: 'cartoon3d',
+  description: 'Episódio animado de 3 a 10 minutos no visual do curta cartoon 3D: personagens 2D com contorno num mundo 3D pintado, tudo por código (Three.js local). Estrutura em atos com capítulos, cenários recorrentes e elenco fixo, storyboard de todas as cenas e revisão de cada quadro.',
+  global: 'Você faz um EPISÓDIO ANIMADO (3 a 10 min) de uma história verdadeira e surpreendente, com causa e efeito físicos (visual). Narrador único, ritmo vivo (~3 palavras/s) com respiros curtos entre os atos; frases faladas e curtas. Os fatos vêm de pesquisa, com fontes. Elenco FIXO e original (nomes, roupas e jeito iguais do começo ao fim) e 3 a 6 CENÁRIOS RECORRENTES que voltam ao longo do episódio — o espectador reconhece os lugares. Nunca descreva o que o espectador já vê.',
+  steps: {
+    script: 'Estrutura de episódio (cada bloco em uma seção "## Capítulo N — título" no script.md, com "FONTES:" no topo): 0) ABERTURA (15–25 s): o paradoxo dito como fato + a promessa do episódio ("e no fim você vai entender por que…"); 1) CAPÍTULO 1 — CENÁRIO: época, lugar, o protagonista comum com nome, o problema e os números; 2) CAPÍTULO 2 — ESCALADA: 3 a 5 batidas cada vez maiores, com personagens secundários reagindo (falas curtas citadas pelo narrador) e uma mini-virada no fim; 3) CAPÍTULO 3 — COMPLICAÇÃO: o plano que dá errado, a consequência inesperada, uma pergunta de mistério ("Mas por quê…?"); 4) CAPÍTULO 4 — A VIRADA: começa com "Veja bem," → o mecanismo real explicado com 1 ou 2 analogias do dia a dia e um número que surpreende; 5) DESFECHO: o que mudou depois, ironia final em uma frase curta (o vídeo acaba na última palavra). Cada capítulo fecha com um gancho para o próximo. Sem "inscreva-se".',
+    scene_plan: 'Todas as cenas "code" (Three.js com cartoon3d), na regra do app para vídeo em código (cenas de 10 a 19 s): um episódio de 5 min tem ≈ 20 cenas. Comece o "title" de cada cena com o capítulo ("Cap. 2 — …"). Na 1ª cena de cada capítulo, a abertura do capítulo: plano geral do cenário recorrente + letreiro grande com o nome do capítulo (até 3 palavras). Reutilize os MESMOS cenários (nomeie-os igual: "a rua do bar", "o escritório do delegado"…) e o MESMO elenco, citando os nomes no visualIntent. Em cada cena, descreva as 2 a 4 batidas que ela cobre, cada uma com enquadramento (geral, médio, close), quem está em quadro (roupa e expressão), o adereço que ilustra LITERALMENTE a frase, a luz ("day", "golden", "night", "interior") e o movimento de câmera (deslize, push-in, roll, tranco). Varie: não repita o mesmo enquadramento em cenas seguidas; alterne cenários a cada 2–4 cenas.',
+    narration: 'Narrador único, tom firme e envolvente de contador de histórias; ritmo vivo, pausa curta (0,3 s) entre os capítulos; ênfase leve nas palavras de impacto e nos números.',
+    storyboard: 'Storyboard de diretor de animação para o EPISÓDIO inteiro: elenco fixo (roupas reais da biblioteca, cada personagem inconfundível), paleta de materiais fixa e uma lista de CENÁRIOS RECORRENTES (nome, construção com a API, luz) usados pelas cenas. Depois, cada plano de cada cena nos tempos reais das palavras. Continuidade: quem sai por um lado entra pelo mesmo lado na cena seguinte; mesmo cenário = mesma posição das casas, adereços e cores. Ninguém atrás de objetos ou cortado ao meio, letreiros grandes e de frente.',
+    code_scene: 'Siga o STORYBOARD da cena (planos, tempos, posições) e o visualIntent com a biblioteca cartoon3d: monte o cenário recorrente exatamente como no storyboard, elenco 2D com as mesmas roupas e expressões fortes, o adereço da frase aparecendo no instante da palavra (TEMPOS DA NARRAÇÃO), câmera deslizando com push-in e desfoque de fundo nos closes. Na abertura de capítulo, o letreiro do capítulo entra com um push-in lento.',
+    metadata: 'Título curiosidade/paradoxo (até 60 caracteres); descrição com o resumo em 2 linhas, os CAPÍTULOS com os tempos (00:00 Abertura, … um por capítulo do roteiro), os fatos e as fontes; 10–15 tags.',
+  },
+  appearance: 'custom', routeId: 'cartoon-3d', aspect: '16:9', durationSec: 300, language: 'pt-BR', presentation: 'generated', mediaSources: [],
+  outputStyle: '🎨 Visual: o do curta cartoon 3D (personagens 2D com contorno num mundo 3D pintado, Three.js local), em 16:9.\n📚 Episódio de 3 a 10 min: abertura + 4 capítulos (cenário, escalada, complicação, virada "Veja bem,") + desfecho irônico.\n🏘 3 a 6 cenários recorrentes e elenco fixo do começo ao fim; abertura de cada capítulo com letreiro.\n🎞 Storyboard do episódio inteiro antes do código; revisão de cada quadro (bloqueados, pela metade, letreiros, cores).\n🎙 Narração única; efeitos e trilha por código.\n📦 Saída: final.mp4 + thumbnail + título, descrição com capítulos e tags (pasta "publicar").',
+};
+
+/**
  * Evolução do "Vídeo explicativo com código": com um link na ideia, o app abre a página no navegador invisível, grava a
  * rolagem e lê o conteúdo (webcapture.ts); o roteiro explica a página e as cenas mostram trechos dela com motion graphics.
  */
@@ -197,6 +218,7 @@ const LINK_EXPLAINER: Skill = {
 /** Skills especiais: vídeo livre (vazia) e o misto motion + bancos + vídeo IA. */
 const SPECIAL: Skill[] = [
   CARTOON_3D_SHORT,
+  CARTOON_3D_LONG,
   LINK_EXPLAINER,
   ...CAST_STORIES,
   { id: 'video-livre', name: 'Vídeo livre (só o seu prompt)', builtin: true, freeform: true,

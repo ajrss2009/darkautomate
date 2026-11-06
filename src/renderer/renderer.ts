@@ -4,6 +4,9 @@ import { LANGUAGES, renderRoutesLib, renderSettings, renderSkills, openSkillFrom
 import { artIcon, bindingArt, effectiveByCategory, fallbackChips, openProjectExecutorsModal, openProvidersModal, renderProvidersPage, type ProvidersChoice } from './providers-ui';
 import { renderAutomations, type AutoCtx } from './automations-ui';
 import { renderPluginsPage, type PluginsCtx } from './plugins-page';
+import { designTemplateCards, openThumbStudio, thumbPreview } from './thumb-studio';
+import { promptComposer } from './prompt-composer';
+import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 import { renderVideosPage, type VideosCtx } from './videos-page';
 import { renderChannelsPage, type ChannelsCtx } from './channels-page';
 import { voicePicker, type NarrationVoice } from './voice-picker';
@@ -80,6 +83,7 @@ interface Forge {
   splitScene(id: string, sceneId: string, at: number): Promise<{ project: Project; scene: Scene }>;
   insertClip(id: string, where: { at: 'start' | 'end' } | { at: 'before' | 'after'; sceneId: string } | { at: 'time'; time: number }, file?: string): Promise<{ project: Project; scene: Scene } | null>;
   exportEditor(id: string, target: 'davinci' | 'capcut'): Promise<{ dir: string; main: string; notes: string[] }>;
+  publishKit(id: string): Promise<{ dir: string; video: string; files: string[] }>;
   rewriteScenes(id: string, o: unknown): Promise<{ project: Project; result: { summary: string } }>;
   visualPrompt(id: string, o: unknown): Promise<{ project: Project }>;
   regenerate(id: string, o: unknown): Promise<{ project: Project }>;
@@ -664,7 +668,8 @@ async function openThumbModal(currentId: string, onPick: (id: string) => void) {
   const s = await forge.getSettings();
   const list = s.thumbnails ?? [];
   const close = () => bg.remove();
-  const preview = (t: ThumbnailTemplate) => t.preview ? h('img', { class: 'tsketch', src: forge.mediaUrl(t.preview), alt: t.name }) : thumbSketch(layoutOf(t));
+  const preview = (t: ThumbnailTemplate) => t.preview ? h('img', { class: 'tsketch', src: forge.mediaUrl(t.preview), alt: t.name })
+    : t.design ? thumbPreview(t.design, { w: 1280, h: 720, text: 'TEXTO DA THUMB' }, 200) : thumbSketch(layoutOf(t));
   const grid = h('div', { class: 'tgrid' }, ...list.map((t) => h('button', { class: `tcard${t.id === currentId ? ' sel' : ''}`, 'data-thumb': t.id, onclick: () => { onPick(t.id); close(); } },
     preview(t), h('strong', {}, t.name), h('span', { class: 'muted' }, t.prompt.slice(0, 90) + (t.prompt.length > 90 ? '…' : '')))));
   // formulário de novo template
@@ -698,6 +703,9 @@ async function openThumbModal(currentId: string, onPick: (id: string) => void) {
         h('button', { id: 'tn-open', onclick: () => { form.style.display = form.style.display === 'none' ? '' : 'none'; } }, '＋ Novo template'),
         h('button', { onclick: close, title: 'Fechar' }, '✕')),
       h('p', { class: 'muted' }, 'Escolha a composição da thumbnail (gerada só para vídeos 16:9). O modelo de imagem é o da tarefa "Thumbnail" da rota.'),
+      h('h4', {}, '🎨 Visuais (desenhados por código — funcionam sem gerador de imagem)'),
+      designTemplateCards(currentId, (id) => { onPick(id); close(); }),
+      h('h4', {}, 'Por prompt de imagem (IA)'),
       grid, form));
   document.body.append(bg);
 }
@@ -820,8 +828,9 @@ async function renderNew() {
   let thumbId = '';
   const thumbBox = h('div', { class: 'thumbpick', id: 'np-thumb' });
   const paintThumb = () => {
-    const t = (meta.thumbnails ?? []).find((x) => x.id === thumbId) ?? (meta.thumbnails ?? [])[0];
-    thumbBox.replaceChildren(t ? (t.preview ? h('img', { class: 'tsketch', src: forge.mediaUrl(t.preview), alt: t.name }) : thumbSketch(layoutOf(t))) : h('span', { class: 'muted' }, 'sem templates'),
+    const all: ThumbnailTemplate[] = [...(meta.thumbnails ?? []), ...THUMB_DESIGN_TEMPLATES];
+    const t = all.find((x) => x.id === thumbId) ?? all[0];
+    thumbBox.replaceChildren(t ? (t.preview ? h('img', { class: 'tsketch', src: forge.mediaUrl(t.preview), alt: t.name }) : t.design ? thumbPreview(t.design, { w: 1280, h: 720, text: 'TEXTO DA THUMB' }, 160) : thumbSketch(layoutOf(t))) : h('span', { class: 'muted' }, 'sem templates'),
       h('div', {}, h('strong', {}, t ? t.name : '—'), h('div', { class: 'muted' }, thumbId ? '' : '(padrão: primeiro template)')),
       h('button', { id: 'np-thumb-open', onclick: () => void openThumbModal(thumbId || t?.id || '', async (id) => { thumbId = id; meta.thumbnails = (await forge.meta()).thumbnails; paintThumb(); }) }, 'Escolher ou criar…'));
   };
@@ -1102,7 +1111,11 @@ async function renderNew() {
       h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Nome / título do vídeo', name),
         h('button', { id: 'np-titles', title: 'Títulos no padrão de um canal clonado, canal ou vídeo', onclick: () => void openTitleModal(idea.value || name.value, lang.value, (p) => { titlePick = p; (name as HTMLInputElement).value = p.title; paintTitle(); }) }, '💡 Sugerir títulos')),
       titleBox,
-      h('label', {}, ideaLbl, idea),
+      h('label', {}, ideaLbl, promptComposer({ forge: xapi() as never, toast, guard }, idea as HTMLTextAreaElement, {
+        drop: false,   // arrastar e soltar já anexa ao projeto (handler acima)
+        language: () => lang.value,
+        onFiles: (paths) => { for (const p0 of paths) if (!attachFiles.includes(p0)) attachFiles.push(p0); paintAttach(); toast(`${paths.length} arquivo(s) anexado(s) ao projeto`); },
+      })),
       h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Skill (tipo de vídeo) *', skill), h('label', { class: 'grow' }, 'Rota *', route)),
       info,
       foldBox,
@@ -2375,7 +2388,10 @@ function inspector(p: Project): HTMLElement {
 
   const aiRow = h('div', { class: 'card' },
     h('div', { class: 'muted' }, ids.length ? `Prompt aplicado a ${ids.length} cena(s) selecionada(s)` : 'Selecione cenas (ou será aplicado a todas)'),
-    instr,
+    promptComposer({ forge: xapi() as never, toast, guard }, instr as HTMLTextAreaElement, {
+      mention: true, language: () => p.language,
+      onFiles: async (paths) => { current = await forge.attach(p.id, { paths }) as Project; toast(`${paths.length} arquivo(s) anexado(s) ao projeto — cite no pedido o que fazer com eles`); },
+    }),
     h('div', { class: 'row' },
       h('label', { class: 'inline' }, regen, 'regenerar mídia depois'), h('label', { class: 'inline' }, struct, 'permitir criar/apagar cenas')),
     h('div', { class: 'row' },
@@ -2525,6 +2541,8 @@ function renderEditor(keepScroll = false) {
         try { const r = await forge.renderFinal(p.id); if (!r.ok) toast(r.error ?? 'falhou', true); else toast('Vídeo final renderizado'); }
         finally { busy = ''; current = await forge.getProject(p.id); media = await forge.projectMedia(p.id); renderEditor(true); }
       }) }, '🎬 Renderizar final') : null,
+      media.final ? h('button', { id: 'btn-thumb-studio', title: 'Estúdio de thumbnail: layout visual, texto, cores, quadro do vídeo e foco, com prévia ao vivo', onclick: () => void openThumbStudio({ forge: xapi() as never, toast, guard }, p, () => void guard(async () => { media = await forge.projectMedia(p.id); renderEditor(true); })) }, '🎨 Thumbnail') : null,
+      media.final ? h('button', { id: 'btn-publish', title: 'Abre a pasta out/publicar: o vídeo com o título sugestivo, a thumbnail, titulo.txt, descricao.txt (com capítulos), tags.txt e legendas — pronto para subir', onclick: () => void guard(async () => { const k = await forge.publishKit(p.id); toast(`Pronto para publicar: ${k.files.length} arquivos em out/publicar`); }) }, '📦 Publicar') : null,
       media.final ? h('button', { id: 'btn-youtube', title: 'Enviar o vídeo final ao YouTube como NÃO LISTADO, com título, descrição e thumbnail do SEO (conta Google das Automações)', onclick: () => void openUploadDialog(p) }, '⬆ YouTube') : null,
       runningIds.has(p.id)
         ? h('button', { class: 'danger', id: 'btn-stop', title: 'Parar agora — o que já foi gerado fica salvo e pode ser retomado', onclick: () => void guard(async () => { await forge.cancel(p.id); toast('Parando… o que já foi gerado fica salvo'); }) }, '⏹ Parar')

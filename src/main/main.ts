@@ -26,17 +26,18 @@ import { detectHarnessAsync, listHarnessModels, runHarness } from './harness';
 import { spawn, spawnSync } from 'node:child_process';
 import * as prov from './providers';
 import { testSource } from './stock';
-import { SCENE_SCHEME, registerSceneProtocol, renderHtml, kitHost, renderKitFrames } from './render';
+import { SCENE_SCHEME, registerSceneProtocol, renderHtml, snapHtml, kitHost, renderKitFrames } from './render';
 import { ensureLinkCapture as captureLink } from './webcapture';
 import { detectKit, ensureLibrary, kitPreview, previewFile, projectKit } from './kit';
 import { kitRerender } from './kit-exec';
 import { generateSkillFromDoc, type SkillDocInput } from './skilldoc';
 import { TOOL_SPECS } from './tools';
-import { exportPluginFile, installPluginFile, installPluginFolder, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
+import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginFile, installPluginFolder, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
 import { DEFAULT_HARNESSES } from './harness';
 import { isHttpHarness, resolveHarnessCommand } from './harness';
 import { ensureWhisper, whisperVenvPython } from './whisper-install';
+import { transcribe } from './whisper';
 import { ComfyClient } from './comfyui';
 import { ROUTES, VIDEO_TYPES } from './presets';
 import { CATEGORY_OF, allProfiles, downstreamSteps, profileSkips } from '../shared/profiles';
@@ -48,6 +49,9 @@ import * as ops from './ops';
 import { APP_NAME } from '../shared/brand';
 import * as tle from './timeline-edit';
 import { exportForEditor } from './nle-export';
+import { writePublishKit } from './publish-kit';
+import { autoFrameTime, bestFrameTime, grabFrame, projectThumbDesign, renderThumb, thumbSize, thumbText } from './thumb-render';
+import type { ThumbDesign } from '../shared/thumbdesign';
 import { LANGUAGE_KINDS, fitSceneSfx, llmJson, rewriteScenes, translateProject } from './editor';
 import * as sfx from './sfx';
 import { STOCK_SOURCES } from '../shared/stock-sources';
@@ -605,7 +609,7 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
   const t0 = Date.now();
   let res: { ok: boolean; error?: string } = { ok: false };
   try {
-    const deps = { settings, emit: emitEvent, executors: createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, kitRender: { host: kitHost, frames: renderKitFrames } }) };
+    const deps = { settings, emit: emitEvent, executors: createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }) };
     /* skill de link: abre a página da ideia no navegador invisível, lê o conteúdo e grava a rolagem (anexos web/) */
     if (project.skill?.linkCapture) {
       try {
@@ -639,7 +643,17 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
     running.delete(id);
     persistLog();
     try { recordRun(settings, id, t0, Date.now(), res.ok); await ensureFirstFrame(settings, id); } catch { /* não bloqueia */ }
+    /* pasta "publicar": vídeo com título sugestivo, thumbnail, título, descrição, tags e capítulos */
+    if (res.ok) try { await publishKit(id); } catch (e) { emitEvent({ t: 'log', projectId: id, line: `aviso: pasta de publicação não gerada (${(e as Error).message.slice(0, 160)})` } as EngineEvent); }
   }
+}
+
+async function publishKit(id: string) {
+  const dir = projectDirOf(settings, id), final = path.join(dir, 'out', 'final.mp4');
+  const secs = fs.existsSync(final) ? await ff.duration(settings.ffprobe, final).catch(() => 0) : 0;
+  const r = writePublishKit(dir, ops.readProject(settings, id), secs || undefined);
+  if (r) send({ t: 'log', projectId: id, line: `📦 pronto para publicar: ${path.relative(dir, r.video)} + thumbnail, título, descrição e tags (out/publicar)` } as EngineEvent);
+  return r;
 }
 
 /** Faixa de efeitos da cena como artefato (a prévia do editor toca junto com a narração). */
@@ -825,6 +839,17 @@ function registerIpc() {
     return withPreview(installPluginFile(settings, r.filePaths[0]));
   });
   h('plugins:open-folder', () => { const d = pluginsRoot(settings); fs.mkdirSync(d, { recursive: true }); return shell.openPath(d); });
+  /* pacote portátil com TODOS os plugins + dependências (.ffplugins): leva os plugins para outro computador */
+  h('plugins:export-pack', async () => {
+    const r = await dialog.showSaveDialog(win!, { title: 'Exportar todos os plugins (portátil)', defaultPath: path.join(app.getPath('documents'), `plugins-${new Date().toISOString().slice(0, 10)}.ffplugins`), filters: [{ name: 'Pacote de plugins', extensions: ['ffplugins'] }] });
+    if (r.canceled || !r.filePath) return null;
+    const out = exportPluginsPack(settings, r.filePath); shell.showItemInFolder(out.file); return out;
+  });
+  h('plugins:import-pack', async () => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Importar pacote de plugins', properties: ['openFile'], filters: [{ name: 'Pacote de plugins', extensions: ['ffplugins', 'zip'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return importPluginsPack(settings, r.filePaths[0]);
+  });
   /** Auditoria: incoerências entre skills, rotas, workflows, provedores, vozes e contas. */
   h('library:audit', (includeBuiltin = true) => auditLibrary(settings, workflowsDir(), { includeBuiltin }));
   /** Botão "⬆ YouTube" do editor: envia out/final.mp4 (padrão: não listado) pela conta Google das Automações. */
@@ -1436,7 +1461,7 @@ function registerIpc() {
     return out;
   });
   /** Ouvir a voz da narração no idioma do projeto (mesmo executor da etapa; resultado em cache). */
-  h('voice:preview', (i: VoicePreviewInput) => voicePreview(settings, createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, kitRender: { host: kitHost, frames: renderKitFrames } }), i,
+  h('voice:preview', (i: VoicePreviewInput) => voicePreview(settings, createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }), i,
     (line) => send({ t: 'log', line: `prévia de voz: ${line}` } as EngineEvent)));
   /** Efeitos pedidos (ou escolhidos pela IA) sincronizados com o que acontece no visual; regera a faixa das cenas. */
   h('sfx:fit', async (id: string, sceneIds: string[], o: { names?: string[] } = {}) => {
@@ -1583,6 +1608,59 @@ function registerIpc() {
       await ff.run(settings.ffmpeg, ['-y', '-i', file, '-vn', '-ac', '2', '-ar', '44100', out]).catch(() => fs.rmSync(out, { force: true }));
     }
     ops.saveProjectFile(settings, p); return { project: p, scene: r.scene };
+  });
+  /* área de prompt: voz gravada → texto (Whisper, no PC) e imagem colada → arquivo temporário para anexar */
+  h('prompt:transcribe', async (bytes: Uint8Array, ext: string, language?: string) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-voice-'));
+    try {
+      const src = path.join(dir, `voz.${/^(webm|ogg|wav|mp3|m4a)$/.test(ext) ? ext : 'webm'}`), wav = path.join(dir, 'voz.wav'), out = path.join(dir, 'voz.words.json');
+      fs.writeFileSync(src, Buffer.from(bytes));
+      await ff.run(settings.ffmpeg, ['-y', '-i', src, '-ac', '1', '-ar', '16000', wav]);
+      const script = path.join(toolsDir(), 'whisper_words.py'), lang = language?.trim().slice(0, 2).toLowerCase() || undefined;
+      let cfg = settings.whisper ?? { python: 'python', model: 'small', device: 'auto' };
+      let w;
+      try { w = await transcribe(cfg, script, wav, out, lang, AbortSignal.timeout(600_000)); }
+      catch (e) {
+        if (cfg.autoInstall === false || !/faster-whisper|No module|ModuleNotFound|não foi possível executar|ENOENT|python/i.test((e as Error).message)) throw e;
+        const inst = await ensureWhisper(settings, { log: (l) => send({ t: 'log', line: `whisper: ${l}` }) });
+        cfg = { ...cfg, python: inst.python, device: 'cpu' };
+        w = await transcribe(cfg, script, wav, out, lang, AbortSignal.timeout(600_000));
+      }
+      return { text: (w.text?.trim() || w.words.map((x) => x.w).join(' ')).replace(/\s+/g, ' ').trim() };
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  h('prompt:save-blob', (bytes: Uint8Array, name: string) => {
+    const dir = path.join(os.tmpdir(), 'forge-paste'); fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, path.basename(name).replace(/[^\w.\-]/g, '_') || `colado-${Date.now()}.png`);
+    fs.writeFileSync(f, Buffer.from(bytes)); return f;
+  });
+  /* estúdio de thumbnail: quadros do vídeo, texto do SEO e o desenho atual; aplica o layout e grava out/thumbnail.png */
+  h('thumb:info', async (id: string) => {
+    const p = ops.readProject(settings, id), dir = projectDirOf(settings, id), final = path.join(dir, 'out', 'final.mp4');
+    const duration = fs.existsSync(final) ? await ff.duration(settings.ffprobe, final).catch(() => 0) : 0;
+    const design = projectThumbDesign(settings, p);
+    const autoTime = duration ? await bestFrameTime(settings.ffmpeg, final, p, duration, path.join(dir, 'out', 'thumb-work')).catch(() => autoFrameTime(p, duration)) : 0;
+    return { duration, autoTime, text: thumbText(dir, p, design?.text ? undefined : design), design, size: thumbSize(p.aspect),
+      current: ['thumbnail.png', 'thumbnail.jpg'].map((f) => path.join(dir, 'out', f)).find((f) => fs.existsSync(f)) };
+  });
+  h('thumb:frame', async (id: string, t: number) => {
+    const dir = projectDirOf(settings, id), final = path.join(dir, 'out', 'final.mp4');
+    if (!fs.existsSync(final)) throw new Error('ainda não há vídeo final para tirar o quadro');
+    return grabFrame(settings.ffmpeg, final, t, path.join(dir, 'out', 'thumb-work', `f-${Math.round(Math.max(0, t) * 10)}.jpg`));
+  });
+  h('thumb:render', async (id: string, design: ThumbDesign) => {
+    idle(id);
+    const p = ops.readProject(settings, id), dir = projectDirOf(settings, id);
+    p.thumbDesign = design; ops.saveProjectFile(settings, p, { scenes: false });
+    const out = path.join(dir, 'out', 'thumbnail.png');
+    const r = await renderThumb({ settings, snap: snapHtml, projectDir: dir, project: p, design, out });
+    if (fs.existsSync(path.join(dir, 'out', 'publicar'))) await publishKit(id).catch(() => undefined);   // a pasta de publicação leva a capa nova
+    return r;
+  });
+  h('project:publish-kit', async (id: string) => {
+    const r = await publishKit(id);
+    if (!r) throw new Error('ainda não há vídeo final (out/final.mp4): renderize o final primeiro');
+    shell.showItemInFolder(r.video); return r;
   });
   h('project:export-editor', async (id: string, target: 'davinci' | 'capcut') => {
     const p = ops.readProject(settings, id);

@@ -97,7 +97,16 @@ export async function renderPluginsPage(c: PluginsCtx): Promise<void> {
 
   const cards = plugins.map((p) => pluginCard(c, p));
   main.replaceChildren(
-    h('div', { class: 'row' }, h('h2', {}, '🧩 Plugins'), h('span', { class: 'sp' }), h('button', { onclick: () => void forge['openPluginsFolder']() }, 'Abrir pasta dos plugins')),
+    h('div', { class: 'row' }, h('h2', {}, '🧩 Plugins'), h('span', { class: 'sp' }),
+      h('button', { id: 'pl-pack-export', title: 'Grava um pacote .ffplugins com TODOS os plugins instalados e as dependências deles — leve para outro computador e importe lá (funciona sem baixar nada)', onclick: () => void c.guard(async () => {
+        const r = await forge['exportPluginsPack']() as { file: string; plugins: string[] } | null;
+        if (r) c.toast(`${r.plugins.length} plugin(s) exportado(s) com as dependências: ${r.file}`);
+      }) }, '📤 Exportar todos (portátil)'),
+      h('button', { id: 'pl-pack-import', title: 'Importa um pacote .ffplugins exportado de outro computador', onclick: () => void c.guard(async () => {
+        const r = await forge['importPluginsPack']() as string[] | null;
+        if (r) { c.toast(`Importado(s): ${r.join(', ')}`); await renderPluginsPage(c); }
+      }) }, '📥 Importar pacote'),
+      h('button', { onclick: () => void forge['openPluginsFolder']() }, 'Abrir pasta dos plugins')),
     steps,
     h('div', { class: 'card' },
       h('div', { class: 'muted small' }, 'Aceita: repositório inteiro (instala todos os plugins que ele tiver), uma subpasta (…/tree/main/plugins/nome) ou dono/repositorio. Instalar de novo = atualizar.'),

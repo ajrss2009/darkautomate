@@ -218,6 +218,25 @@ export const sceneUrl = (file: string) => 'forge-scene://scene/' + path.resolve(
  *  - congela o loop de pré-visualização (pause() e/ou desliga requestAnimationFrame);
  *  - captura exatamente round(duração × fps) quadros, um por 1/fps.
  */
+/** Foto (PNG, sem perda) de uma página parada — thumbnails visuais. Espera o window.__forge.seek(0) (imagens e fontes). */
+export async function snapHtml(htmlFile: string, out: string, o: { w: number; h: number }): Promise<void> {
+  const win = new BrowserWindow({
+    show: false, width: o.w, height: o.h, useContentSize: true, enableLargerThanScreen: true,
+    webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, partition: RENDER_PARTITION },
+  });
+  try {
+    renderSession();
+    win.setContentSize(o.w, o.h);
+    await win.loadURL(sceneUrl(htmlFile));
+    await win.webContents.executeJavaScript(`(async()=>{try{await (window.__forge&&window.__forge.seek&&window.__forge.seek(0))}catch(e){};await new Promise(r=>setTimeout(r,200));return true})()`);
+    let img = await win.webContents.capturePage({ x: 0, y: 0, width: o.w, height: o.h });
+    const sz = img.getSize();
+    if (sz.width !== o.w || sz.height !== o.h) img = img.resize({ width: o.w, height: o.h, quality: 'best' });
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, img.toPNG());
+  } finally { win.destroy(); }
+}
+
 export const renderHtml: RenderHtml = async (htmlFile, out, { w, h, ffmpeg, duration, fps: fpsOpt, log }) => {
   const win = new BrowserWindow({
     show: false, width: w, height: h, useContentSize: true, enableLargerThanScreen: true,  // sem isso: faixas pretas (janela limitada à área útil da tela)

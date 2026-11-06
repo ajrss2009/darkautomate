@@ -297,6 +297,21 @@ export const ROUTES: Route[] = [
     ],
   },
   {
+    id: 'cartoon-3d', name: 'Cartoon 3D — episódio longo (personagens 2D em mundo 3D, Three.js local)',
+    description: 'Episódio de 3 a 10 min: roteiro em capítulos → cenas (≈ 1 a cada 10–19 s) → narração → tempos das palavras → storyboard do episódio inteiro (elenco, paleta e cenários recorrentes) → cada cena em Three.js com a biblioteca cartoon3d + revisão de cena → efeitos e trilha por código → montagem. Sem IA de imagem ou vídeo.',
+    videoTypes: ['cartoon_3d', 'custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro do episódio (capítulos)', scope: 'project', bindings: textChain, timeoutSec: 1200 }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas (por capítulo)', scope: 'project', dependsOn: ['script'], bindings: textChain, timeoutSec: 1200 }),
+      step({ id: 'narration', kind: 'narration', label: 'Narração (TTS)', scope: 'scene', dependsOn: ['scene_plan'], bindings: ttsChain, concurrency: 2 }),
+      transcribeStep(),
+      step({ id: 'storyboard', kind: 'asset_design', label: 'Storyboard do episódio (planos, elenco, cenários)', scope: 'project', dependsOn: ['scene_plan', 'transcribe'], bindings: textChain, timeoutSec: 2400 }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena cartoon 3D (Three.js + cartoon3d) + revisão de cena', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'storyboard'], bindings: textChain, timeoutSec: 1800 }),
+      sfxStep(false, ['code_scene']),
+      ...tail(['narration', 'code_scene', 'sfx'], {}, codeMusicChain).map((st) => st.kind === 'thumbnail' ? ({ ...st, bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] } as RouteStep) : st),
+    ],
+  },
+  {
     id: 'lyric-video', name: 'Lyric video (canção → letra sincronizada)',
     description: 'Roteiro com a letra → canção no Yue 2 com essa letra → tempos de cada verso (Whisper) → uma cena de tipografia por código por bloco da letra → montagem com a canção em volume cheio e legendas da letra.',
     videoTypes: ['music_lyric'],

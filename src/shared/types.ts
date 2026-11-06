@@ -470,6 +470,8 @@ export interface Project {
   presentation?: 'generated' | 'mixed';
   mediaSources?: StockSource[];
   thumbnailTemplate?: string;          // id do template de thumbnail
+  /** thumbnail desenhada no estúdio do editor (vence o design do template) */
+  thumbDesign?: import('./thumbdesign').ThumbDesign;
   production?: { totalMs: number; runs: ProductionRun[] };
   /** variação criada a partir de outro projeto (Derivar) */
   derivedFrom?: { id: string; name: string; keep: 'idea' | 'script'; at: string };
@@ -529,7 +531,9 @@ export interface StockConfig {
   clipSeconds?: number; ccOnly?: boolean; noSubtitles?: boolean; noWatermark?: boolean; noTransitions?: boolean;
 }
 export interface WhisperConfig { python: string; model: string; device: string; autoInstall?: boolean }
-export interface ThumbnailTemplate { id: string; name: string; prompt: string; layout?: 'impacto' | 'explicativo' | 'documentario' | 'minimal' | 'split'; preview?: string }
+export interface ThumbnailTemplate { id: string; name: string; prompt: string; layout?: 'impacto' | 'explicativo' | 'documentario' | 'minimal' | 'split'; preview?: string;
+  /** layout visual desenhado por código por cima do quadro do vídeo (ou da imagem da IA) — shared/thumbdesign.ts */
+  design?: import('./thumbdesign').ThumbDesign }
 
 export interface Settings {
   workspace: string;

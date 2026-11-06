@@ -538,6 +538,48 @@ export function exportPluginFile(s: Settings, id: string, outFile: string): stri
   return outFile;
 }
 
+/**
+ * Pacote PORTÁTIL de plugins (.ffplugins = zip): todos os plugins instalados + as dependências deles (_deps), com as
+ * adaptações e estilos. Importado em outro computador, os plugins funcionam sem baixar nada (mesmo Windows x64).
+ */
+export function exportPluginsPack(s: Settings, outFile: string): { file: string; plugins: string[] } {
+  const root = pluginsRoot(s);
+  if (!fs.existsSync(root)) throw new Error('nenhum plugin instalado');
+  const entries = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory() && (SAFE.test(e.name) || e.name === '_deps')).map((e) => e.name);
+  const plugins = entries.filter((e) => e !== '_deps');
+  if (!plugins.length) throw new Error('nenhum plugin instalado');
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  fs.rmSync(outFile, { force: true });
+  let r = run(sysTar(), ['--format', 'zip', '--exclude', '.git', '-cf', outFile, '-C', root, ...entries]);
+  if (!r.ok && process.platform === 'win32') {
+    const tmpZip = outFile.replace(/\.ffplugins$/i, '') + '.tmp.zip';
+    r = run('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path ${entries.map((e) => `'${path.join(root, e).replace(/'/g, "''")}'`).join(',')} -DestinationPath '${tmpZip.replace(/'/g, "''")}' -Force`]);
+    if (r.ok) fs.renameSync(tmpZip, outFile);
+  }
+  if (!r.ok || !fs.existsSync(outFile)) throw new Error(r.error ?? 'não foi possível gravar o pacote de plugins');
+  return { file: outFile, plugins };
+}
+
+/** Importa um pacote .ffplugins: cada plugin (e as dependências) entra na pasta de plugins, substituindo o de mesmo nome. */
+export function importPluginsPack(s: Settings, file: string): string[] {
+  if (!fs.existsSync(file)) throw new Error('arquivo não encontrado');
+  const root = pluginsRoot(s);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-plugins-pack-'));
+  try {
+    extractZip(file, tmp);
+    const dirs = fs.readdirSync(tmp, { withFileTypes: true }).filter((e) => e.isDirectory() && (SAFE.test(e.name) || e.name === '_deps')).map((e) => e.name);
+    const plugins = dirs.filter((d) => d !== '_deps' && manifestOf(path.join(tmp, d)));
+    if (!plugins.length) throw new Error('o arquivo não tem plugins (esperado: um .ffplugins exportado pelo app)');
+    fs.mkdirSync(root, { recursive: true });
+    for (const d of [...plugins, ...(dirs.includes('_deps') ? ['_deps'] : [])]) {
+      const dst = path.join(root, d);
+      if (d !== '_deps') fs.rmSync(dst, { recursive: true, force: true });
+      fs.cpSync(path.join(tmp, d), dst, { recursive: true, force: true });
+    }
+    return plugins;
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
 /** Instala um arquivo .plugin (ou .zip) do Claude. */
 export function installPluginFile(s: Settings, file: string): PluginInfo {
   if (!fs.existsSync(file)) throw new Error('arquivo não encontrado');

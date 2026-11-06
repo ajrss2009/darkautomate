@@ -200,14 +200,15 @@ export interface BoardScene { id: string; title: string; durationSec: number; na
 const OUTFIT_NAMES = 'C.OUTFITS.police, .gangster, .barman, .flapper, .worker, .preacher, .reporter, .kid, .parent, .officer, .rifleman, C.OUTFITS.townsfolk(n), C.OUTFITS.soldier(n)';
 
 /** Pedido do storyboard: o harness grava assets/assets.md com elenco, paleta e os planos de cada cena. */
-export function storyboardPrompt(file: string, scenes: BoardScene[], aspect: Aspect | undefined): string {
+export function storyboardPrompt(file: string, scenes: BoardScene[], aspect: Aspect | undefined, o: { long?: boolean } = {}): string {
   const { w, h } = cartoon3dSize(aspect);
-  return `\nSTORYBOARD do curta cartoon 3D (${w}x${h}). Leia as cenas abaixo e grave ${file} (Markdown) com EXATAMENTE estas seções:\n` +
+  return `\nSTORYBOARD do ${o.long ? 'EPISÓDIO' : 'curta'} cartoon 3D (${w}x${h}). Leia as cenas abaixo e grave ${file} (Markdown) com EXATAMENTE estas seções:\n` +
     `## Personagens fixos\nUMA linha por personagem do vídeo inteiro: "- **Nome**: roupa, build, seed N, expressão típica" — nomes curtos e originais (nunca pessoas reais vivas); os MESMOS em todas as cenas. ` +
     `Roupa = SÓ uma destas prontas: ${OUTFIT_NAMES}; OU um objeto de cores { jacket:"#hex", pants:"#hex", boots:"#hex", hat:"tophat"|"cap"|"hair"|"bonnet"|"shako"|"shako_tall", cap:"#hex", hair:"#hex", dress:"#hex", moustache:"#hex", skin:"#hex", build:"adult"|"stout"|"kid" } (não invente outros nomes). ` +
     `Cada personagem tem que ser INCONFUNDÍVEL lado a lado: roupas e chapéus diferentes (ex.: um de cap, outro de cabelo, outro de cartola), cores de paletó diferentes.\n` +
     `## Paleta de materiais\nUMA linha por material que se repete (paredes, telhado, chão, balcão, barris, carro, placas): "- material: #hex". Essas cores NÃO mudam durante o vídeo (nada de trocar cor de material de um quadro para o outro).\n` +
-    `## Storyboard\nPara cada cena, um bloco "### <id> — <título>" com 2 a 5 PLANOS, um por linha, cobrindo a cena INTEIRA de 0 até a duração, sem buracos, cada plano com pelo menos 1,2 s:\n` +
+    (o.long ? `## Cenários recorrentes\n3 a 6 cenários que VOLTAM ao longo do episódio, UMA linha por cenário: "- **Nome do cenário**: como montar com a API (st.street / st.house com sign / st.room / st.prop com x e z, cores da paleta), luz (day|golden|night|interior) e a câmera de abertura (pos → look)". Toda cena acontece num destes cenários e o monta IGUAL (mesmas posições e cores), para o espectador reconhecer o lugar.\n` : '') +
+    `## Storyboard\nPara cada cena, um bloco "### <id> — <título>"${o.long ? ' (1ª linha: "Cenário: Nome")' : ''} com 2 a 5 PLANOS, um por linha, cobrindo a cena INTEIRA de 0 até a duração, sem buracos, cada plano com pelo menos 1,2 s:\n` +
     `- 0,0–3,2 s | PLANO (geral, médio, close, detalhe, contra-plongée) | câmera: pos [x,y,z] → look [x,y,z], fov N (e o movimento até o próximo plano: deslize, push-in, roll, tranco) | luz: day|golden|night|interior | em quadro: Nome (onde na tela: esquerda/centro/direita, inteiro ou até a cintura, de frente/perfil, expressão) | letreiro: "TEXTO" ou — | adereço/efeito: o que aparece no instante da palavra | fala: as palavras ditas nesse trecho\n` +
     `REGRAS DO STORYBOARD (o agente de revisão vai medir cada quadro depois):\n` +
     `- Ninguém BLOQUEADO nem PELA METADE: nada entre a câmera e o rosto/tronco de quem está em quadro; no máximo 3 personagens por plano, separados ao menos 0,9 m no eixo lateral da câmera; quem fala fica na frente.\n` +
@@ -238,10 +239,11 @@ export function storyboardFor(md: string, sceneId: string, index?: number): stri
   if (head < 0) return '';
   const tail = lines.slice(head + 1), stop = tail.findIndex((l) => /^###\s/.test(l));
   const shots = (stop < 0 ? tail : tail.slice(0, stop)).join('\n').trim();
-  const cast = section(md, /^##\s*Personagens fixos/im), pal = section(md, /^##\s*Paleta de materiais/im);
+  const cast = section(md, /^##\s*Personagens fixos/im), pal = section(md, /^##\s*Paleta de materiais/im), sets = section(md, /^##\s*Cenários recorrentes/im);
   return `\nSTORYBOARD DESTA CENA (assets/assets.md — siga os planos, os tempos, quem está em quadro e onde; use os nomes no name dos atores):\n${shots}\n` +
     (cast ? `ELENCO FIXO (mesmas roupas e seeds em todas as cenas):\n${cast}\n` : '') +
-    (pal ? `PALETA FIXA DE MATERIAIS (use exatamente estes hex; não mude durante a cena):\n${pal}\n` : '');
+    (pal ? `PALETA FIXA DE MATERIAIS (use exatamente estes hex; não mude durante a cena):\n${pal}\n` : '') +
+    (sets ? `CENÁRIOS RECORRENTES DO EPISÓDIO (monte o desta cena exatamente assim — mesmas posições, cores e luz):\n${sets}\n` : '');
 }
 
 /** Planos (início, fim, texto) de um bloco do storyboard — "- 0,0–3,2 s | ...". Função pura. */

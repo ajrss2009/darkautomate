@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { HarnessId, Settings, ThumbnailTemplate } from '../shared/types';
+import { luma, type ThumbDesign } from '../shared/thumbdesign';
 import { activeAgyEnv } from './automations';
 import { listChannel, listChannelClones } from './channel-clone';
 import { llmJson } from './editor';
@@ -161,6 +162,16 @@ export interface ThumbModelResult { template: ThumbnailTemplate; brief: ThumbBri
 
 const LAYOUTS = ['impacto', 'explicativo', 'documentario', 'minimal', 'split'] as const;
 
+/** Layout visual a partir do brief da IA: composição → layout, paleta → destaque e cor do texto. */
+function designFromBrief(layout: string, b: ThumbBrief): ThumbDesign {
+  const pal = (b.palette ?? []).filter((x) => /^#[0-9a-f]{6}$/i.test(x));
+  const bright = pal.filter((x) => luma(x) > 0.45);
+  const map: Record<string, ThumbDesign['layout']> = { impacto: 'impacto', explicativo: 'minimal', documentario: 'documentario', minimal: 'minimal', split: 'split' };
+  const comp = `${b.composition ?? ''} ${b.focal ?? ''}`.toLowerCase();
+  const lay = map[layout] ?? (/circul|seta|arrow|circle/.test(comp) ? 'circulo' : /versus|vs|antes|before|split/.test(comp) ? 'split' : /not[ií]cia|urgente|news/.test(comp) ? 'manchete' : /neon|glow/.test(comp) ? 'neon' : 'impacto');
+  return { layout: lay, accent: bright[0] ?? pal[1] ?? '#ffd400', color: bright.find((x) => luma(x) > 0.8) ?? '#ffffff', font: lay === 'documentario' ? 'serif' : 'impact', shade: 0.55 };
+}
+
 export async function modelThumbnail(s: Settings, input: ThumbModelInput, log: (l: string) => void, signal?: AbortSignal): Promise<ThumbModelResult> {
   const ref = await referenceData(s, input.source, log, signal);
   const dir = path.join(s.workspace, 'thumbnails', 'models', `${slugify(input.name || ref.label).slice(0, 40) || 'modelo'}-${Date.now().toString(36)}`);
@@ -213,6 +224,8 @@ Grave ${out} (e também imprima) como JSON válido:
     prompt: [String(j['prompt']), j['rules'] ? String(j['rules']) : '', briefText].filter(Boolean).join('\n'),
     layout: LAYOUTS.includes(j['layout'] as typeof LAYOUTS[number]) ? j['layout'] as ThumbnailTemplate['layout'] : undefined,
     preview: refs[0],
+    /* também um layout VISUAL com a paleta modelada: funciona sem gerador de imagem (quadro do vídeo + texto por código) */
+    design: designFromBrief(String(j['layout'] ?? ''), brief),
   };
   const variants = (Array.isArray(j['variants']) ? j['variants'] : []) as ThumbModelResult['variants'];
   return { template, brief, variants, refs, label: ref.label, dir };
