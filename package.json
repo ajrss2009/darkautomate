@@ -1,0 +1,72 @@
+{
+  "name": "filmforge",
+  "version": "0.1.0",
+  "description": "EstÃºdio de vÃ­deo por IA orientado a cenas, com rotas configurÃ¡veis, harnesses e ComfyUI",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "npm run build && node dist/test/engine.test.js && node dist/test/ops.test.js && node dist/test/library.test.js && node dist/test/skills.test.js && node dist/test/features.test.js && node dist/test/workflows.test.js && node dist/test/wan2gp.test.js && node dist/test/routes.test.js && node dist/test/automations.test.js && node dist/test/flow.test.js && node dist/test/skillgen.test.js && node dist/test/sfx.test.js && node dist/test/soundtrack.test.js && node dist/test/cast.test.js && node dist/test/attachments.test.js && node dist/test/compilation.test.js && node dist/test/resources.test.js && node dist/test/youtube.test.js && node dist/test/usage.test.js && node dist/test/folds.test.js && node dist/test/contract.test.js && node dist/test/kit.test.js && node dist/test/portable.test.js && node dist/test/craft.test.js && node dist/test/adapt.test.js && node dist/test/clone.test.js && node dist/test/replan.test.js && node dist/test/channel-dna.test.js && node dist/test/tutorial.test.js && node dist/test/cartoon3d.test.js && node dist/test/linksubs.test.js && node dist/test/e2e.test.js",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "dev.filmforge.app",
+    "productName": "FilmForge",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "workflows",
+        "to": "workflows"
+      },
+      {
+        "from": "tools",
+        "to": "tools"
+      },
+      {
+        "from": "plugins-bundled",
+        "to": "plugins-bundled"
+      },
+      {
+        "from": "vendor",
+        "to": "vendor"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "directories": {
+      "output": "release"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
+

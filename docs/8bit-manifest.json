@@ -1,0 +1,16 @@
+[
+  {
+    "id": "paris-8-bit-ollama-c-digo-f5f0d4",
+    "name": "Paris 8-bit (Ollama + código)",
+    "routeId": "clipe-musical-code-ol-8bit",
+    "waveform": "bar",
+    "musicMode": "instrumental"
+  },
+  {
+    "id": "paris-8-bit-ollama-minimax-h3-1de5fc",
+    "name": "Paris 8-bit (Ollama + MiniMax H3)",
+    "routeId": "clipe-musical-video-ol",
+    "waveform": "p2p",
+    "musicMode": "song"
+  }
+]

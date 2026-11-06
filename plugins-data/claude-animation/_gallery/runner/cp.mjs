@@ -1,0 +1,1 @@
+export const spawn = () => { throw new Error("sem processos no navegador"); }; export const spawnSync = () => ({ status: 1 }); export const execSync = () => ""; export default { spawn, spawnSync, execSync };

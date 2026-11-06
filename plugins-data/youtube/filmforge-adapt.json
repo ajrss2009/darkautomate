@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "createdAt": "2026-10-29T04:05:09.318Z",
+  "by": "heurística (nomes dos arquivos)",
+  "summary": "youtube: 16 item(ns) ligados a review, metadata, script, thumbnail, ideation, brief",
+  "global": "Rodando sem usuário: não faça perguntas; use os dados do projeto e siga.",
+  "items": [
+    {
+      "id": "file:skills/claude-youtube/references/analytics-guide.md",
+      "steps": [
+        "review"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/references/dataforseo-integration.md",
+      "steps": [
+        "metadata"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/references/retention-scripting-guide.md",
+      "steps": [
+        "script"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/references/seo-playbook.md",
+      "steps": [
+        "metadata"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/references/thumbnail-ctr-guide.md",
+      "steps": [
+        "thumbnail"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/analyze.md",
+      "steps": [
+        "review"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/audit.md",
+      "steps": [
+        "review"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/calendar.md",
+      "steps": [
+        "ideation"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/hook.md",
+      "steps": [
+        "script"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/ideate.md",
+      "steps": [
+        "ideation"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/metadata.md",
+      "steps": [
+        "metadata"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/script.md",
+      "steps": [
+        "script"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/seo.md",
+      "steps": [
+        "metadata"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/strategy.md",
+      "steps": [
+        "ideation"
+      ]
+    },
+    {
+      "id": "file:skills/claude-youtube/sub-skills/thumbnail.md",
+      "steps": [
+        "thumbnail"
+      ]
+    },
+    {
+      "id": "skill:youtube",
+      "steps": [
+        "brief"
+      ],
+      "note": "visão geral; as sub-skills entram nas etapas certas"
+    }
+  ],
+  "ignore": [
+    "comandos de barra, agentes paralelos e perguntas ao usuário (a produção roda sozinha)"
+  ]
+}

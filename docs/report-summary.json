@@ -1,0 +1,830 @@
+[
+  {
+    "id": "rel-01-stickman-ag-9bb91c",
+    "name": "Rel 01 Stickman AG",
+    "skillId": "stickman",
+    "routeId": "forge-ag-stickman",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 13.189909,
+      "size": 6895707,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 245,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "code",
+        "duration": 6.8,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "code",
+        "duration": 6.37,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "done"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 27
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 27
+      }
+    ],
+    "stock": [],
+    "clips": [],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\forge-rel01.log"
+  },
+  {
+    "id": "rel-02-misto-ag-b2a9d2",
+    "name": "Rel 02 Misto AG",
+    "skillId": "misto-motion-banco-ia",
+    "routeId": "forge-ag-misto",
+    "aspect": "16:9",
+    "duration": 15,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 15.156575,
+      "size": 9029659,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 498,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "code",
+        "duration": 4.73,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "mixed",
+        "duration": 4.85,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "stock": "done",
+          "code_scene": "done"
+        }
+      },
+      {
+        "id": "s03",
+        "kind": "video",
+        "duration": 5.58,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "image": "done",
+          "video": "done"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 15
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 13
+      },
+      {
+        "scene": "s03",
+        "source": "faster-whisper",
+        "words": 16
+      }
+    ],
+    "stock": [
+      {
+        "scene": "s02",
+        "file": "stock-1.mp4",
+        "source": "pexels",
+        "author": "CoolPlaces4K  JC",
+        "license": "Pexels License"
+      },
+      {
+        "scene": "s02",
+        "file": "stock-2.mp4",
+        "source": "pexels",
+        "author": "Physical  Pixel",
+        "license": "Pexels License"
+      },
+      {
+        "scene": "s02",
+        "file": "stock-3.mp4",
+        "source": "pexels",
+        "author": "Aset Kaliev",
+        "license": "Pexels License"
+      }
+    ],
+    "clips": [
+      {
+        "scene": "s02",
+        "file": "stock-1.mp4",
+        "seconds": 69.72,
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "scene": "s02",
+        "file": "stock-2.mp4",
+        "seconds": 8.57,
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "scene": "s02",
+        "file": "stock-3.mp4",
+        "seconds": 21.29,
+        "width": 1920,
+        "height": 1080
+      }
+    ],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\forge-rel02.log"
+  },
+  {
+    "id": "rel-03-codigo-youtube-ag-fd160d",
+    "name": "Rel 03 Codigo YouTube AG",
+    "skillId": "explicativo-codigo",
+    "routeId": "forge-ag-codigo-youtube",
+    "aspect": "16:9",
+    "duration": 15,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 15.223242,
+      "size": 4573539,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 570,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "code",
+        "duration": 3.86,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "mixed",
+        "duration": 5.32,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "stock": "done",
+          "code_scene": "done"
+        }
+      },
+      {
+        "id": "s03",
+        "kind": "code",
+        "duration": 6.01,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "done"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 15
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 17
+      },
+      {
+        "scene": "s03",
+        "source": "faster-whisper",
+        "words": 17
+      }
+    ],
+    "stock": [
+      {
+        "scene": "s02",
+        "file": "stock-1.mp4",
+        "source": "youtube",
+        "author": "SciShow",
+        "license": "YouTube — confira a licença e o uso permitido",
+        "title": "Do-It-Yourself Photosynthesis Is Here!"
+      },
+      {
+        "scene": "s02",
+        "file": "stock-2.mp4",
+        "source": "youtube",
+        "author": "francischeefilms",
+        "license": "YouTube — confira a licença e o uso permitido",
+        "title": "Euglena Bloom Photosynthetic Heterotroph"
+      },
+      {
+        "scene": "s02",
+        "file": "stock-3.mp4",
+        "source": "youtube",
+        "author": "francischeefilms",
+        "license": "YouTube — confira a licença e o uso permitido",
+        "title": "Photosynthesis Time lapse Oxygen Evolution"
+      }
+    ],
+    "clips": [
+      {
+        "scene": "s02",
+        "file": "stock-1.mp4",
+        "seconds": 4,
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "scene": "s02",
+        "file": "stock-2.mp4",
+        "seconds": 4,
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "scene": "s02",
+        "file": "stock-3.mp4",
+        "seconds": 4,
+        "width": 1920,
+        "height": 1080
+      }
+    ],
+    "vision": {
+      "accepted": 3,
+      "rejected": 2
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\forge-rel03.log"
+  },
+  {
+    "id": "rel-04-shorts-viral-ag-4930f1",
+    "name": "Rel 04 Shorts Viral AG",
+    "skillId": "shorts-viral",
+    "routeId": "forge-ag-shorts",
+    "aspect": "9:16",
+    "duration": 12,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 16.189909,
+      "size": 8798881,
+      "width": 1080,
+      "height": 1920,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 301,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "code",
+        "duration": 7.21,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "video",
+        "duration": 8.96,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "image": "done",
+          "video": "done"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 22
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 25
+      }
+    ],
+    "stock": [],
+    "clips": [],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-04-shorts-viral-ag-4930f1.log"
+  },
+  {
+    "id": "rel-05-doc-youtube-ag-1ae470",
+    "name": "Rel 05 Doc YouTube AG",
+    "skillId": "documentario",
+    "routeId": "forge-ag-doc-youtube",
+    "aspect": "16:9",
+    "duration": 15,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 16.789909,
+      "size": 6582590,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 628,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "mixed",
+        "duration": 5.46,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "stock": "done",
+          "code_scene": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "video",
+        "duration": 5.74,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "image": "done",
+          "video": "done"
+        }
+      },
+      {
+        "id": "s03",
+        "kind": "code",
+        "duration": 5.56,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "done"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 15
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 15
+      },
+      {
+        "scene": "s03",
+        "source": "faster-whisper",
+        "words": 15
+      }
+    ],
+    "stock": [
+      {
+        "scene": "s01",
+        "file": "stock-1.mp4",
+        "source": "youtube",
+        "author": "Getty Museum",
+        "license": "YouTube — confira a licença e o uso permitido",
+        "title": "Making Manuscripts"
+      },
+      {
+        "scene": "s01",
+        "file": "stock-2.mp4",
+        "source": "youtube",
+        "author": "Discovery UK",
+        "license": "YouTube — confira a licença e o uso permitido",
+        "title": "How To Make Illuminated Manuscripts Using Traditional Techniques | History In The Making"
+      },
+      {
+        "scene": "s01",
+        "file": "stock-3.mp4",
+        "source": "youtube",
+        "author": "Brigitte Pellerin",
+        "license": "YouTube — confira a licença e o uso permitido",
+        "title": "Scribes explain how they write Magna Carta"
+      }
+    ],
+    "clips": [
+      {
+        "scene": "s01",
+        "file": "stock-1.mp4",
+        "seconds": 4,
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "scene": "s01",
+        "file": "stock-2.mp4",
+        "seconds": 4,
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "scene": "s01",
+        "file": "stock-3.mp4",
+        "seconds": 4,
+        "width": 1920,
+        "height": 1080
+      }
+    ],
+    "vision": {
+      "accepted": 3,
+      "rejected": 3
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-05-doc-youtube-ag-1ae470.log"
+  },
+  {
+    "id": "rel-06-anime-livre-ag-8420f9",
+    "name": "Rel 06 Anime Livre AG",
+    "skillId": "anime_2d",
+    "routeId": "forge-ag-livre",
+    "aspect": "16:9",
+    "duration": 8,
+    "free": true,
+    "status": "done",
+    "final": {
+      "duration": 8,
+      "size": 955028,
+      "width": 1280,
+      "height": 720,
+      "video": "h264"
+    },
+    "elapsedSec": 79,
+    "scenes": [],
+    "words": [],
+    "stock": [],
+    "clips": [],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-06-anime-livre-ag-8420f9.log"
+  },
+  {
+    "id": "rel-07-realista-ol-e520fb",
+    "name": "Rel 07 Realista OL",
+    "skillId": "realistic",
+    "routeId": "forge-ol-realista",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 10.256575,
+      "size": 4426589,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 275,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "video",
+        "duration": 4.59,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "image": "done",
+          "video": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "video",
+        "duration": 5.64,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "image": "done",
+          "video": "done"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 17
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 19
+      }
+    ],
+    "stock": [],
+    "clips": [],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-07-realista-ol-e520fb.log"
+  },
+  {
+    "id": "rel-08-stickman-ol-f5c732",
+    "name": "Rel 08 Stickman OL",
+    "skillId": "stickman",
+    "routeId": "forge-ol-stickman",
+    "aspect": "16:9",
+    "duration": 10,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 11.089909,
+      "size": 229576,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 518,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "code",
+        "duration": 4.88,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "failed"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "code",
+        "duration": 6.17,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "code_scene": "failed"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 17
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 24
+      }
+    ],
+    "stock": [],
+    "clips": [],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-08-stickman-ol-f5c732.log"
+  },
+  {
+    "id": "rel-09-cartoon-ol-d5beae",
+    "name": "Rel 09 Cartoon OL",
+    "skillId": "cartoon_3d",
+    "routeId": "forge-ol-cartoon",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 17.189909,
+      "size": 11026649,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 297,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "video",
+        "duration": 8.1,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "image": "done",
+          "video": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "video",
+        "duration": 9.07,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "image": "done",
+          "video": "done"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 32
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 29
+      }
+    ],
+    "stock": [],
+    "clips": [],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-09-cartoon-ol-d5beae.log"
+  },
+  {
+    "id": "rel-10-doc-ol-40dc21",
+    "name": "Rel 10 Doc OL",
+    "skillId": "documentario",
+    "routeId": "forge-ol-doc",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false,
+    "status": "done",
+    "final": {
+      "duration": 9.556575,
+      "size": 2793099,
+      "width": 1920,
+      "height": 1080,
+      "video": "h264",
+      "audio": "aac",
+      "channels": 2
+    },
+    "elapsedSec": 112,
+    "scenes": [
+      {
+        "id": "s01",
+        "kind": "stock",
+        "duration": 5.3,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "stock": "done"
+        }
+      },
+      {
+        "id": "s02",
+        "kind": "mixed",
+        "duration": 4.25,
+        "status": {
+          "narration": "done",
+          "transcribe": "done",
+          "stock": "done",
+          "code_scene": "failed"
+        }
+      }
+    ],
+    "words": [
+      {
+        "scene": "s01",
+        "source": "faster-whisper",
+        "words": 14
+      },
+      {
+        "scene": "s02",
+        "source": "faster-whisper",
+        "words": 11
+      }
+    ],
+    "stock": [
+      {
+        "scene": "s01",
+        "file": "stock-1.mp4",
+        "source": "pexels",
+        "author": "Adis Resic",
+        "license": "Pexels License"
+      },
+      {
+        "scene": "s02",
+        "file": "stock-1.mp4",
+        "source": "pexels",
+        "author": "The Instagrapher",
+        "license": "Pexels License"
+      },
+      {
+        "scene": "s02",
+        "file": "stock-2.mp4",
+        "source": "pexels",
+        "author": "Pixabay",
+        "license": "Pexels License"
+      },
+      {
+        "scene": "s02",
+        "file": "stock-3.mp4",
+        "source": "pexels",
+        "author": "The Instagrapher",
+        "license": "Pexels License"
+      }
+    ],
+    "clips": [
+      {
+        "scene": "s01",
+        "file": "stock-1.mp4",
+        "seconds": 12.33,
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "scene": "s02",
+        "file": "stock-1.mp4",
+        "seconds": 14.8,
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "scene": "s02",
+        "file": "stock-2.mp4",
+        "seconds": 137.51,
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "scene": "s02",
+        "file": "stock-3.mp4",
+        "seconds": 22.34,
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "vision": {
+      "accepted": 0,
+      "rejected": 0
+    },
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-10-doc-ol-40dc21.log"
+  }
+]

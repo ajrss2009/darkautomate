@@ -1,0 +1,10 @@
+{
+  "name": "animation-skills",
+  "version": "1.0.0",
+  "description": "Six Claude Code skills that make animations for reels, no footage needed: zach-d-films, stick-figure, minimalistic-graphics, map-route, breakdown and graph. Rendered on your computer with HyperFrames, three.js and Playwright.",
+  "author": { "name": "Artem Novitckii", "url": "https://novitckii.com" },
+  "homepage": "https://novitckii.com/resources/animation-skills/",
+  "repository": "https://github.com/artemnovitckii/claude-animation-skills",
+  "license": "MIT",
+  "keywords": ["animation", "reels", "motion-graphics", "three.js", "hyperframes", "instagram"]
+}

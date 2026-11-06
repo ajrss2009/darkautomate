@@ -1,0 +1,208 @@
+{
+ "title": "Engine demo",
+ "duration": 98.225,
+ "shots": [
+  {
+   "id": "s01",
+   "start": 0.0,
+   "line": "Two hundred feet above the trees, a train climbs the lift hill.",
+   "scene": "park: crane move beside the climbing train, time block + height card",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 7.19
+  },
+  {
+   "id": "s02",
+   "start": 7.19,
+   "line": "Nine cars. Thirty six riders. One bar across every lap.",
+   "scene": "park: low wide looking up at the crest, tags on the train",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 13.965
+  },
+  {
+   "id": "s03",
+   "start": 13.965,
+   "line": "That night, twelve coasters were shut across the country.",
+   "scene": "usmap: dark map, glowing park dots, Georgia highlighted",
+   "in": {
+    "type": "dip",
+    "dur": 0.5
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 19.74
+  },
+  {
+   "id": "s04",
+   "start": 19.74,
+   "line": "One witness said the bar looked loose when the car came back.",
+   "scene": "2d: article excerpt with highlighter sweep",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 26.425
+  },
+  {
+   "id": "s05",
+   "start": 26.425,
+   "line": "You always expect to get back, one rider said.",
+   "scene": "2d: quote card",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 31.925
+  },
+  {
+   "id": "s06",
+   "start": 31.925,
+   "line": "In the left seat, the captain. Two control columns, linked together.",
+   "scene": "cockpit: clay cockpit, captain at the yoke, lower third + tags",
+   "in": {
+    "type": "dip",
+    "dur": 0.6
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 39.415
+  },
+  {
+   "id": "s07",
+   "start": 39.415,
+   "line": "Behind the door, one hundred and seventy four passengers.",
+   "scene": "cabin: clay cabin rows, stat plate",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 45.19
+  },
+  {
+   "id": "s08",
+   "start": 45.19,
+   "line": "Twenty one minutes past eight. The aircraft is level at thirty four thousand feet.",
+   "scene": "sky: clay airliner exterior, time chip",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 53.585
+  },
+  {
+   "id": "s09",
+   "start": 53.585,
+   "line": "Then the line on the tracking screen turns west, toward the border.",
+   "scene": "mapME: extruded map, route draws, chips",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 60.675
+  },
+  {
+   "id": "s10",
+   "start": 60.675,
+   "line": "In under a minute, it falls more than fourteen thousand feet.",
+   "scene": "2d chart: altitude line draws, annotation pill",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 67.26
+  },
+  {
+   "id": "s11",
+   "start": 67.26,
+   "line": "The transponder changes. Seven seven zero zero. General emergency.",
+   "scene": "2d hero numerals",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 73.955
+  },
+  {
+   "id": "s12",
+   "start": 73.955,
+   "line": "Investigators are looking at three possibilities.",
+   "scene": "2d numbered list",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 78.21
+  },
+  {
+   "id": "s13",
+   "start": 78.21,
+   "line": "The door is right there.",
+   "scene": "2d statement",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 81.485
+  },
+  {
+   "id": "s14",
+   "start": 81.485,
+   "line": "Inside the lock, a ratchet on a toothed wheel.",
+   "scene": "mech: dark studio ratchet close-up",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 86.985
+  },
+  {
+   "id": "s15",
+   "start": 86.985,
+   "line": "Photos taken afterwards show the train back in the station.",
+   "scene": "2d photo with Ken Burns + caption",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 92.91
+  },
+  {
+   "id": "s16",
+   "start": 92.91,
+   "line": "Each is a possibility, not a finding.",
+   "scene": "2d triptych",
+   "in": {
+    "type": "cut"
+   },
+   "sfx": [],
+   "notes": "",
+   "end": 98.225
+  }
+ ],
+ "music": [
+  {
+   "start": 0,
+   "end": 98.225,
+   "mood": "tension",
+   "intensity": 0.45
+  }
+ ]
+}

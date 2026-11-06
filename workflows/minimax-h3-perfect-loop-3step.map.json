@@ -1,0 +1,10 @@
+{
+  "_doc": "MiniMax H3 loop perfeito com LoRA taomate 3-step (fl2va). exactAspect e ImageScale preservam a proporção do primeiro/último frame. Saída: nó 21.",
+  "megapixels": 0.6,
+  "multiple": 32,
+  "outputNode": "21",
+  "vars": {},
+  "label": "MiniMax H3 — loop perfeito 3-step (LoRA taomate)",
+  "capability": "video",
+  "exactAspect": true
+}

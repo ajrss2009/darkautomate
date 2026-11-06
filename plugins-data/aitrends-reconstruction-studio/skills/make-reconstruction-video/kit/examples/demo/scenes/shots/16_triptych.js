@@ -1,0 +1,2 @@
+import { registerShot } from '/engine/api.js';
+registerShot('s16', { bg: '#000', ui(U, t, info) { U.triptych({ items: [{ src: '/project/assets/photo_lift.jpg', label: 'Possibility 1 of 3 · not a finding' }, { src: '/project/assets/photo_crest.jpg', label: 'Possibility 2 of 3 · not a finding' }, { src: '/project/assets/photo_wide.jpg', label: 'Possibility 3 of 3 · not a finding' }] }, { times: [0.3, 0.8, 1.3] }); } });

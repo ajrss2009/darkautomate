@@ -1,0 +1,2 @@
+import { registerShot } from '/engine/api.js';
+registerShot('s12', { look: 'clay', ui(U, t, info) { U.list({ kicker: 'Investigators · three possibilities', numbered: true, items: [{ title: 'The bar never fully locked', sub: 'locked high, sensor read safe' }, { title: 'It locked, but didn’t hold', sub: 'room under the pad' }, { title: 'Something let go', sub: 'a part broke or released' }] }, { at: 0.3, times: [0.8, 1.4, 2.0] }); } });

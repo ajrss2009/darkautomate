@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "vendor-static", "runtimeExecutable": "G:/pinokio/bin/miniforge/python.exe", "runtimeArgs": ["-m", "http.server", "8765", "--directory", "vendor"], "port": 8765 }
+  ]
+}

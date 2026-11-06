@@ -1,0 +1,9 @@
+{
+  "_doc": "MiniMax H3 texto->vídeo (gera áudio junto). Inclui RTX Video Super Resolution 2x (nó 41): requer nós/GPU RTX; para desligar, ligue 19.video -> 18 e 18.images -> 16.",
+  "megapixels": 0.5,
+  "multiple": 32,
+  "outputNode": "19",
+  "vars": {},
+  "label": "MiniMax H3 — texto → vídeo",
+  "capability": "video"
+}

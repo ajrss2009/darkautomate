@@ -1,0 +1,86 @@
+[
+  {
+    "id": "rel-01-stickman-ag-9bb91c",
+    "name": "Rel 01 Stickman AG",
+    "status": "done",
+    "size": 6895707,
+    "completed": true
+  },
+  {
+    "id": "rel-02-misto-ag-b2a9d2",
+    "name": "Rel 02 Misto AG",
+    "status": "done",
+    "size": 9029659,
+    "completed": true
+  },
+  {
+    "id": "rel-03-codigo-youtube-ag-fd160d",
+    "name": "Rel 03 Codigo YouTube AG",
+    "status": "done",
+    "size": 4573539,
+    "completed": true
+  },
+  {
+    "id": "rel-04-shorts-viral-ag-4930f1",
+    "name": "Rel 04 Shorts Viral AG",
+    "status": "done",
+    "exit": 0,
+    "seconds": 302,
+    "size": 8798881,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-04-shorts-viral-ag-4930f1.log"
+  },
+  {
+    "id": "rel-05-doc-youtube-ag-1ae470",
+    "name": "Rel 05 Doc YouTube AG",
+    "status": "done",
+    "exit": 0,
+    "seconds": 628,
+    "size": 6582590,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-05-doc-youtube-ag-1ae470.log"
+  },
+  {
+    "id": "rel-06-anime-livre-ag-8420f9",
+    "name": "Rel 06 Anime Livre AG",
+    "status": "done",
+    "exit": 0,
+    "seconds": 80,
+    "size": 955028,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-06-anime-livre-ag-8420f9.log"
+  },
+  {
+    "id": "rel-07-realista-ol-e520fb",
+    "name": "Rel 07 Realista OL",
+    "status": "done",
+    "exit": 0,
+    "seconds": 276,
+    "size": 4426589,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-07-realista-ol-e520fb.log"
+  },
+  {
+    "id": "rel-08-stickman-ol-f5c732",
+    "name": "Rel 08 Stickman OL",
+    "status": "done",
+    "exit": 0,
+    "seconds": 135,
+    "size": 441624,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-08-stickman-ol-f5c732.log"
+  },
+  {
+    "id": "rel-09-cartoon-ol-d5beae",
+    "name": "Rel 09 Cartoon OL",
+    "status": "done",
+    "exit": 0,
+    "seconds": 298,
+    "size": 11026649,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-09-cartoon-ol-d5beae.log"
+  },
+  {
+    "id": "rel-10-doc-ol-40dc21",
+    "name": "Rel 10 Doc OL",
+    "status": "done",
+    "exit": 0,
+    "seconds": 113,
+    "size": 2793099,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\rep-rel-10-doc-ol-40dc21.log"
+  }
+]

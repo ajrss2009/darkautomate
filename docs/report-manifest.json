@@ -1,0 +1,92 @@
+[
+  {
+    "id": "rel-01-stickman-ag-9bb91c",
+    "name": "Rel 01 Stickman AG",
+    "skillId": "stickman",
+    "routeId": "forge-ag-stickman",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false
+  },
+  {
+    "id": "rel-02-misto-ag-b2a9d2",
+    "name": "Rel 02 Misto AG",
+    "skillId": "misto-motion-banco-ia",
+    "routeId": "forge-ag-misto",
+    "aspect": "16:9",
+    "duration": 15,
+    "free": false
+  },
+  {
+    "id": "rel-03-codigo-youtube-ag-fd160d",
+    "name": "Rel 03 Codigo YouTube AG",
+    "skillId": "explicativo-codigo",
+    "routeId": "forge-ag-codigo-youtube",
+    "aspect": "16:9",
+    "duration": 15,
+    "free": false
+  },
+  {
+    "id": "rel-04-shorts-viral-ag-4930f1",
+    "name": "Rel 04 Shorts Viral AG",
+    "skillId": "shorts-viral",
+    "routeId": "forge-ag-shorts",
+    "aspect": "9:16",
+    "duration": 12,
+    "free": false
+  },
+  {
+    "id": "rel-05-doc-youtube-ag-1ae470",
+    "name": "Rel 05 Doc YouTube AG",
+    "skillId": "documentario",
+    "routeId": "forge-ag-doc-youtube",
+    "aspect": "16:9",
+    "duration": 15,
+    "free": false
+  },
+  {
+    "id": "rel-06-anime-livre-ag-8420f9",
+    "name": "Rel 06 Anime Livre AG",
+    "skillId": "anime_2d",
+    "routeId": "forge-ag-livre",
+    "aspect": "16:9",
+    "duration": 8,
+    "free": true
+  },
+  {
+    "id": "rel-07-realista-ol-e520fb",
+    "name": "Rel 07 Realista OL",
+    "skillId": "realistic",
+    "routeId": "forge-ol-realista",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false
+  },
+  {
+    "id": "rel-08-stickman-ol-f5c732",
+    "name": "Rel 08 Stickman OL",
+    "skillId": "stickman",
+    "routeId": "forge-ol-stickman",
+    "aspect": "16:9",
+    "duration": 10,
+    "free": false
+  },
+  {
+    "id": "rel-09-cartoon-ol-d5beae",
+    "name": "Rel 09 Cartoon OL",
+    "skillId": "cartoon_3d",
+    "routeId": "forge-ol-cartoon",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false
+  },
+  {
+    "id": "rel-10-doc-ol-40dc21",
+    "name": "Rel 10 Doc OL",
+    "skillId": "documentario",
+    "routeId": "forge-ol-doc",
+    "aspect": "16:9",
+    "duration": 12,
+    "free": false
+  }
+]

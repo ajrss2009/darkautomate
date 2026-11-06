@@ -1,0 +1,1 @@
+export async function run(F) { window.__FF_FILM = F; } export default { run };

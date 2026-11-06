@@ -1,0 +1,10 @@
+{
+  "_doc": "MiniMax H3 primeiro frame + último frame (a MESMA imagem da cena) = clipe em loop perfeito. O comprimento é snapped para a grade 17k+5 a 24 fps; o FilmForge remove o último frame duplicado e usa a duração exata como período do loop. exactAspect: gera em proporção exata (16:9 = 1024x576) e o ImageScale corta o frame central sem esticar.",
+  "megapixels": 0.6,
+  "multiple": 32,
+  "outputNode": "21",
+  "vars": {},
+  "label": "MiniMax H3 — loop perfeito (primeiro = último frame)",
+  "capability": "video",
+  "exactAspect": true
+}

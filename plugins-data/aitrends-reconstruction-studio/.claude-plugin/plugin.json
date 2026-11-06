@@ -1,0 +1,22 @@
+{
+  "name": "aitrends-reconstruction-studio",
+  "version": "0.2.0",
+  "description": "Make 'what really happened' 3D reconstruction documentaries about trending stories: finds and ranks stories, researches them with sources, writes the narration in a calm investigative style, voices it (VoiceStudio, ElevenLabs or your own file), trims long pauses after asking, timestamps with Whisper, renders every shot in code with Three.js, composes an original score, and delivers a finished 16:9 or 9:16 MP4.",
+  "author": {
+    "name": "aiTrends"
+  },
+  "keywords": [
+    "video",
+    "documentary",
+    "3d reconstruction",
+    "three.js",
+    "faceless youtube",
+    "whisper",
+    "elevenlabs",
+    "voicestudio",
+    "news explainer",
+    "investigation",
+    "film score",
+    "music composition"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "_doc": "Z-Image Turbo (int8) texto->imagem.",
+  "maxSide": 1280,
+  "multiple": 16,
+  "outputNode": "9",
+  "vars": {},
+  "label": "Z-Image Turbo",
+  "capability": "image"
+}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: forge-file: https://i.ytimg.com https://yt3.ggpht.com; media-src forge-file: data:; connect-src forge-file:" />
+  <title>FilmForge</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="titlebar"></div>
+  <aside>
+    <h1>FilmForge</h1>
+    <nav id="nav">
+      <button data-tab="projects" class="active">Projetos</button>
+      <button data-tab="new">Novo projeto</button>
+      <button data-tab="batch">Lote</button>
+      <button data-tab="editor">Editor</button>
+      <button data-tab="run">Execução</button>
+      <button data-tab="routes">Rotas</button>
+      <button data-tab="skills">Skills</button>
+      <button data-tab="providers">Provedores</button>
+      <button data-tab="agents">Agentes</button>
+      <button data-tab="videos">Pesquisar</button>
+      <button data-tab="channels">Canais</button>
+      <button data-tab="automations">Automações</button>
+      <button data-tab="plugins">Plugins</button>
+      <button data-tab="settings">Configurações</button>
+    </nav>
+    <div id="run-indicator" title="Abrir a Execução"><span class="ri-spin"></span><span class="ri-txt">Executando…</span></div>
+    <button id="theme-toggle" title="Alternar tema"></button>
+    <small>Estúdio de vídeo por IA orientado a cenas</small>
+  </aside>
+  <main id="main"></main>
+  <script src="renderer.js"></script>
+</body>
+</html>

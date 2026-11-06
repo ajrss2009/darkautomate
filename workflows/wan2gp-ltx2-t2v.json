@@ -1,0 +1,16 @@
+{
+  "_doc": "Wan2GP texto->vídeo com LTX-2 2.3 distilled (model_type e chaves video_length/force_fps/resolution documentados em docs/API.md do Wan2GP).",
+  "model_type": "ltx2_22B_distilled",
+  "megapixels": 0.7,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "resolution": "{{resolution}}",
+    "num_inference_steps": 8,
+    "video_length": "{{seconds_int}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP · LTX-2 texto → vídeo",
+  "capability": "video"
+}

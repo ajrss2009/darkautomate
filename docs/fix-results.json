@@ -1,0 +1,42 @@
+[
+  {
+    "id": "rel-02-misto-ag-b2a9d2",
+    "status": "done",
+    "exit": 0,
+    "seconds": 544,
+    "size": 6348851,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\fix-rel-02-misto-ag-b2a9d2.log"
+  },
+  {
+    "id": "rel-03-codigo-youtube-ag-fd160d",
+    "status": "done",
+    "exit": 0,
+    "seconds": 663,
+    "size": 2234763,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\fix-rel-03-codigo-youtube-ag-fd160d.log"
+  },
+  {
+    "id": "rel-08-stickman-ol-f5c732",
+    "status": "done",
+    "exit": 0,
+    "seconds": 623,
+    "size": 448907,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\fix-rel-08-stickman-ol-f5c732.log"
+  },
+  {
+    "id": "rel-ol-misto-ce1aff",
+    "status": "done",
+    "exit": 0,
+    "seconds": 324,
+    "size": 2224254,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\fix-rel-ol-misto-ce1aff.log"
+  },
+  {
+    "id": "rel-ol-codigo-youtube-14e66e",
+    "status": "failed",
+    "exit": 1,
+    "seconds": 148,
+    "size": 0,
+    "log": "C:\\Users\\ajrss\\AppData\\Local\\Temp\\fix-rel-ol-codigo-youtube-14e66e.log"
+  }
+]

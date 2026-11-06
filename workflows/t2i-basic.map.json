@@ -1,0 +1,10 @@
+{
+  "_doc": "Edite 'vars.checkpoint' para o nome exato do seu modelo em ComfyUI/models/checkpoints. 'mapping' é opcional: aponta nodeId.inputs.campo -> variável. Variáveis disponíveis: prompt, negative, seed, width, height, frames, fps, text, init_image.",
+  "vars": {
+    "checkpoint": "sd_xl_base_1.0.safetensors"
+  },
+  "mapping": {},
+  "outputNode": "9",
+  "label": "SDXL básico",
+  "capability": "image"
+}

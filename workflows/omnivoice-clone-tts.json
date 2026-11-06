@@ -1,0 +1,73 @@
+{
+  "2": {
+    "inputs": {
+      "model": "OmniVoice (auto download)",
+      "text": "{{text}}",
+      "ref_text": "",
+      "steps": 32,
+      "guidance_scale": 2,
+      "t_shift": 0.1,
+      "speed": 0.95,
+      "duration": 0,
+      "device": "auto",
+      "dtype": "auto",
+      "attention": "auto",
+      "seed": "{{seed}}",
+      "position_temperature": 5,
+      "class_temperature": 0,
+      "layer_penalty_factor": 5,
+      "denoise": true,
+      "preprocess_prompt": true,
+      "postprocess_output": true,
+      "keep_model_loaded": true,
+      "instruct": "",
+      "ref_audio": [
+        "3",
+        0
+      ],
+      "whisper_model": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "OmniVoiceVoiceCloneTTS",
+    "_meta": {
+      "title": "OmniVoice Voice Clone TTS"
+    }
+  },
+  "3": {
+    "inputs": {
+      "audio": "{{ref_audio}}"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "Carregar Áudio"
+    }
+  },
+  "4": {
+    "inputs": {
+      "model": "whisper-large-v3-turbo (auto-download)",
+      "device": "auto",
+      "dtype": "fp16"
+    },
+    "class_type": "OmniVoiceWhisperLoader",
+    "_meta": {
+      "title": "OmniVoice Whisper Loader"
+    }
+  },
+  "5": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI",
+      "format": "mp3",
+      "format.quality": "V0",
+      "audio": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "SaveAudioAdvanced",
+    "_meta": {
+      "title": "Salvar Áudio (Avançado)"
+    }
+  }
+}

@@ -1,0 +1,780 @@
+{
+ "source": "synthetic (demo)",
+ "words": [
+  {
+   "word": "Two",
+   "start": 0.35,
+   "end": 0.745
+  },
+  {
+   "word": "hundred",
+   "start": 0.805,
+   "end": 1.3
+  },
+  {
+   "word": "feet",
+   "start": 1.36,
+   "end": 1.78
+  },
+  {
+   "word": "above",
+   "start": 1.84,
+   "end": 2.285
+  },
+  {
+   "word": "the",
+   "start": 2.345,
+   "end": 2.74
+  },
+  {
+   "word": "trees,",
+   "start": 2.8,
+   "end": 3.245
+  },
+  {
+   "word": "a",
+   "start": 3.585,
+   "end": 3.93
+  },
+  {
+   "word": "train",
+   "start": 3.99,
+   "end": 4.435
+  },
+  {
+   "word": "climbs",
+   "start": 4.495,
+   "end": 4.965
+  },
+  {
+   "word": "the",
+   "start": 5.025,
+   "end": 5.42
+  },
+  {
+   "word": "lift",
+   "start": 5.48,
+   "end": 5.9
+  },
+  {
+   "word": "hill.",
+   "start": 5.96,
+   "end": 6.38
+  },
+  {
+   "word": "Nine",
+   "start": 7.34,
+   "end": 7.76
+  },
+  {
+   "word": "cars.",
+   "start": 7.82,
+   "end": 8.24
+  },
+  {
+   "word": "Thirty",
+   "start": 8.8,
+   "end": 9.27
+  },
+  {
+   "word": "six",
+   "start": 9.33,
+   "end": 9.725
+  },
+  {
+   "word": "riders.",
+   "start": 9.785,
+   "end": 10.255
+  },
+  {
+   "word": "One",
+   "start": 10.815,
+   "end": 11.21
+  },
+  {
+   "word": "bar",
+   "start": 11.27,
+   "end": 11.665
+  },
+  {
+   "word": "across",
+   "start": 11.725,
+   "end": 12.195
+  },
+  {
+   "word": "every",
+   "start": 12.255,
+   "end": 12.7
+  },
+  {
+   "word": "lap.",
+   "start": 12.76,
+   "end": 13.155
+  },
+  {
+   "word": "That",
+   "start": 14.115,
+   "end": 14.535
+  },
+  {
+   "word": "night,",
+   "start": 14.595,
+   "end": 15.04
+  },
+  {
+   "word": "twelve",
+   "start": 15.38,
+   "end": 15.85
+  },
+  {
+   "word": "coasters",
+   "start": 15.91,
+   "end": 16.43
+  },
+  {
+   "word": "were",
+   "start": 16.49,
+   "end": 16.91
+  },
+  {
+   "word": "shut",
+   "start": 16.97,
+   "end": 17.39
+  },
+  {
+   "word": "across",
+   "start": 17.45,
+   "end": 17.92
+  },
+  {
+   "word": "the",
+   "start": 17.98,
+   "end": 18.375
+  },
+  {
+   "word": "country.",
+   "start": 18.435,
+   "end": 18.93
+  },
+  {
+   "word": "One",
+   "start": 19.89,
+   "end": 20.285
+  },
+  {
+   "word": "witness",
+   "start": 20.345,
+   "end": 20.84
+  },
+  {
+   "word": "said",
+   "start": 20.9,
+   "end": 21.32
+  },
+  {
+   "word": "the",
+   "start": 21.38,
+   "end": 21.775
+  },
+  {
+   "word": "bar",
+   "start": 21.835,
+   "end": 22.23
+  },
+  {
+   "word": "looked",
+   "start": 22.29,
+   "end": 22.76
+  },
+  {
+   "word": "loose",
+   "start": 22.82,
+   "end": 23.265
+  },
+  {
+   "word": "when",
+   "start": 23.325,
+   "end": 23.745
+  },
+  {
+   "word": "the",
+   "start": 23.805,
+   "end": 24.2
+  },
+  {
+   "word": "car",
+   "start": 24.26,
+   "end": 24.655
+  },
+  {
+   "word": "came",
+   "start": 24.715,
+   "end": 25.135
+  },
+  {
+   "word": "back.",
+   "start": 25.195,
+   "end": 25.615
+  },
+  {
+   "word": "You",
+   "start": 26.575,
+   "end": 26.97
+  },
+  {
+   "word": "always",
+   "start": 27.03,
+   "end": 27.5
+  },
+  {
+   "word": "expect",
+   "start": 27.56,
+   "end": 28.03
+  },
+  {
+   "word": "to",
+   "start": 28.09,
+   "end": 28.46
+  },
+  {
+   "word": "get",
+   "start": 28.52,
+   "end": 28.915
+  },
+  {
+   "word": "back,",
+   "start": 28.975,
+   "end": 29.395
+  },
+  {
+   "word": "one",
+   "start": 29.735,
+   "end": 30.13
+  },
+  {
+   "word": "rider",
+   "start": 30.19,
+   "end": 30.635
+  },
+  {
+   "word": "said.",
+   "start": 30.695,
+   "end": 31.115
+  },
+  {
+   "word": "In",
+   "start": 32.075,
+   "end": 32.445
+  },
+  {
+   "word": "the",
+   "start": 32.505,
+   "end": 32.9
+  },
+  {
+   "word": "left",
+   "start": 32.96,
+   "end": 33.38
+  },
+  {
+   "word": "seat,",
+   "start": 33.44,
+   "end": 33.86
+  },
+  {
+   "word": "the",
+   "start": 34.2,
+   "end": 34.595
+  },
+  {
+   "word": "captain.",
+   "start": 34.655,
+   "end": 35.15
+  },
+  {
+   "word": "Two",
+   "start": 35.71,
+   "end": 36.105
+  },
+  {
+   "word": "control",
+   "start": 36.165,
+   "end": 36.66
+  },
+  {
+   "word": "columns,",
+   "start": 36.72,
+   "end": 37.215
+  },
+  {
+   "word": "linked",
+   "start": 37.555,
+   "end": 38.025
+  },
+  {
+   "word": "together.",
+   "start": 38.085,
+   "end": 38.605
+  },
+  {
+   "word": "Behind",
+   "start": 39.565,
+   "end": 40.035
+  },
+  {
+   "word": "the",
+   "start": 40.095,
+   "end": 40.49
+  },
+  {
+   "word": "door,",
+   "start": 40.55,
+   "end": 40.97
+  },
+  {
+   "word": "one",
+   "start": 41.31,
+   "end": 41.705
+  },
+  {
+   "word": "hundred",
+   "start": 41.765,
+   "end": 42.26
+  },
+  {
+   "word": "and",
+   "start": 42.32,
+   "end": 42.715
+  },
+  {
+   "word": "seventy",
+   "start": 42.775,
+   "end": 43.27
+  },
+  {
+   "word": "four",
+   "start": 43.33,
+   "end": 43.75
+  },
+  {
+   "word": "passengers.",
+   "start": 43.81,
+   "end": 44.38
+  },
+  {
+   "word": "Twenty",
+   "start": 45.34,
+   "end": 45.81
+  },
+  {
+   "word": "one",
+   "start": 45.87,
+   "end": 46.265
+  },
+  {
+   "word": "minutes",
+   "start": 46.325,
+   "end": 46.82
+  },
+  {
+   "word": "past",
+   "start": 46.88,
+   "end": 47.3
+  },
+  {
+   "word": "eight.",
+   "start": 47.36,
+   "end": 47.805
+  },
+  {
+   "word": "The",
+   "start": 48.365,
+   "end": 48.76
+  },
+  {
+   "word": "aircraft",
+   "start": 48.82,
+   "end": 49.34
+  },
+  {
+   "word": "is",
+   "start": 49.4,
+   "end": 49.77
+  },
+  {
+   "word": "level",
+   "start": 49.83,
+   "end": 50.275
+  },
+  {
+   "word": "at",
+   "start": 50.335,
+   "end": 50.705
+  },
+  {
+   "word": "thirty",
+   "start": 50.765,
+   "end": 51.235
+  },
+  {
+   "word": "four",
+   "start": 51.295,
+   "end": 51.715
+  },
+  {
+   "word": "thousand",
+   "start": 51.775,
+   "end": 52.295
+  },
+  {
+   "word": "feet.",
+   "start": 52.355,
+   "end": 52.775
+  },
+  {
+   "word": "Then",
+   "start": 53.735,
+   "end": 54.155
+  },
+  {
+   "word": "the",
+   "start": 54.215,
+   "end": 54.61
+  },
+  {
+   "word": "line",
+   "start": 54.67,
+   "end": 55.09
+  },
+  {
+   "word": "on",
+   "start": 55.15,
+   "end": 55.52
+  },
+  {
+   "word": "the",
+   "start": 55.58,
+   "end": 55.975
+  },
+  {
+   "word": "tracking",
+   "start": 56.035,
+   "end": 56.555
+  },
+  {
+   "word": "screen",
+   "start": 56.615,
+   "end": 57.085
+  },
+  {
+   "word": "turns",
+   "start": 57.145,
+   "end": 57.59
+  },
+  {
+   "word": "west,",
+   "start": 57.65,
+   "end": 58.07
+  },
+  {
+   "word": "toward",
+   "start": 58.41,
+   "end": 58.88
+  },
+  {
+   "word": "the",
+   "start": 58.94,
+   "end": 59.335
+  },
+  {
+   "word": "border.",
+   "start": 59.395,
+   "end": 59.865
+  },
+  {
+   "word": "In",
+   "start": 60.825,
+   "end": 61.195
+  },
+  {
+   "word": "under",
+   "start": 61.255,
+   "end": 61.7
+  },
+  {
+   "word": "a",
+   "start": 61.76,
+   "end": 62.105
+  },
+  {
+   "word": "minute,",
+   "start": 62.165,
+   "end": 62.635
+  },
+  {
+   "word": "it",
+   "start": 62.975,
+   "end": 63.345
+  },
+  {
+   "word": "falls",
+   "start": 63.405,
+   "end": 63.85
+  },
+  {
+   "word": "more",
+   "start": 63.91,
+   "end": 64.33
+  },
+  {
+   "word": "than",
+   "start": 64.39,
+   "end": 64.81
+  },
+  {
+   "word": "fourteen",
+   "start": 64.87,
+   "end": 65.39
+  },
+  {
+   "word": "thousand",
+   "start": 65.45,
+   "end": 65.97
+  },
+  {
+   "word": "feet.",
+   "start": 66.03,
+   "end": 66.45
+  },
+  {
+   "word": "The",
+   "start": 67.41,
+   "end": 67.805
+  },
+  {
+   "word": "transponder",
+   "start": 67.865,
+   "end": 68.46
+  },
+  {
+   "word": "changes.",
+   "start": 68.52,
+   "end": 69.015
+  },
+  {
+   "word": "Seven",
+   "start": 69.575,
+   "end": 70.02
+  },
+  {
+   "word": "seven",
+   "start": 70.08,
+   "end": 70.525
+  },
+  {
+   "word": "zero",
+   "start": 70.585,
+   "end": 71.005
+  },
+  {
+   "word": "zero.",
+   "start": 71.065,
+   "end": 71.485
+  },
+  {
+   "word": "General",
+   "start": 72.045,
+   "end": 72.54
+  },
+  {
+   "word": "emergency.",
+   "start": 72.6,
+   "end": 73.145
+  },
+  {
+   "word": "Investigators",
+   "start": 74.105,
+   "end": 74.75
+  },
+  {
+   "word": "are",
+   "start": 74.81,
+   "end": 75.205
+  },
+  {
+   "word": "looking",
+   "start": 75.265,
+   "end": 75.76
+  },
+  {
+   "word": "at",
+   "start": 75.82,
+   "end": 76.19
+  },
+  {
+   "word": "three",
+   "start": 76.25,
+   "end": 76.695
+  },
+  {
+   "word": "possibilities.",
+   "start": 76.755,
+   "end": 77.4
+  },
+  {
+   "word": "The",
+   "start": 78.36,
+   "end": 78.755
+  },
+  {
+   "word": "door",
+   "start": 78.815,
+   "end": 79.235
+  },
+  {
+   "word": "is",
+   "start": 79.295,
+   "end": 79.665
+  },
+  {
+   "word": "right",
+   "start": 79.725,
+   "end": 80.17
+  },
+  {
+   "word": "there.",
+   "start": 80.23,
+   "end": 80.675
+  },
+  {
+   "word": "Inside",
+   "start": 81.635,
+   "end": 82.105
+  },
+  {
+   "word": "the",
+   "start": 82.165,
+   "end": 82.56
+  },
+  {
+   "word": "lock,",
+   "start": 82.62,
+   "end": 83.04
+  },
+  {
+   "word": "a",
+   "start": 83.38,
+   "end": 83.725
+  },
+  {
+   "word": "ratchet",
+   "start": 83.785,
+   "end": 84.28
+  },
+  {
+   "word": "on",
+   "start": 84.34,
+   "end": 84.71
+  },
+  {
+   "word": "a",
+   "start": 84.77,
+   "end": 85.115
+  },
+  {
+   "word": "toothed",
+   "start": 85.175,
+   "end": 85.67
+  },
+  {
+   "word": "wheel.",
+   "start": 85.73,
+   "end": 86.175
+  },
+  {
+   "word": "Photos",
+   "start": 87.135,
+   "end": 87.605
+  },
+  {
+   "word": "taken",
+   "start": 87.665,
+   "end": 88.11
+  },
+  {
+   "word": "afterwards",
+   "start": 88.17,
+   "end": 88.74
+  },
+  {
+   "word": "show",
+   "start": 88.8,
+   "end": 89.22
+  },
+  {
+   "word": "the",
+   "start": 89.28,
+   "end": 89.675
+  },
+  {
+   "word": "train",
+   "start": 89.735,
+   "end": 90.18
+  },
+  {
+   "word": "back",
+   "start": 90.24,
+   "end": 90.66
+  },
+  {
+   "word": "in",
+   "start": 90.72,
+   "end": 91.09
+  },
+  {
+   "word": "the",
+   "start": 91.15,
+   "end": 91.545
+  },
+  {
+   "word": "station.",
+   "start": 91.605,
+   "end": 92.1
+  },
+  {
+   "word": "Each",
+   "start": 93.06,
+   "end": 93.48
+  },
+  {
+   "word": "is",
+   "start": 93.54,
+   "end": 93.91
+  },
+  {
+   "word": "a",
+   "start": 93.97,
+   "end": 94.315
+  },
+  {
+   "word": "possibility,",
+   "start": 94.375,
+   "end": 94.97
+  },
+  {
+   "word": "not",
+   "start": 95.31,
+   "end": 95.705
+  },
+  {
+   "word": "a",
+   "start": 95.765,
+   "end": 96.11
+  },
+  {
+   "word": "finding.",
+   "start": 96.17,
+   "end": 96.665
+  }
+ ]
+}

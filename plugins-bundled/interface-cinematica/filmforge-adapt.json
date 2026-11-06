@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "createdAt": "2026-10-28T00:00:00.000Z",
+  "by": "FilmForge (plugin embutido)",
+  "summary": "Diretrizes de interface premium só nas etapas que desenham a tela",
+  "global": "Rodando sem usuário: não faça perguntas; aplique as diretrizes ao HTML da cena.",
+  "items": [
+    { "id": "skill:interface-premium", "steps": ["code_scene", "motion_graphics"] },
+    { "id": "skill:interface-premium", "steps": ["scene_plan"], "note": "use só para decidir o elemento-herói e a direção visual de cada cena" }
+  ],
+  "outputs": {
+    "code_scene": "Grave um único scene.html com window.__forge.seek(t); o checklist final da skill vale para cada cena.",
+    "motion_graphics": "Mesmo contrato de scene.html; prefira os componentes da seção 6 (cartão de dado, gráfico, lista, comparação)."
+  },
+  "ignore": []
+}

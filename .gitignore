@@ -1,0 +1,38 @@
+# dependências e saídas de build
+node_modules/
+dist/
+dist-build/
+build-output/
+release/
+release-*/
+release_*/
+
+# cópias de segurança e pacotes
+_backup*/
+*.zip
+
+# logs e artefatos de execuções de teste
+*.log
+*.log.err
+*.log.out
+gta-*
+gta6-*.json
+patch.json
+
+# binários grandes (baixados/copiados à parte)
+tools/ffmpeg/
+
+# referências de estilo (não publicar)
+vendor/cartoon3d/reference/
+
+# mídia pesada dos plugins
+plugins-data/**/*.mp4
+plugins-data/**/*.mov
+plugins-data/**/*.webm
+plugins-data/**/*.wav
+plugins-data/**/*.mp3
+plugins-data/**/*.hdr
+
+# projetos gerados e dados locais
+projects/
+.claude/settings.local.json

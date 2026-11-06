@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "createdAt": "2026-11-01T17:19:25.819Z",
+  "by": "harness:auto",
+  "summary": "As seis skills são receitas de cena em código: as 3D (zach-d-films, stick-figure, breakdown, map-route) viram code_scene, as gráficas (graph, minimalistic-graphics) viram motion_graphics, e scene_plan escolhe o arquétipo; script e asset_design aproveitam os formatos explicativos.",
+  "global": "Sem usuário: não faça perguntas nem comandos de barra (/graph etc.); ignore scripts, TTS, Playwright e instalação de kit. Use o SKILL.md só como receita visual e de timing, sempre determinística via window.__forge.seek(t).",
+  "items": [
+    {
+      "id": "skill:breakdown",
+      "steps": [
+        "scene_plan",
+        "code_scene"
+      ],
+      "note": "Arquétipo 'exploded view' para explicar produto/componentes: camadas se separam, linhas-guia e rótulos numerados."
+    },
+    {
+      "id": "skill:graph",
+      "steps": [
+        "scene_plan",
+        "motion_graphics"
+      ],
+      "note": "Cena de dado/estatística: linha se desenha, número conta até o valor final, eixos e rótulos."
+    },
+    {
+      "id": "skill:map-route",
+      "steps": [
+        "scene_plan",
+        "code_scene"
+      ],
+      "note": "Cena de trajeto/local: rota se desenha, câmera segue e pino cai; usar quando a narrativa tem deslocamento."
+    },
+    {
+      "id": "skill:minimalistic-graphics",
+      "steps": [
+        "scene_plan",
+        "motion_graphics"
+      ],
+      "note": "Metáfora em line-art: degraus sobem, ponto pula e órbita; legenda lowercase curta."
+    },
+    {
+      "id": "skill:stick-figure",
+      "steps": [
+        "scene_plan",
+        "script",
+        "asset_design",
+        "code_scene"
+      ],
+      "note": "Explainer 9:16 de 30–45 s: mundo cartoon, personagens de cabeça branca e legendas de 1–2 palavras."
+    },
+    {
+      "id": "skill:zach-d-films",
+      "steps": [
+        "scene_plan",
+        "script",
+        "asset_design",
+        "code_scene"
+      ],
+      "note": "Formato 'what if' 3D em ~9 planos, slow-motion e legendas brancas no terço inferior."
+    }
+  ],
+  "outputs": {
+    "scene_plan": "Cada skill vira um arquétipo de cena em scenes.json: definir kind (code_scene para as 3D, motion_graphics para graph/minimalistic), durationSec a partir dos beats do SKILL.md e visualIntent descrevendo o movimento (camadas se separando, linha se desenhando, rota, ponto subindo).",
+    "code_scene": "O recipe do SKILL.md (paleta, câmera, ordem e duração dos beats, easing) vira scene.html determinístico: cada beat mapeado em window.__forge.seek(t); three.js/canvas e rótulos em SVG por cima, sem build.py nem render Playwright.",
+    "motion_graphics": "graph e minimalistic viram scene.html: path SVG com stroke-dashoffset, contador com easing e tipografia lowercase controlados por seek(t), mantendo o contrato de cena.",
+    "script": "stick-figure e zach-d-films ditam a estrutura do roteiro falado: gancho em pergunta/'what if', blocos curtos de 1–2 frases e ritmo de 30–45 s; as legendas de 1–2 palavras ficam como diretriz de cena, não como texto narrado.",
+    "asset_design": "Personagens e props procedurais (cabeça branca grande e expressões; pessoas/props 3D) viram fichas fixas em assets.md: formas, proporções, paleta e traços recorrentes para manter continuidade entre cenas."
+  },
+  "ignore": [
+    "26 script(s) (skills/breakdown, skills/graph, skills/map-route) — o FilmForge não executa scripts do plugin",
+    "comandos de barra, agentes paralelos e perguntas ao usuário (a produção roda sozinha)",
+    "scripts build.py, make.sh, render.js/render.mjs, align.py e afins — o FilmForge não os executa",
+    "TTS (tts_kokoro.py, tts_elevenlabs.py, audio.py) e alinhamento de áudio — a locução é a etapa narration",
+    "render/encode com Playwright, HyperFrames e ffmpeg — o scene.html é renderizado pelo próprio FilmForge",
+    "instalação do kit/vendor, dependências Python/Node e download de assets externos",
+    "perguntas ao usuário, confirmação de tema e comandos de barra (/breakdown, /graph, ...)",
+    "MCP, buscas web, APIs externas e agentes paralelos"
+  ]
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "clipe-pixel-ag-c-digo-5aa5da",
+    "name": "Clipe Pixel AG Código",
+    "routeId": "clipe-musical-code-ag"
+  },
+  {
+    "id": "clipe-pixel-ag-minimax-cdae0b",
+    "name": "Clipe Pixel AG MiniMax",
+    "routeId": "clipe-musical-video-ag"
+  },
+  {
+    "id": "clipe-pixel-ol-minimax-908aac",
+    "name": "Clipe Pixel OL MiniMax",
+    "routeId": "clipe-musical-video-ol"
+  }
+]

@@ -1,0 +1,1 @@
+export const fileURLToPath = (u) => decodeURIComponent(new URL(String(u)).pathname); export const pathToFileURL = (p) => new URL(p, location.origin); export default { fileURLToPath, pathToFileURL };

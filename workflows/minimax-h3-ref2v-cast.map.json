@@ -1,0 +1,10 @@
+{
+  "_doc": "MiniMax H3 referência->vídeo com elenco: <Picture 1> = imagem da cena (etapa 'image'); <Picture 2..3> = retratos dos personagens que aparecem na cena (assets/characters/*.png, gerados uma vez pela bíblia de personagens). castRefs = quantos retratos no máximo.",
+  "megapixels": 0.4,
+  "multiple": 32,
+  "outputNode": "19",
+  "castRefs": 2,
+  "vars": {},
+  "label": "MiniMax H3 — referência → vídeo (elenco)",
+  "capability": "video"
+}

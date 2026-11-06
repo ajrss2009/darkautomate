@@ -1,0 +1,10 @@
+{
+  "_doc": "OmniVoice clonagem de voz. 'refAudio' = caminho local de um áudio de referência (enviado ao ComfyUI antes de cada execução). Sem refAudio, usa vars.ref_audio = arquivo já existente em ComfyUI/input.",
+  "refAudio": "",
+  "outputNode": "5",
+  "vars": {
+    "ref_audio": "Dave PT-BR.MP3"
+  },
+  "label": "OmniVoice (clonagem de voz)",
+  "capability": "voice"
+}

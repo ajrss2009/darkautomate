@@ -1,0 +1,16 @@
+[
+  {
+    "id": "anime-2d-ollama-c-digo-17bdc8",
+    "name": "Anime 2D (Ollama + código)",
+    "routeId": "clipe-musical-code-ol-anime",
+    "waveform": "cline",
+    "musicMode": "instrumental"
+  },
+  {
+    "id": "anime-2d-ollama-minimax-h3-ec27e6",
+    "name": "Anime 2D (Ollama + MiniMax H3)",
+    "routeId": "clipe-musical-video-ol",
+    "waveform": "p2p",
+    "musicMode": "song"
+  }
+]

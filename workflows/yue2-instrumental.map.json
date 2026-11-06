@@ -1,0 +1,13 @@
+{
+  "_doc": "YuE2 instrumental (LoRA ar_lora_inst_v3abc). Variáveis: style, lyrics='[instrumental]', music_seconds (30-360), seed.",
+  "outputNode": "42",
+  "mapping": {
+    "43:36.inputs.value": "style",
+    "43:37.inputs.value": "lyrics",
+    "43:34.inputs.seed": "seed",
+    "43:25.inputs.max_duration": "music_seconds"
+  },
+  "vars": { "lyrics": "[instrumental]" },
+  "label": "YuE2 instrumental (LoRA)",
+  "capability": "music"
+}

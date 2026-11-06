@@ -1,0 +1,9 @@
+{
+  "_doc": "Krea 2 Turbo (int8) texto->imagem. Refinador de prompt (TextGenerate) ligado; LoRA desligada (nó 30:23 = true para ligar). maxSide = maior lado gerado; o ffmpeg ajusta para a resolução final.",
+  "maxSide": 1344,
+  "multiple": 16,
+  "outputNode": "29",
+  "vars": {},
+  "label": "Krea 2 Turbo",
+  "capability": "image"
+}

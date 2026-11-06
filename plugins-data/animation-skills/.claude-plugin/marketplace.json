@@ -1,0 +1,12 @@
+{
+  "name": "claude-animation-skills",
+  "owner": { "name": "Artem Novitckii", "url": "https://novitckii.com" },
+  "description": "Artem Novitckii's animation skills for Claude Code.",
+  "plugins": [
+    {
+      "name": "animation-skills",
+      "source": "./",
+      "description": "Six skills that make animations for reels with no footage: a 3D cartoon explainer, a stick-figure explainer, minimal black-and-white line art, a 3D map route, a 3D exploded view and a minimal line graph."
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "_doc": "YuE2 texto->música. Variáveis: style, lyrics, music_seconds (duração do vídeo, máx. 360), seed. Planejamento ABC ligado (nó 33:31).",
+  "outputNode": "10",
+  "vars": {
+    "lyrics": "[Instrumental]"
+  },
+  "label": "YuE2 — texto → música",
+  "capability": "music"
+}

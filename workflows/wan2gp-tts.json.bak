@@ -1,0 +1,11 @@
+{
+  "_doc": "Wan2GP narração (TTS). model_type PROVÁVEL; CONFIRA no app: Provedores → Listar modelos Wan2GP (ids) e 'Ver padrões' (chaves). Para clonar voz, defina refAudio e confira a chave de áudio de referência do modelo (ex.: audio_guide).",
+  "model_type": "qwen3_tts_base",
+  "refAudio": "",
+  "settings": {
+    "prompt": "{{text}}",
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP · narração (TTS)",
+  "capability": "voice"
+}

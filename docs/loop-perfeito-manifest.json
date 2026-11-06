@@ -1,0 +1,33 @@
+{
+  "projects": [
+    {
+      "id": "clipe-lo-fi-anime-2d-loop-perfeito",
+      "name": "Clipe lo-fi anime 2D — loop perfeito (MiniMax H3 + Ollama)",
+      "routeId": "clipe-musical-loop-ol",
+      "videoType": "anime_2d",
+      "musicStyle": "lo-fi anime, chill, piano suave, chuva, vinil, noturno, instrumental, sem vocais",
+      "musicMode": "instrumental",
+      "waveform": "cline",
+      "tracks": ["Chuva na Janela", "Vapor de Café"],
+      "imageWorkflow": "krea2-turbo-t2i.json",
+      "videoWorkflow": "minimax-h3-perfect-loop-3step.json",
+      "videoLora": "minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors",
+      "videoSteps": 3,
+      "imageSize": "1344x752",
+      "videoSize": "1024x576",
+      "exactAspect": true,
+      "sourceFrames": 294,
+      "loopFrames": 293,
+      "loopSeconds": 12.208008,
+      "finalSeconds": 24.416667,
+      "finalFrames": 586,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "finalBytes": 27617313,
+      "runSeconds": 325.4,
+      "final": "G:/PROJECTS/CLAUDE FILMFORGE/21 10 2026 - Copia/projects/clipe-lo-fi-anime-2d-loop-perfeito/out/final.mp4",
+      "backup": "G:/PROJECTS/CLAUDE FILMFORGE/21 10 2026 - Copia/projects/clipe-lo-fi-anime-2d-loop-perfeito/out/final-old.mp4"
+    }
+  ]
+}

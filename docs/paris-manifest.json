@@ -1,0 +1,12 @@
+[
+  {
+    "id": "paris-lo-fi-16-bit-ollama-c-digo-1fcd5d",
+    "name": "Paris Lo-fi 16-bit (Ollama + código)",
+    "routeId": "clipe-musical-code-ol"
+  },
+  {
+    "id": "paris-lo-fi-16-bit-ollama-minima-801948",
+    "name": "Paris Lo-fi 16-bit (Ollama + MiniMax H3)",
+    "routeId": "clipe-musical-video-ol"
+  }
+]

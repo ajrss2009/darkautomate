@@ -1,0 +1,14 @@
+{
+  "_doc": "Wan2GP texto->imagem. model_type PROVÁVEL ('z_image'): CONFIRA no app: Provedores → Listar modelos Wan2GP (ids) e 'Ver padrões' (chaves). ",
+  "model_type": "z_image",
+  "maxSide": 1280,
+  "multiple": 16,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "resolution": "{{resolution}}",
+    "seed": "{{seed}}",
+    "video_length": 1
+  },
+  "label": "Wan2GP · imagem (Z-Image)",
+  "capability": "image"
+}

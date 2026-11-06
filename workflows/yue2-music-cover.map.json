@@ -1,0 +1,10 @@
+{
+  "_doc": "YuE2 cover/variação de uma música de referência (melodia extraída com SheetSage2). Defina 'refAudio' (caminho local) neste arquivo.",
+  "refAudio": "",
+  "outputNode": "10",
+  "vars": {
+    "lyrics": "[Instrumental]"
+  },
+  "label": "YuE2 — cover de referência",
+  "capability": "music"
+}

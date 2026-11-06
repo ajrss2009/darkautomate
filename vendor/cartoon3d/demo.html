@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>cartoon3d demo</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block;width:100vw;height:100vh;object-fit:contain}</style>
+<script type="importmap">{"imports":{"three":"../three/three.module.min.js","cartoon3d":"./cartoon3d.js"}}</script>
+</head><body><canvas id="c"></canvas>
+<script type="module">
+import * as THREE from "three";
+import * as C from "cartoon3d";
+const DUR = 5, FPS = 30;
+const st = C.createStage({ width: 1080, height: 1920, light: new URLSearchParams(location.search).get("light") || "day" });
+st.street({ length: 70, width: 11, seed: 2 });
+st.clouds(5);
+st.house({ x: 0, z: -34, w: 9, h: 8.4, style: 1, sign: "SALOON" });
+st.prop("car", { x: -3.2, z: -12, yaw: 90, color: "#7a2a2a" });
+for (const [x, z] of [[2.6, -6], [3.2, -7], [2.9, -8.2]]) st.prop("barrel", { x, z });
+st.prop("lamppost", { x: -4.6, z: -4 });
+const paper = st.poster("jornal", { x: 0.2, y: 2.6, z: -3, w: 1.2, h: 0.8, cw: 600, ch: 400 }, (p, g) => {
+  g.fillStyle = "#f3ead6"; g.fillRect(8, 8, 584, 384); g.lineWidth = 12; g.strokeStyle = "#241726"; g.strokeRect(8, 8, 584, 384);
+  g.fillStyle = "#241726"; g.font = "900 92px Georgia, serif"; g.textAlign = "center"; g.fillText("DRY LAW!", 300, 150);
+  for (let i = 0; i < 6; i++) g.fillRect(60, 210 + i * 26, 480 - (i % 2) * 120, 12);
+});
+const cop = st.actor(C.OUTFITS.police, { x: -0.8, z: -2, seed: 3 });
+const boss = st.actor(C.OUTFITS.gangster, { x: 1.2, z: -3.2, seed: 7 });
+const kid = st.actor(C.OUTFITS.kid, { x: 0.3, z: -5, seed: 5 });
+const keys = [
+  { t: 0, pos: [0.4, 1.5, 4.5], look: [0.2, 1.2, -3], fov: 38 },
+  { t: 2.2, pos: [2.2, 1.7, 2.5], look: [1.6, 1.3, -4], fov: 34, roll: 3 },
+  { t: 5, pos: [2.0, 1.8, 2.2], look: [1.6, 1.4, -4], fov: 34, roll: 3 },
+];
+function seek(t) {
+  const k = C.camAt(keys, t);
+  st.camFrom(k, [0, C.kick(t, 2.4, 0.04), 0]);
+  cop.set({ mode: "stroll", phase: t * 1.0, x: -0.8 + 0.5 * t, expr: t > 2.4 ? "shock" : "stern", blink: C.blink(t, 3) });
+  boss.set({ mode: "stand", expr: t > 2.4 ? "nervous" : "grin", blink: C.blink(t, 7), wave: t < 2 ? (t * 2) % 1 : undefined });
+  kid.set({ mode: "stand", expr: "laugh", blink: C.blink(t, 5) });
+  const pop = C.ease(t / 0.5); paper.visible = t < 2.2; paper.scale.set(pop, pop, 1);
+  if (t > 2.4 && t < 2.9) st.fx("burst", { x: 2.9, y: 1.1, z: -6.9, t: (t - 2.4) / 0.5, size: 1.2 });
+  st.render({ dof: t > 2.2 ? 11 : 0, flash: t < 0.12 ? 1 - t / 0.12 : 0 });
+}
+let raf = 0, t0 = performance.now();
+const loop = () => { seek(((performance.now() - t0) / 1000) % DUR); raf = requestAnimationFrame(loop); };
+window.__forge = { duration: DUR, fps: FPS, seek, pause() { cancelAnimationFrame(raf); }, sfx: [{ t: 2.4, name: "impact" }] };
+const at = new URLSearchParams(location.search).get("t");
+if (at !== null) seek(+at); else loop();
+</script></body></html>

@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>ant-colony</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">{"imports":{"path":"/_gallery/runner/path.mjs","node:path":"/_gallery/runner/path.mjs","fs":"/_gallery/runner/fs.mjs","node:fs":"/_gallery/runner/fs.mjs","url":"/_gallery/runner/url.mjs","node:url":"/_gallery/runner/url.mjs","child_process":"/_gallery/runner/cp.mjs","node:child_process":"/_gallery/runner/cp.mjs","@napi-rs/canvas":"/_gallery/runner/napi-canvas.mjs","/skills/claude-animation/lib/film.mjs":"/_gallery/runner/film.mjs","/skills/claude-animation/node_modules/@napi-rs/canvas/index.js":"/_gallery/runner/napi-canvas.mjs"}}</script></head><body>
+<script>window.process = { env: { CLAUDE_ANIMATION_LIB: "/skills/claude-animation/lib", HOME: "/home", FONT_DIR: "/fonts" }, argv: ["node", "film.mjs", "preview"], platform: "browser", cwd: () => "/", exit() {} };</script>
+<script type="module">
+import("/_gallery/examples/ant-colony/film.mjs").then(async () => {
+  const F = window.__FF_FILM; if (!F) throw new Error('o filme não chamou run()');
+  const S = F.setup ? await F.setup() : undefined;
+  const W = F.W || 1920, H = F.H || 1080, fps = F.fps || 30;
+  const c = document.createElement('canvas'); c.width = W; c.height = H; document.body.appendChild(c);
+  const ctx = c.getContext('2d');
+  window.DUR = F.dur || 10;
+  window.render = async (t) => { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); await F.frame(ctx, t, Math.round(t * fps), S); };
+  window.READY = true;
+}).catch((e) => { window.__FORGE_ERR = String((e && e.stack) || e); console.error('FILM ERROR', window.__FORGE_ERR); });
+</script></body></html>

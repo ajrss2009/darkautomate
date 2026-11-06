@@ -1,0 +1,9 @@
+{
+  "_doc": "MiniMax H3 referência->vídeo com UMA imagem de referência = imagem da cena (etapa 'image'). Seu workflow original tinha 2 referências + áudios: para personagens fixos, duplique este arquivo e fixe LoadImage em nomes de arquivos do ComfyUI/input.",
+  "megapixels": 0.4,
+  "multiple": 32,
+  "outputNode": "19",
+  "vars": {},
+  "label": "MiniMax H3 — referência → vídeo",
+  "capability": "video"
+}

@@ -1,0 +1,18 @@
+{
+  "_doc": "Wan2GP imagem->vídeo (LTX-2 distilled) usando a imagem da cena. 'image_start'/'image_prompt_type' são as chaves de imagem inicial do Wan2GP; CONFIRA no app: Provedores → Listar modelos Wan2GP (ids) e 'Ver padrões' (chaves). ",
+  "model_type": "ltx2_22B_distilled",
+  "megapixels": 0.7,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "resolution": "{{resolution}}",
+    "num_inference_steps": 8,
+    "video_length": "{{seconds_int}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}",
+    "image_prompt_type": "S",
+    "image_start": "{{init_image}}"
+  },
+  "label": "Wan2GP · LTX-2 imagem → vídeo",
+  "capability": "video"
+}

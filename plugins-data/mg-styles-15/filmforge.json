@@ -1,0 +1,203 @@
+{
+  "adapter": "prompts-repo",
+  "homepage": "https://vincentwei1021.github.io/mg-styles-15/",
+  "styles": [
+    {
+      "id": "01-flat-vector",
+      "name": "Flat / Vector 2D Motion Graphics",
+      "film": "popwise One Dot",
+      "summary": "Motion design no estilo Flat / Vector 2D Motion Graphics: direção de arte, animação e som escritos em código.",
+      "skill": "01-flat-vector",
+      "cover": "videos\\01-flat-vector.jpg",
+      "video": "videos/01-flat-vector.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/01-flat-vector.mp4",
+      "music": "pop",
+      "sfx": "pop swish whoosh(kind=\"swoosh\") blip click ui transition(\"swish_pop\")"
+    },
+    {
+      "id": "02-line-art",
+      "name": "Line Art / Line Animation",
+      "film": "ATELIER LINEA One Line",
+      "summary": "Motion design no estilo Line Art / Line Animation: direção de arte, animação e som escritos em código.",
+      "skill": "02-line-art",
+      "cover": "videos\\02-line-art.jpg",
+      "video": "videos/02-line-art.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/02-line-art.mp4",
+      "music": "ambient",
+      "sfx": "pen whoosh(kind=\"air\") tick chime sparkle"
+    },
+    {
+      "id": "03-isometric",
+      "name": "2.5D Isometric / 2.5D",
+      "film": "ISOPOLIS",
+      "summary": "Motion design no estilo 2.5D Isometric / 2.5D: direção de arte, animação e som escritos em código.",
+      "skill": "03-isometric",
+      "cover": "videos\\03-isometric.jpg",
+      "video": "videos/03-isometric.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/03-isometric.mp4",
+      "music": "explainer",
+      "sfx": "pop click blip ui whoosh tick hud_beep"
+    },
+    {
+      "id": "04-3d-render",
+      "name": "3D Render / CGI Motion Design",
+      "film": "soft. Soft Landing",
+      "summary": "Motion design no estilo 3D Render / CGI Motion Design: direção de arte, animação e som escritos em código.",
+      "skill": "04-3d-render",
+      "cover": "videos\\04-3d-render.jpg",
+      "video": "videos/04-3d-render.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/04-3d-render.mp4",
+      "music": "pop",
+      "sfx": "pop bubble gloop boing whoosh(kind=\"soft\") impact(\"soft\")"
+    },
+    {
+      "id": "05-cel-boil",
+      "name": "Cel Animation / Frame-by-Frame & Line Boil",
+      "film": "HAND MADE",
+      "summary": "Motion design no estilo Cel Animation / Frame-by-Frame & Line Boil: direção de arte, animação e som escritos em código.",
+      "skill": "05-cel-boil",
+      "cover": "videos\\05-cel-boil.jpg",
+      "video": "videos/05-cel-boil.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/05-cel-boil.mp4",
+      "music": "lofi",
+      "sfx": "paper pen pop boing whoosh(kind=\"cloth\") swish"
+    },
+    {
+      "id": "06-collage",
+      "name": "Collage / Cutout Animation",
+      "film": "NOGGIN The Mind Is a Collage",
+      "summary": "Motion design no estilo Collage / Cutout Animation: direção de arte, animação e som escritos em código.",
+      "skill": "06-collage",
+      "cover": "videos\\06-collage.jpg",
+      "video": "videos/06-collage.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/06-collage.mp4",
+      "music": "lofi",
+      "sfx": "paper tape_rip sticker_slap scissors shutter record_scratch stamp(\"rubber\")"
+    },
+    {
+      "id": "07-liquid",
+      "name": "Liquid Motion",
+      "film": "drop.",
+      "summary": "Motion design no estilo Liquid Motion: direção de arte, animação e som escritos em código.",
+      "skill": "07-liquid",
+      "cover": "videos\\07-liquid.jpg",
+      "video": "videos/07-liquid.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/07-liquid.mp4",
+      "music": "future_bass",
+      "sfx": "bubble bubbles drip gloop splash squelch morph"
+    },
+    {
+      "id": "08-morph",
+      "name": "Morphing / Shape Morph",
+      "film": "One Shape, Every Story",
+      "summary": "Motion design no estilo Morphing / Shape Morph: direção de arte, animação e som escritos em código.",
+      "skill": "08-morph",
+      "cover": "videos\\08-morph.jpg",
+      "video": "videos/08-morph.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/08-morph.mp4",
+      "music": "future_bass",
+      "sfx": "morph stretch whoosh(kind=\"sci\") pop blip"
+    },
+    {
+      "id": "09-bauhaus",
+      "name": "Geometric / Bauhaus Motion",
+      "film": "KONSTRUKTION · 20 SCHLÄGE",
+      "summary": "Motion design no estilo Geometric / Bauhaus Motion: direção de arte, animação e som escritos em código.",
+      "skill": "09-bauhaus",
+      "cover": "videos\\09-bauhaus.jpg",
+      "video": "videos/09-bauhaus.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/09-bauhaus.mp4",
+      "music": "techno",
+      "sfx": "click tick blip pop whoosh(kind=\"swish\") impact(\"punch\")"
+    },
+    {
+      "id": "10-synthwave",
+      "name": "Retro: 80s Synthwave / VHS / Y2K",
+      "film": "NEON DRIVE · Midnight 1986",
+      "summary": "Motion design no estilo Retro: 80s Synthwave / VHS / Y2K: direção de arte, animação e som escritos em código.",
+      "skill": "10-synthwave",
+      "cover": "videos\\10-synthwave.jpg",
+      "video": "videos/10-synthwave.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/10-synthwave.mp4",
+      "music": "synthwave",
+      "sfx": "whoosh(kind=\"sci\") laser shimmer_hit impact(\"cinematic\") riser"
+    },
+    {
+      "id": "12-aurora-glass",
+      "name": "Gradient Blur (Aurora) & Glassmorphism",
+      "film": "Aurora — think in light",
+      "summary": "Motion design no estilo Gradient Blur (Aurora) & Glassmorphism: direção de arte, animação e som escritos em código.",
+      "skill": "12-aurora-glass",
+      "cover": "videos\\12-aurora-glass.jpg",
+      "video": "videos/12-aurora-glass.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/12-aurora-glass.mp4",
+      "music": "ambient",
+      "sfx": "shimmer_hit sparkle magic whoosh(kind=\"air\") swell"
+    },
+    {
+      "id": "18-hanazi",
+      "name": "Variety Show Kinetic Captions (Hanazi)",
+      "film": "EP.07",
+      "summary": "Motion design no estilo Variety Show Kinetic Captions (Hanazi): direção de arte, animação e som escritos em código.",
+      "skill": "18-hanazi",
+      "cover": "videos\\18-hanazi.jpg",
+      "video": "videos/18-hanazi.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/18-hanazi.mp4",
+      "music": "variety",
+      "sfx": "boing sproing duang slide_whistle pop squeak zip_ cork_pop rimshot_joke"
+    },
+    {
+      "id": "19-paperclip",
+      "name": "Bold-outline Sticker Explainer MG (PaperClip / Lin Chao style)",
+      "film": "70/118",
+      "summary": "Motion design no estilo Bold-outline Sticker Explainer MG (PaperClip / Lin Chao style): direção de arte, animação e som escritos em código.",
+      "skill": "19-paperclip",
+      "cover": "videos\\19-paperclip.jpg",
+      "video": "videos/19-paperclip.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/19-paperclip.mp4",
+      "music": "explainer",
+      "sfx": "pop click tick blip ui whoosh(kind=\"swish\") paper typing"
+    },
+    {
+      "id": "20-pixel",
+      "name": "Pixel Art / 8-bit",
+      "film": "PIXEL QUEST",
+      "summary": "Motion design no estilo Pixel Art / 8-bit: direção de arte, animação e som escritos em código.",
+      "skill": "20-pixel",
+      "cover": "videos\\20-pixel.jpg",
+      "video": "videos/20-pixel.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/20-pixel.mp4",
+      "music": "chiptune",
+      "sfx": "coin jump powerup oneup explosion_8bit blip"
+    },
+    {
+      "id": "22-hud",
+      "name": "HUD / FUI Cyberpunk HUD / FUI (Fictional UI)",
+      "film": "KESTREL-9 TARGET ACQUIRED",
+      "summary": "Motion design no estilo HUD / FUI Cyberpunk HUD / FUI (Fictional UI): direção de arte, animação e som escritos em código.",
+      "skill": "22-hud",
+      "cover": "videos\\22-hud.jpg",
+      "video": "videos/22-hud.mp4",
+      "videoUrl": "https://vincentwei1021.github.io/mg-styles-15/videos/22-hud.mp4",
+      "music": "darksynth",
+      "sfx": "hud_beep hud_scan lock_on hud_data hud_open hud_alert hud_ping data_chirp"
+    }
+  ],
+  "resources": [
+    {
+      "id": "mgaudio",
+      "label": "mgaudio — música e efeitos sonoros por código (Python)",
+      "path": "lib/audio"
+    },
+    {
+      "id": "render",
+      "label": "render.mjs — renderizador de quadros (referência)",
+      "path": "harness/render.mjs"
+    },
+    {
+      "id": "demos",
+      "label": "Código-fonte dos filmes de exemplo (referência para as cenas)",
+      "path": "demos"
+    }
+  ]
+}

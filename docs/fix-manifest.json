@@ -1,0 +1,14 @@
+[
+  {
+    "id": "rel-ol-misto-ce1aff",
+    "name": "Rel OL Misto",
+    "routeId": "forge-ol-misto",
+    "skillId": "misto-motion-banco-ia"
+  },
+  {
+    "id": "rel-ol-codigo-youtube-14e66e",
+    "name": "Rel OL Codigo YouTube",
+    "routeId": "forge-ol-codigo-youtube",
+    "skillId": "explicativo-codigo"
+  }
+]

@@ -1,0 +1,13 @@
+kit/node_modules/
+kit/vendor/
+kit/models
+kit/models/
+kit/.venv/
+__pycache__/
+.work/
+*.snaps/
+.env
+.DS_Store
+skills/stick-figure/engine/template/seg/
+skills/stick-figure/engine/template/stills/
+skills/stick-figure/engine/template/silent.mp4

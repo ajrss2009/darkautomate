@@ -1,0 +1,19 @@
+{
+  "name": "interface-cinematica",
+  "displayName": "Interface Cinemática",
+  "version": "1.0.0",
+  "description": "Telas, gráficos e textos em cena com acabamento de produto premium: grid, tipografia, cor, movimento e legibilidade pensados para vídeo. Usa a LLM indicada (Claude Opus) nas cenas por código e motion graphics.",
+  "author": { "name": "FilmForge" },
+  "license": "MIT",
+  "keywords": ["interface", "ui", "motion graphics", "tipografia", "design", "html", "cena por código"],
+  "filmforge": {
+    "recommendedExecutor": {
+      "label": "Claude Opus (harness claude) — melhor em HTML/CSS/JS de interface",
+      "kinds": ["code_scene", "motion_graphics"],
+      "bindings": [
+        { "type": "harness", "harness": "claude", "model": "opus" },
+        { "type": "harness", "harness": "antigravity", "model": "gemini-4-argon-high" }
+      ]
+    }
+  }
+}
