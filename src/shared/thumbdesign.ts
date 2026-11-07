@@ -4,7 +4,7 @@
  * (HTML renderizado pelo app) — por isso o layout é uma árvore de nós com estilos, sem CSS solto. Funções puras.
  */
 
-export type ThumbLayout = 'impacto' | 'manchete' | 'circulo' | 'split' | 'documentario' | 'neon' | 'contagem' | 'minimal';
+export type ThumbLayout = 'impacto' | 'titulo' | 'manchete' | 'circulo' | 'split' | 'documentario' | 'neon' | 'contagem' | 'minimal';
 export type ThumbFont = 'impact' | 'sans' | 'serif' | 'rounded';
 
 export interface ThumbDesign {
@@ -36,6 +36,7 @@ export interface TNode { tag: 'div' | 'span' | 'img'; style: Record<string, stri
 
 export const THUMB_LAYOUTS: Array<{ id: ThumbLayout; name: string; hint: string }> = [
   { id: 'impacto', name: 'Impacto', hint: 'texto gigante com contorno, palavra em destaque e selo' },
+  { id: 'titulo', name: 'Título no topo', hint: 'título em uma linha no topo, contorno escuro e brilho; fim do título na cor de destaque (use | para escolher onde; sem |, a última palavra — ou as 2 últimas em títulos de 5+ palavras)' },
   { id: 'manchete', name: 'Manchete', hint: 'faixa de notícia embaixo, selo "URGENTE"' },
   { id: 'circulo', name: 'Círculo + seta', hint: 'círculo vermelho e seta no ponto que importa' },
   { id: 'split', name: 'Antes × depois', hint: 'dois quadros lado a lado com "VS"' },
@@ -49,6 +50,8 @@ export const THUMB_LAYOUTS: Array<{ id: ThumbLayout; name: string; hint: string 
 export const THUMB_DESIGN_TEMPLATES: Array<{ id: string; name: string; prompt: string; design: ThumbDesign }> = [
   { id: 'v-impacto', name: '🎨 Impacto (texto gigante)', design: { layout: 'impacto', accent: '#ffd400', color: '#ffffff', font: 'impact', align: 'left', shade: 0.55 },
     prompt: 'YouTube thumbnail background, one large clear subject on the right, dramatic rim light, saturated colors, empty dark space on the left, NO TEXT, topic: {{title}}' },
+  { id: 'v-titulo', name: '🎨 Título no topo (canal de IA)', design: { layout: 'titulo', accent: '#22d3ff', color: '#ffffff', font: 'impact', shade: 0.5 },
+    prompt: 'YouTube thumbnail background, epic digital illustration, one heroic character centered in the lower two thirds, dynamic pose, intense blue glow and rim light, gritty industrial background with blue haze filling the WHOLE frame edge to edge, the scene continues seamlessly to the top edge (no bands, no borders, no split panels, no frames), the top quarter is just darker and less busy, hyper detailed, NO TEXT, topic: {{title}}' },
   { id: 'v-manchete', name: '🎨 Manchete (notícia)', design: { layout: 'manchete', accent: '#e11d2e', color: '#ffffff', font: 'sans', badge: 'URGENTE' },
     prompt: 'news photo style thumbnail background about {{title}}, dramatic, realistic, NO TEXT' },
   { id: 'v-circulo', name: '🎨 Círculo + seta', design: { layout: 'circulo', accent: '#ff2a2a', color: '#ffe14d', font: 'impact', focus: { x: 0.68, y: 0.5 } },
@@ -230,6 +233,29 @@ export function thumbTree(d: ThumbDesign, o: { w: number; h: number; text: strin
       const f = fitFont(text, w * (tall ? 0.86 : 0.48), h * (tall ? 0.38 : 0.7), 3);
       kids.push(box({ left: px(w * 0.05), top: tall ? px(h * 0.08) : '0', bottom: tall ? 'auto' : '0', width: tall ? '90%' : '48%', display: 'flex', 'flex-direction': 'column', 'justify-content': 'center' },
         bigText(f.lines, f.size, { color, font, align: 'left', glow: '0 4px 20px rgba(0,0,0,0.35)' })));
+      break;
+    }
+    case 'titulo': {
+      /* título no topo (estilo canal de IA): uma ou duas linhas centralizadas, branco com contorno escuro grosso e brilho
+         na cor de destaque; a parte depois de "|" (ou as 2 últimas palavras) sai na cor de destaque. Fundo com brilho. */
+      kids.push(bgImg(o.bg, d, { filter: 'saturate(1.35) contrast(1.15)' }));
+      kids.push(box({ inset: '0', background: `radial-gradient(ellipse at 50% 60%, transparent 30%, rgba(0,8,30,${0.35 + shade * 0.4}) 100%)` }));
+      kids.push(box({ left: '0', right: '0', top: '0', height: '34%', background: `linear-gradient(to bottom, rgba(0,6,24,${0.35 + shade * 0.35}), transparent)` }));
+      const raw = text.includes('|') ? text : (() => { const ws = text.split(/\s+/); return ws.length >= 5 ? `${ws.slice(0, -2).join(' ')}|${ws.slice(-2).join(' ')}` : ws.length >= 2 ? `${ws.slice(0, -1).join(' ')}|${ws[ws.length - 1]}` : text; })();
+      const [main, hi = ''] = raw.split('|').map((x) => x.trim());
+      const full = `${main} ${hi}`.trim();
+      const f = fitFont(full, w * 0.94, h * (tall ? 0.3 : 0.22), tall ? 3 : 2, 0.56);
+      const stroke = '#0a1f4d', glow = `0 0 ${px(f.size * 0.12)} ${accent}, 0 0 ${px(f.size * 0.3)} ${accent}, 0 ${px(f.size * 0.05)} ${px(f.size * 0.1)} rgba(0,0,0,0.6)`;
+      /* reparte as linhas do fitFont entre a parte branca e a de destaque, palavra a palavra */
+      const hiWords = new Set<number>(); const all = full.split(/\s+/); const nMain = main ? main.split(/\s+/).length : 0;
+      all.forEach((_, i) => { if (i >= nMain) hiWords.add(i); });
+      let wi = 0;
+      const lineNodes = f.lines.map((l): TNode => ({ tag: 'span', style: { display: 'block', 'font-family': font, 'font-size': px(f.size), 'line-height': '1.02', 'font-weight': '900', 'text-align': 'center',
+        'white-space': 'nowrap', '-webkit-text-stroke': `${px(f.size * 0.11)} ${stroke}`, 'paint-order': 'stroke fill', 'text-shadow': glow, 'letter-spacing': '0.5px' },
+        children: l.split(' ').map((word): TNode => { const isHi = hiWords.has(wi++); return { tag: 'span', style: { color: isHi ? accent : color }, text: word + ' ' }; }) }));
+      kids.push(box({ left: '2%', right: '2%', top: px(h * 0.03) }, lineNodes));
+      if (d.sub) kids.push(box({ left: '0', right: '0', bottom: px(h * 0.05), 'text-align': 'center', color: '#fff', 'font-family': FONTS.sans, 'font-size': px(S * 0.05), 'font-weight': '900',
+        'text-shadow': `0 0 ${px(S * 0.02)} ${accent}, 0 2px 8px #000` }, [], d.sub.toUpperCase()));
       break;
     }
     default: { // impacto

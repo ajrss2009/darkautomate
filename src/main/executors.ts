@@ -15,6 +15,7 @@ import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
 import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
 import { fetchForScene } from './stock';
+import { orderStockSources } from '../shared/stock-sources';
 import { estimateWords, readWords, transcribe, wordsPath, type WordTime } from './whisper';
 import { getVideoType } from './presets';
 import { ensureWhisper } from './whisper-install';
@@ -897,8 +898,15 @@ const stockExec = (_o: ExecutorOptions): Executor => async (c) => {
   const allowed = c.project.mediaSources?.length ? b.sources.filter((x) => c.project.mediaSources!.includes(x)) : b.sources;
   /* a rota é explícita: se o projeto (herdado da skill) não lista nenhuma das
      fontes da rota, usa as da rota em vez de falhar (ex.: rota só com YouTube). */
-  const sources = allowed.length ? allowed : b.sources;
+  let sources = allowed.length ? allowed : b.sources;
   if (!allowed.length && c.project.mediaSources?.length) c.log(`rota usa ${b.sources.join(', ')}; o projeto não lista essas fontes — usando as da rota`);
+  /* ordem pelo tema: cena com imagens antigas busca primeiro no Internet Archive, espaço na NASA… (params.autoOrder=false desliga) */
+  if ((c.step.params as Record<string, unknown> | undefined)?.autoOrder !== false) {
+    const sc = c.scene;
+    const ord = orderStockSources(sources, [sc.title, sc.narration, sc.visualIntent, termsText(sc.searchTerms)].filter(Boolean).join(' \n '), `${c.project.name ?? ''}\n${c.project.idea ?? ''}`);
+    if (ord.theme && ord.sources.join() !== sources.join()) c.log(`bancos de mídia em ordem para ${ord.theme}: ${ord.sources.join(' → ')}`);
+    sources = ord.sources;
+  }
   if (sources.length === 0) throw new Error('nenhuma fonte de mídia habilitada neste projeto');
   const query = (termsText(c.scene.searchTerms) || termsText(c.scene.visualIntent) || termsText(c.scene.title)).slice(0, 120);
   const { w, h } = ff.resolution(c.project.aspect);
@@ -1665,6 +1673,16 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       try { fs.renameSync(tmp, final); }
       catch { fs.copyFileSync(tmp, final); fs.rmSync(tmp, { force: true }); }
       c.log('legendas gravadas no vídeo');
+    }
+    /* marca d'água opcional (por cima de tudo, inclusive das legendas) */
+    if (c.project.watermark?.enabled) {
+      const tmp = path.join(c.outDir, 'final.wm.mp4');
+      try {
+        if (await ff.applyWatermark(c.settings.ffmpeg, final, c.project.watermark, tmp, ff.resolution(c.project.aspect).w, c.signal)) {
+          try { fs.renameSync(tmp, final); } catch { fs.copyFileSync(tmp, final); fs.rmSync(tmp, { force: true }); }
+          c.log(`marca d'água aplicada (${c.project.watermark.text ? `"${c.project.watermark.text}"` : 'imagem'}, ${c.project.watermark.position})`);
+        }
+      } catch (e) { if (c.signal.aborted) throw e; c.log(`⚠ marca d'água ignorada: ${(e as Error).message.slice(0, 200)}`); }
     }
     /* Masterização YouTube: -14 LUFS, true peak -1 dB. */
     try {

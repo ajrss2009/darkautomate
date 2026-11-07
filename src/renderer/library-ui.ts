@@ -5,7 +5,7 @@ import { artIcon, bindingArt, fallbackChips, openBindingPicker } from './provide
 import { checkSkillRoute } from '../shared/compat';
 import { helpButton } from './carousel';
 import { ANGLE_GROUPS, angleLabel } from '../shared/angles';
-import { STOCK_SOURCES, stockInfo } from '../shared/stock-sources';
+import { STOCK_SOURCES, STOCK_THEMES, stockInfo } from '../shared/stock-sources';
 import { askConfirm, showMessage } from './dialogs';
 
 /* Abas: Rotas (biblioteca), Skills, Tipos de vídeo e Configurações. Recebe helpers do renderer principal. */
@@ -151,12 +151,13 @@ export async function renderRoutesLib(c: Ctx) {
     const paintGrid = () => grid.replaceChildren(...routes.filter((r) => (!routeFilter.q || `${r.name} ${r.description}`.toLowerCase().includes(routeFilter.q.toLowerCase()))
       && (!routeFilter.who || (routeFilter.who === 'b') === builtin(r))).map((r) => {
       const scene = r.steps.filter((s) => s.enabled && s.scope === 'scene').length;
+      const pu = purposeIcon(c, r, KIND_ICON[r.steps.find((s) => s.scope === 'scene')?.kind ?? r.steps[0]?.kind ?? 'edit'] ?? '🛣️');
       return h('button', { class: 'scard', 'data-route': r.id, onclick: () => { routeOrigin = r; routeDraft = clone(r); redraw(); } },
-        h('div', { class: 'row' }, h('span', { class: 'sicon' }, KIND_ICON[r.steps.find((s) => s.scope === 'scene')?.kind ?? r.steps[0]?.kind ?? 'edit'] ?? '🛣️'),
+        h('div', { class: 'row' }, pu.icon,
           h('strong', { class: 'grow' }, r.name), builtin(r) ? h('span', { class: 'tag', title: (r as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (r as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
         h('span', { class: 'muted sdesc' }, r.description || '—'),
         routeStrip(c, r),
-        h('span', { class: 'pchips' }, h('span', { class: 'chip' }, `${r.steps.filter((s) => s.enabled).length} tarefas`), scene ? h('span', { class: 'chip' }, `🎬 ${scene} por cena`) : null));
+        h('span', { class: 'pchips' }, pu.badge, h('span', { class: 'chip' }, `${r.steps.filter((s) => s.enabled).length} tarefas`), scene ? h('span', { class: 'chip' }, `🎬 ${scene} por cena`) : null));
     }));
     paintGrid();
     main.replaceChildren(
@@ -565,6 +566,12 @@ function bindingEditor(c: Ctx, st: RouteStep, b: Binding, bi: number, cat: Catal
         cb.addEventListener('change', () => { b.sources = cb.checked ? [...b.sources, s] : b.sources.filter((x) => x !== s); });
         return h('label', { class: 'inline chk', title: stockInfo(s)?.about ?? '' }, cb, `${stockInfo(s)?.icon ?? ''} ${stockInfo(s)?.label ?? s}`);
       }), h('label', {}, 'Mídia', sel(c, [['both', 'imagens e vídeos'], ['image', 'só imagens'], ['video', 'só vídeos']], b.media, (v) => { b.media = v as typeof b.media; })));
+      /* ordem por tema (params.autoOrder; ligada por padrão): antigo → Internet Archive, espaço → NASA, museu → Smithsonian */
+      const auto = h('input', { type: 'checkbox', 'data-field': 'stock-auto-order' }) as HTMLInputElement;
+      auto.checked = (st.params as Record<string, unknown>).autoOrder !== false;
+      auto.addEventListener('change', () => { const p = st.params as Record<string, unknown>; if (auto.checked) delete p.autoOrder; else p.autoOrder = false; });
+      fields.push(h('label', { class: 'inline chk', title: STOCK_THEMES.map((t) => `${t.label}: ${t.first.map((x) => stockInfo(x)?.label ?? x).join(' → ')}`).join('\n') },
+        auto, '🧭 Ordem automática pelo tema da cena (imagens antigas → Internet Archive primeiro; espaço → NASA; museu → Smithsonian)'));
       break;
     }
     case 'flow':
@@ -771,6 +778,41 @@ export const APPEAR_ICON: Record<string, string> = {
   vector: '✒️', paper_cut: '✂️', code_3d: '🧊', custom: '⚙️',
 };
 const skillIcon = (k: Skill) => /clipe|music|colet/i.test(k.id) ? '🎵' : k.freeform ? '🪄' : APPEAR_ICON[k.appearance ?? 'custom'] ?? '🧠';
+
+/**
+ * Para que serve a skill/rota, num relance: ícone e cor por finalidade (lidos do id, nome e descrição).
+ * A primeira regra que casa vence; a cor pinta o fundo do ícone e o selo "o que faz" do cartão.
+ */
+const PURPOSES: Array<{ re: RegExp; icon: string; color: string; label: string }> = [
+  { re: /link|url|site|p[áa]gina web|weblink|artigo/i, icon: '🔗', color: '#22b8cf', label: 'Explica a partir de links' },
+  { re: /clipe|lyric|letra|m[úu]sica|music|colet[âa]nea|playlist/i, icon: '🎵', color: '#e64980', label: 'Música e clipes' },
+  { re: /recon|reconstru|aitrends|hist[óo]ria antiga|ru[íi]na/i, icon: '🏛️', color: '#c08a3e', label: 'Reconstrução histórica' },
+  { re: /cartoon|3d|anima[çc][ãa]o|anime|pixel|low.?poly|claude-animation/i, icon: '🎨', color: '#fd7e14', label: 'Animação' },
+  { re: /livre|freeform|free/i, icon: '🪄', color: '#9c36b5', label: 'Vídeo livre por código' },
+  { re: /not[íi]cia|news|jornal|vox/i, icon: '📰', color: '#fa5252', label: 'Notícias' },
+  { re: /document[áa]rio|doc[_ -]?netflix|mist[ée]rio|true crime/i, icon: '🎞️', color: '#e8590c', label: 'Documentário' },
+  { re: /explica|explainer|did[áa]tic|whiteboard|aula|tutorial|educa/i, icon: '💡', color: '#4c6ef5', label: 'Explica um assunto' },
+  { re: /dorama|drama|novela|elenco|hist[óo]ria|story|conto|narrat/i, icon: '🎭', color: '#be4bdb', label: 'Histórias e drama' },
+  { re: /short|reels|tiktok|vertical|9:16/i, icon: '📱', color: '#37b24d', label: 'Vídeo curto vertical' },
+  { re: /produto|an[úu]ncio|ad[_ ]|propaganda|venda/i, icon: '🛍️', color: '#f59f00', label: 'Anúncio de produto' },
+  { re: /motion|gr[áa]fico|dados|chart|infogr/i, icon: '📊', color: '#15aabf', label: 'Motion graphics e dados' },
+  { re: /stock|banco de|pexels|pixabay/i, icon: '📦', color: '#868e96', label: 'Imagens de banco' },
+  { re: /real|ia |ai |veo|wan|minimax|kling|flow/i, icon: '🤖', color: '#1098ad', label: 'Vídeo por IA' },
+  { re: /slide|imagem|image|foto|ken.?burns/i, icon: '🖼️', color: '#5c7cfa', label: 'Imagens com movimento' },
+];
+export function purposeOf(o: { id?: string; name?: string; description?: string }, fallbackIcon: string): { icon: string; color: string; label: string } {
+  const text = `${o.id ?? ''} ${o.name ?? ''} ${o.description ?? ''}`;
+  return PURPOSES.find((p) => p.re.test(text)) ?? { icon: fallbackIcon, color: '#7c5cff', label: 'Uso geral' };
+}
+/** Ícone colorido + selo da finalidade (mesmo visual em skills e rotas). */
+function purposeIcon(c: Ctx, o: { id?: string; name?: string; description?: string }, fallbackIcon: string, big = false): { icon: HTMLElement; badge: HTMLElement } {
+  const p = purposeOf(o, fallbackIcon);
+  const icon = c.h('span', { class: `sicon${big ? ' big' : ''} picon`, title: p.label }, p.icon);
+  icon.style.setProperty('--pc', p.color);
+  const badge = c.h('span', { class: 'chip pchip', title: 'Para que serve' }, `${p.icon} ${p.label}`);
+  badge.style.setProperty('--pc', p.color);
+  return { icon, badge };
+}
 const ASPECTS: Array<[string, string, number, number]> = [['16:9', 'YouTube', 32, 18], ['9:16', 'Shorts/Reels', 14, 25], ['1:1', 'Quadrado', 22, 22], ['4:5', 'Feed', 20, 25]];
 const ENDINGS: Array<[string, string, string]> = [['', '🤖', 'Automático'], ['loop', '🔁', 'Emenda no início'], ['next', '⏭️', 'Gancho p/ o próximo'], ['conclusion', '🏁', 'Conclusão + chamada']];
 
@@ -791,12 +833,13 @@ export async function renderSkills(c: Ctx) {
     const paint = () => grid.replaceChildren(...skills.filter((k) => (!skillFilter.q || `${k.name} ${k.description}`.toLowerCase().includes(skillFilter.q.toLowerCase()))
       && (!skillFilter.who || (skillFilter.who === 'b') === !!k.builtin)).map((k) => {
       const r = routes.find((x) => x.id === k.routeId);
+      const pu = purposeIcon(c, k, skillIcon(k), true);
       const rep = checkSkillRoute(k, r, meta.videoTypes.find((v) => v.id === k.appearance)?.sceneKind as never, r);
       return h('button', { class: 'scard', 'data-skill': k.id, onclick: () => { skillOrigin = k; skillDraft = clone(k); again(); } },
-        h('div', { class: 'row' }, h('span', { class: 'sicon big' }, skillIcon(k)), h('strong', { class: 'grow' }, k.name), k.builtin ? h('span', { class: 'tag', title: (k as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (k as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
+        h('div', { class: 'row' }, pu.icon, h('strong', { class: 'grow' }, k.name), k.builtin ? h('span', { class: 'tag', title: (k as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (k as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
         h('span', { class: 'muted sdesc' }, k.description),
         r ? routeStrip(c, r) : null,
-        h('span', { class: 'pchips' },
+        h('span', { class: 'pchips' }, pu.badge,
           h('span', { class: 'chip', title: 'Rota sugerida' }, `🛣️ ${routeName(k.routeId)}`),
           k.aspect ? h('span', { class: 'chip' }, `📐 ${k.aspect}`) : null, k.durationSec ? h('span', { class: 'chip' }, `⏱ ${k.durationSec}s`) : null,
           k.presentation === 'mixed' ? h('span', { class: 'chip' }, '🧩 misto') : null, k.multiVoice ? h('span', { class: 'chip' }, '🎭 vozes') : null,

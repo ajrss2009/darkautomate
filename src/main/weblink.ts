@@ -10,6 +10,27 @@ export function findLink(text: string | undefined): string | undefined {
   return m[0].replace(/[).,;:!?\]}]+$/, '');
 }
 
+/** Todos os links http(s) do texto, na ordem, sem repetir (máx. `max`). Vários links = um vídeo que explica todos. */
+export function findLinks(text: string | undefined, max = 20): string[] {
+  const out: string[] = [];
+  for (const m of (text ?? '').matchAll(/\bhttps?:\/\/[^\s<>"'`]+/gi)) {
+    const u = m[0].replace(/[).,;:!?\]}]+$/, '');
+    if (!out.includes(u)) out.push(u);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** Índice dos links capturados (web/links.md): ordem, título e onde está a captura de cada um. Função pura. */
+export function linksDoc(items: Array<{ url: string; title?: string; dir: string; seconds?: number }>): string {
+  return [
+    `# ${items.length} links para explicar (nesta ordem)`,
+    'Cada link tem a sua captura: <pasta>/pagina.md (conteúdo + instantes das seções) e <pasta>/pagina.mp4 (a página rolando, sem som).',
+    '',
+    ...items.map((it, i) => `${i + 1}. ${it.title || it.url}\n   LINK: ${it.url}\n   conteúdo: ${it.dir}/pagina.md · vídeo: ${it.dir}/pagina.mp4${it.seconds ? ` (${it.seconds} s)` : ''} · print do topo: ${it.dir}/pagina-topo.png`),
+  ].join('\n');
+}
+
 export interface PageSection { title: string; y: number }
 export interface PageInfo { url: string; title: string; description: string; lang?: string; text: string; sections: PageSection[]; maxY: number; viewH: number }
 export interface ScrollPlan { ys: number[]; marks: Array<{ title: string; t: number }>; seconds: number }
@@ -52,8 +73,9 @@ export function scrollPlan(o: { maxY: number; viewH: number; sections: PageSecti
 }
 
 /** Resumo da página para o roteiro e o plano de cenas (web/pagina.md). */
-export function pageDoc(info: PageInfo, plan: ScrollPlan, files: { video: string; shots: Array<{ file: string; title: string }> }): string {
-  const text = info.text.replace(/\n{3,}/g, '\n\n').trim().slice(0, 14000);
+export function pageDoc(info: PageInfo, plan: ScrollPlan, files: { video: string; shots: Array<{ file: string; title: string }>; clips?: PageClip[]; embeds?: string[] }, textMax = 14000): string {
+  const text = info.text.replace(/\n{3,}/g, '\n\n').trim().slice(0, textMax);
+  const clips = files.clips ?? [], embeds = files.embeds ?? [];
   return [
     `# ${info.title || info.url}`,
     `LINK: ${info.url}`,
@@ -65,8 +87,36 @@ export function pageDoc(info: PageInfo, plan: ScrollPlan, files: { video: string
     ...plan.marks.map((m) => `- ${m.t.toFixed(1).replace('.', ',')} s — ${m.title}`),
     '',
     files.shots.length ? `## Prints\n${files.shots.map((s) => `- ${s.file}: ${s.title}`).join('\n')}` : '',
+    clips.length ? `## Vídeos da página (trechos curtos gravados tocando, sem som)\nUse como "userMedia" de cenas curtas (3–6 s) quando a fala citar o vídeo; é conteúdo de terceiros: mostre só o trecho, numa moldura, comentando por cima.\n${clips.map((c) => `- ${c.file} (${c.seconds} s)${c.near ? ` — perto de "${c.near}"` : ''}${c.label ? ` — ${c.label}` : ''}`).join('\n')}` : '',
+    embeds.length ? `## Vídeos embutidos não gravados\n${embeds.map((u) => `- ${u}`).join('\n')}` : '',
     '',
     '## Conteúdo da página (texto)',
     text,
   ].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
+}
+
+/** Id do vídeo do YouTube num link (watch, youtu.be, embed, shorts, live, nocookie); undefined se não for um. */
+export function youTubeId(u: string | undefined): string | undefined {
+  let url: URL;
+  try { url = new URL(u ?? ''); } catch { return undefined; }
+  const host = url.hostname.replace(/^(www|m|music)\./, '');
+  let id: string | null | undefined;
+  if (host === 'youtu.be') id = url.pathname.split('/')[1];
+  else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    id = url.pathname === '/watch' ? url.searchParams.get('v') : /^\/(embed|shorts|live|v)\/([^/?#]+)/.exec(url.pathname)?.[2];
+  }
+  return id && /^[\w-]{11}$/.test(id) ? id : undefined;
+}
+
+/** Trecho gravado de um vídeo da página. */
+export interface PageClip { file: string; seconds: number; near?: string; label?: string }
+
+/**
+ * Orçamento por link: com muitos links cada captura fica mais curta, o texto lido de cada página é menor (cabe até em
+ * modelo local) e grava menos trechos de vídeo. Função pura.
+ */
+export function linkBudget(n: number): { maxSec: number; textMax: number; clips: number; clipSec: number } {
+  if (n <= 1) return { maxSec: 40, textMax: 14000, clips: 2, clipSec: 10 };
+  if (n <= 6) return { maxSec: 30, textMax: Math.max(5000, Math.floor(42000 / n)), clips: 2, clipSec: 8 };
+  return { maxSec: 16, textMax: Math.max(2500, Math.floor(42000 / n)), clips: 1, clipSec: 6 };
 }

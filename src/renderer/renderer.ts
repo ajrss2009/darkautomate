@@ -82,7 +82,8 @@ interface Forge {
   trimScene(id: string, sceneId: string, o: { cutStart?: number; cutEnd?: number }): Promise<Project>;
   splitScene(id: string, sceneId: string, at: number): Promise<{ project: Project; scene: Scene }>;
   insertClip(id: string, where: { at: 'start' | 'end' } | { at: 'before' | 'after'; sceneId: string } | { at: 'time'; time: number }, file?: string): Promise<{ project: Project; scene: Scene } | null>;
-  exportEditor(id: string, target: 'davinci' | 'capcut'): Promise<{ dir: string; main: string; notes: string[] }>;
+  exportEditor(id: string, target: 'davinci' | 'capcut' | 'premiere'): Promise<{ dir: string; main: string; notes: string[] }>;
+  watermarkPick(id: string): Promise<string | null>;
   publishKit(id: string): Promise<{ dir: string; video: string; files: string[] }>;
   rewriteScenes(id: string, o: unknown): Promise<{ project: Project; result: { summary: string } }>;
   visualPrompt(id: string, o: unknown): Promise<{ project: Project }>;
@@ -1247,22 +1248,70 @@ let playing = false;
 let showSubs = false;
 const FX_FILTERS: Array<[string, string]> = [['none', 'Nenhum'], ['cinematic', 'Cinematográfico'], ['teal_orange', 'Teal & orange'], ['vintage', 'Vintage'], ['matte', 'Matte'], ['dramatic', 'Dramático'],
   ['vivid', 'Vívido'], ['warm', 'Quente'], ['cool', 'Frio'], ['noir', 'Noir'], ['bw', 'Preto e branco'], ['sepia', 'Sépia'], ['blur', 'Desfoque']];
-const FX_ZOOM: Array<[string, string]> = [['none', 'Sem movimento'], ['in', 'Zoom in (Ken Burns)'], ['out', 'Zoom out'], ['pan_left', 'Pan para a esquerda'], ['pan_right', 'Pan para a direita'],
-  ['pan_up', 'Pan para cima'], ['pan_down', 'Pan para baixo'], ['in_left', 'Zoom in + esquerda'], ['in_right', 'Zoom in + direita']];
+const FX_ZOOM: Array<[string, string, string]> = [['none', 'Sem movimento', '⏸️'], ['in', 'Zoom in (Ken Burns)', '🔍'], ['out', 'Zoom out', '🔭'], ['pan_left', 'Pan para a esquerda', '⬅️'], ['pan_right', 'Pan para a direita', '➡️'],
+  ['pan_up', 'Pan para cima', '⬆️'], ['pan_down', 'Pan para baixo', '⬇️'], ['in_left', 'Zoom in + esquerda', '↖️'], ['in_right', 'Zoom in + direita', '↗️'],
+  ['shake', 'Câmera na mão (tremor)', '📳'], ['pulse', 'Pulso (zoom na batida)', '💓'], ['drift', 'Deriva lenta', '🍃']];
+/** Texturas por cena (iguais às do ffmpeg na montagem). */
+const FX_TEX: Array<[string, string, string]> = [['none', 'Sem textura', '⬜'], ['static', 'Chuviscado (TV)', '📺'], ['vhs', 'VHS', '📼'], ['dust', 'Poeira + cintilação', '🌫️'],
+  ['old_film', 'Filme antigo', '🎞️'], ['crt', 'Tela CRT (linhas)', '🖥️'], ['glitch', 'Glitch', '👾'], ['paper', 'Papel / granulado', '📜']];
+/** Aba aberta no painel lateral do editor (lembrada entre sessões). */
+let inspTab = (() => { try { return localStorage.getItem('ff.inspTab') || 'scene'; } catch { return 'scene'; } })();
 const sceneStart = (p: Project, idx: number) => p.scenes.slice(0, idx).reduce((a, s) => a + dur(s), 0);
 const fmtTc = (t: number) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const subStyle = (p: Project): NonNullable<Project['subtitleStyle']> => p.subtitleStyle ?? { burn: false, position: 'bottom' as const, size: 46, color: '#ffffff', box: true };
 /** Tipos de legenda (iguais aos do .ass gerado na montagem). */
 const SUB_KINDS: Array<[string, string]> = [['classic', 'Clássica (contorno)'], ['box', 'Tarja (fundo escuro)'], ['bold', 'Shorts (caixa alta, palavra em destaque)'],
-  ['karaoke', 'Karaokê (preenche no tempo da fala)'], ['word', 'Palavra por palavra (pop)'], ['neon', 'Neon (brilho colorido)'], ['minimal', 'Minimalista (pequena, sombra)']];
+  ['karaoke', 'Karaokê (preenche no tempo da fala)'], ['word', 'Palavra por palavra (pop)'], ['neon', 'Neon (brilho colorido)'], ['minimal', 'Minimalista (pequena, sombra)'],
+  ['highlight', 'Marca-texto (palavra falada com fundo colorido)'], ['reveal', 'Revelação (palavras surgem ao serem faladas)'], ['typewriter', 'Máquina de escrever (letra por letra)'],
+  ['comic', 'Cartoon (contorno grosso + sombra colorida)'], ['slide', 'Deslizando (cada frase sobe e aparece)']];
+/** Palavras por bloco de legenda — o mesmo da montagem (.ass). */
+const subMax = (kind: string, tall: boolean) => (kind === 'word' ? 1 : kind === 'bold' || kind === 'comic' ? 3 : kind === 'highlight' ? 4 : tall ? 4 : 6);
+const SUB_UPPER = new Set(['bold', 'word', 'highlight', 'comic']);
+/** Tipos em que a palavra falada se destaca (a prévia acompanha a palavra da vez). */
+const SUB_WORDWISE = new Set(['bold', 'karaoke', 'highlight', 'reveal', 'typewriter']);
 
 /** Aplica efeitos e legenda da cena na prévia (CSS), espelhando o que a montagem faz no ffmpeg. */
 function decorate(el: HTMLElement, sc: Scene) {
   const e = sc.effects;
   el.classList.add('fxm');
   if (e?.filter && e.filter !== 'none') el.classList.add(`fx-${e.filter}`);
-  if (e?.zoom && e.zoom !== 'none') { el.classList.add(`kb-${e.zoom}`); el.style.animationDuration = `${dur(sc)}s`; }
+  /* tremor e pulso são cíclicos (duração própria no CSS); os outros percorrem a cena inteira */
+  if (e?.zoom && e.zoom !== 'none') { el.classList.add(`kb-${e.zoom}`); if (e.zoom !== 'shake' && e.zoom !== 'pulse') el.style.animationDuration = `${dur(sc)}s`; }
   if (e?.fadeIn) el.classList.add('fade-in');
+}
+
+/**
+ * Legenda na prévia, no tempo da fala: divide o texto da cena em blocos (como o .ass da montagem) e, a cada
+ * instante, mostra o bloco e a palavra da vez (tempo proporcional à duração da narração).
+ */
+function captionPainter(cap: HTMLElement, text: string, kind: string, tall: boolean): (frac: number) => void {
+  const words = text.split(/\s+/).filter(Boolean), max = subMax(kind, tall), up = SUB_UPPER.has(kind);
+  const blocks: string[][] = [];
+  for (let i = 0; i < words.length; i += max) blocks.push(words.slice(i, i + max));
+  let last = '';
+  return (frac: number) => {
+    const wi = Math.min(words.length - 1, Math.max(0, Math.floor(frac * words.length)));
+    const bi = Math.floor(wi / max), within = wi - bi * max, block = blocks[bi] ?? [];
+    const key = `${bi}:${SUB_WORDWISE.has(kind) ? within : ''}`;
+    if (key === last) return;
+    last = key;
+    cap.replaceChildren(...block.map((w, i) => {
+      const cls = SUB_WORDWISE.has(kind) ? (i === within ? 'hl' : i > within && (kind === 'reveal' || kind === 'typewriter') ? 'hid' : i < within && kind === 'karaoke' ? 'hl' : '') : '';
+      return h('span', { class: cls }, (up ? w.toUpperCase() : w) + ' ');
+    }));
+    if (kind === 'word' || kind === 'comic' || kind === 'slide') { cap.classList.remove('anim'); void cap.offsetWidth; cap.classList.add('anim'); }
+  };
+}
+
+/** Marca d'água na prévia (mesma posição/opacidade/tamanho da montagem). */
+function watermarkNode(p: Project): HTMLElement | null {
+  const w = p.watermark;
+  if (!w?.enabled || (!w.text && !w.image)) return null;
+  const el = h('div', { class: `wm-prev wm-${w.position}` },
+    w.image ? h('img', { src: forge.mediaUrl(w.image), alt: '' }) : null, w.text ? h('span', {}, w.text) : null);
+  el.style.opacity = String(w.opacity);
+  el.style.setProperty('--wm-size', String(w.size));
+  return el;
 }
 
 function showScene(sc: Scene | undefined, autoplay = false, enter?: { kind: string; sec: number }) {
@@ -1293,16 +1342,27 @@ function showScene(sc: Scene | undefined, autoplay = false, enter?: { kind: stri
   if (fxa) { const x = h('audio', { src: forge.mediaUrl(fxa) + '?v=' + Date.now() }); x.volume = Math.min(1, current.sfxVolume ?? 0.15); preview.x = x; box.append(x); if (autoplay) void x.play().catch(() => {}); }
   const st = subStyle(current);
   const text = sc.subtitle?.trim() || sc.narration;
+  /* textura da cena (aproximação em CSS do filtro do ffmpeg) */
+  const tex = sc.effects?.texture;
+  if (tex && tex !== 'none') { layer.classList.add(`tx-${tex}`); layer.append(h('div', { class: `txo txo-${tex}` })); }
   if (showSubs && text) {
-    /* prévia do tipo: shorts/palavra = caixa alta e poucas palavras; karaokê/shorts = 1ª palavra na cor de destaque */
-    const kind = st.kind ?? (st.box ? 'box' : 'classic'), words = text.split(/\s+/).filter(Boolean);
-    const shown = kind === 'word' ? words.slice(0, 1) : kind === 'bold' ? words.slice(0, 3) : words;
-    const cap = h('div', { class: `cap pos-${st.position} k-${kind}${kind === 'box' ? ' box' : ''}` },
-      ...shown.map((w, i) => h('span', { class: i === 0 && (kind === 'bold' || kind === 'karaoke') ? 'hl' : '' }, (kind === 'bold' || kind === 'word' ? w.toUpperCase() : w) + ' ')));
+    /* legenda em blocos como na montagem, acompanhando a fala; tamanho proporcional à altura da prévia (px de 1080 linhas) */
+    const kind = st.kind ?? (st.box ? 'box' : 'classic');
+    const cap = h('div', { class: `cap pos-${st.position} k-${kind}${kind === 'box' ? ' box' : ''}` });
     cap.style.color = st.color; cap.style.setProperty('--accent', st.accent ?? (kind === 'neon' ? '#00e5ff' : '#ffe14d'));
-    cap.style.fontSize = `${Math.max(10, Math.round(st.size * 0.3 * (kind === 'word' ? 1.6 : kind === 'bold' ? 1.25 : kind === 'minimal' ? 0.8 : 1)))}px`;
+    const stageH = box.clientHeight || 360, tall = current.aspect === '9:16' || current.aspect === '4:5';
+    const mult = kind === 'word' ? 1.6 : kind === 'bold' || kind === 'highlight' || kind === 'comic' ? (tall ? 1.05 : 1.25) : kind === 'minimal' ? 0.8 : 1;
+    cap.style.fontSize = `${Math.max(9, Math.round(st.size * (stageH / 1080) * mult))}px`;
+    const paint = captionPainter(cap, text, kind, tall);
+    paint(0);
+    if (preview.a) {
+      const a = preview.a;
+      a.addEventListener('timeupdate', () => { if (a.duration > 0) paint(a.currentTime / a.duration); });
+    }
     box.append(cap);
   }
+  const wmEl = watermarkNode(current);
+  if (wmEl) box.append(wmEl);
   box.append(h('div', { class: 'scnum' }, `${sc.index}/${current.scenes.length}`));
 }
 
@@ -1511,11 +1571,12 @@ function tlTools(p: Project): HTMLElement {
     h('span', { class: 'tl-cursor muted' }, `cursor ${fmtTc(cursorT)}.${String(Math.floor((cursorT % 1) * 10))}`),
     h('span', { class: 'sp' }),
     h('button', { class: 'tool', 'data-act': 'exp-davinci', title: 'Exporta a timeline (XML) com os clipes, a narração, os efeitos, a música e as legendas para o DaVinci Resolve', onclick: () => void exportTo(p, 'davinci') }, '⇪ DaVinci Resolve'),
+    h('button', { class: 'tool', 'data-act': 'exp-premiere', title: 'Exporta a sequência (XML) com os clipes, as faixas de áudio e as legendas para o Adobe Premiere Pro', onclick: () => void exportTo(p, 'premiere') }, '⇪ Premiere'),
     h('button', { class: 'tool', 'data-act': 'exp-capcut', title: 'Exporta uma pasta pronta para o CapCut: clipes numerados, faixas de áudio e legendas .srt', onclick: () => void exportTo(p, 'capcut') }, '⇪ CapCut'));
 }
-async function exportTo(p: Project, target: 'davinci' | 'capcut') {
+async function exportTo(p: Project, target: 'davinci' | 'capcut' | 'premiere') {
   await guard(async () => {
-    busy = `Exportando para ${target === 'davinci' ? 'o DaVinci Resolve' : 'o CapCut'}…`; renderEditor(true);
+    busy = `Exportando para ${target === 'davinci' ? 'o DaVinci Resolve' : target === 'premiere' ? 'o Premiere Pro' : 'o CapCut'}…`; renderEditor(true);
     try { const r = await forge.exportEditor(p.id, target); toast(`Exportado: ${r.dir}${r.notes.length ? ` (${r.notes.join('; ')})` : ''} — veja COMO-IMPORTAR.txt`); }
     finally { busy = ''; renderEditor(true); }
   });
@@ -2051,10 +2112,6 @@ function effectsCard(p: Project, sel: Scene[]): HTMLElement {
   const ids = sel.map((s) => s.id);
   const t0 = sceneStart(p, p.scenes.indexOf(sel[0]!)) + 0.01;
   const apply = (patch: Partial<Fx>) => void applyFx(p, ids, () => patch, `Efeito aplicado a ${sel.length} cena(s).`);
-  const z = h('select', { id: 'fx-zoom' }, ...FX_ZOOM.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement; z.value = base.zoom ?? 'none';
-  z.addEventListener('change', () => apply({ zoom: z.value as 'none' | 'in' | 'out' }));
-  const fi = h('input', { type: 'checkbox', id: 'fx-fadein' }) as HTMLInputElement; fi.checked = !!base.fadeIn; fi.addEventListener('change', () => apply({ fadeIn: fi.checked }));
-  const fo = h('input', { type: 'checkbox', id: 'fx-fadeout' }) as HTMLInputElement; fo.checked = !!base.fadeOut; fo.addEventListener('change', () => apply({ fadeOut: fo.checked }));
   const tsec = h('input', { type: 'number', min: '0.2', max: '2', step: '0.1', value: String(base.transitionSec ?? 0.6), class: 'num', id: 'fx-trsec' }) as HTMLInputElement;
   tsec.addEventListener('change', () => apply({ transitionSec: Math.min(2, Math.max(0.2, Number(tsec.value) || 0.6)) }));
   const isLast = sel.length === 1 && sel[0]!.index === p.scenes.length;
@@ -2068,9 +2125,134 @@ function effectsCard(p: Project, sel: Scene[]): HTMLElement {
     h('div', { class: 'row' },
       h('button', { class: 'small', id: 'fx-tr-all', title: 'Usa a transição desta cena em todas as junções do vídeo', onclick: () => void transitionAll(p, base.transition && base.transition !== 'none' ? base.transition : 'fade', base.transitionSec ?? 0.6) }, '🔁 Esta transição em todo o vídeo'),
       h('button', { class: 'small', id: 'fx-tr-random', onclick: () => void randomTransitions(p) }, '🎲 Transições aleatórias em todo o vídeo')),
-    h('div', { class: 'row' }, h('label', {}, 'Duração da transição (s)', tsec), h('label', {}, 'Movimento', z),
-      h('label', { class: 'inline chk' }, fi, 'Fade in'), h('label', { class: 'inline chk' }, fo, 'Fade out'),
-      h('button', { class: 'small', onclick: () => apply({ zoom: 'none', fadeIn: false, fadeOut: false, transition: 'none' }) }, 'Limpar efeitos da cena')));
+    h('div', { class: 'row' }, h('label', {}, 'Duração da transição (s)', tsec),
+      h('button', { class: 'small', onclick: () => apply({ transition: 'none' }) }, 'Tirar transição')));
+}
+
+/** Sorteia valores para N cenas sem repetir o vizinho. */
+function randomPicks(pool: string[], n: number): string[] {
+  let prev = '';
+  return Array.from({ length: n }, () => {
+    let v = pool[Math.floor(Math.random() * pool.length)]!;
+    while (v === prev && pool.length > 1) v = pool[Math.floor(Math.random() * pool.length)]!;
+    prev = v; return v;
+  });
+}
+/** Cartões com ícone (animação, textura). */
+function iconTiles(list: Array<[string, string, string]>, value: string, attr: string, onPick: (v: string) => void): HTMLElement {
+  return h('div', { class: 'fxtiles icon-tiles', 'data-fx': attr }, ...list.map(([v, l, ico]) =>
+    h('button', { class: `fxtile${v === value ? ' sel' : ''}`, 'data-v': v, title: l, onclick: () => onPick(v) }, h('span', { class: `fxsample tr ${attr}-${v}` }, ico), h('span', {}, l))));
+}
+/**
+ * Aplicar um efeito de cena (animação ou textura) em lote: nas selecionadas, em todas, variado em todas
+ * (cada cena sorteia um tipo) ou em cenas sorteadas (~1/3, com o tipo escolhido).
+ */
+function batchRow(p: Project, field: 'zoom' | 'texture', label: string, list: Array<[string, string, string]>, current0: () => string): HTMLElement {
+  const all = p.scenes.map((s) => s.id), pool = list.map((x) => x[0]).filter((v) => v !== 'none');
+  const nameOf = (v: string) => list.find((x) => x[0] === v)?.[1] ?? v;
+  return h('div', { class: 'row batch-row' },
+    h('button', { class: 'small', 'data-batch': `${field}-all`, title: `Usa ${label.toLowerCase()} escolhida em todas as cenas`, onclick: () => {
+      const v = current0(); void applyFx(p, all, () => ({ [field]: v }) as Partial<Fx>, `${label} "${nameOf(v)}" em todas as cenas.`);
+    } }, '🔁 Em todas as cenas'),
+    h('button', { class: 'small', 'data-batch': `${field}-vary`, title: 'Cada cena ganha um tipo sorteado (sem repetir o da cena anterior)', onclick: () => {
+      const picks = randomPicks(pool, p.scenes.length);
+      void applyFx(p, all, (_sc, i) => ({ [field]: picks[i] }) as Partial<Fx>, `${label}: tipos variados em todas as cenas.`);
+    } }, '🎲 Variado em todas'),
+    h('button', { class: 'small', 'data-batch': `${field}-some`, title: `Sorteia ~1/3 das cenas para receber ${label.toLowerCase()} escolhida; as outras ficam sem`, onclick: () => {
+      const v = current0() !== 'none' ? current0() : pool[Math.floor(Math.random() * pool.length)]!;
+      const n = Math.max(1, Math.round(p.scenes.length / 3)), chosen = new Set([...all].sort(() => Math.random() - 0.5).slice(0, n));
+      void applyFx(p, all, (sc) => ({ [field]: chosen.has(sc.id) ? v : 'none' }) as Partial<Fx>, `${label} "${nameOf(v)}" em ${n} cena(s) sorteada(s).`);
+    } }, '🎯 Em cenas sorteadas'),
+    h('button', { class: 'small', 'data-batch': `${field}-clear`, onclick: () => void applyFx(p, all, () => ({ [field]: 'none' }) as Partial<Fx>, `${label}: removida de todas as cenas.`) }, 'Limpar todas'));
+}
+
+/** Aba Animação: movimento de câmera por cena (zoom, pans, tremor, pulso, deriva) + fades. */
+function animCard(p: Project, sel: Scene[]): HTMLElement {
+  const ids = sel.map((s) => s.id), base: Fx = { ...FX_DEFAULT, ...(sel[0]?.effects ?? {}) };
+  let pick: string = base.zoom ?? 'none';
+  const apply = (patch: Partial<Fx>) => ids.length ? void applyFx(p, ids, () => patch, `Animação aplicada a ${ids.length} cena(s).`) : toast('Selecione cenas na timeline (ou use "Em todas as cenas").', true);
+  const fi = h('input', { type: 'checkbox', id: 'fx-fadein' }) as HTMLInputElement; fi.checked = !!base.fadeIn; fi.addEventListener('change', () => apply({ fadeIn: fi.checked }));
+  const fo = h('input', { type: 'checkbox', id: 'fx-fadeout' }) as HTMLInputElement; fo.checked = !!base.fadeOut; fo.addEventListener('change', () => apply({ fadeOut: fo.checked }));
+  return h('div', { class: 'card', id: 'anim-card' },
+    h('div', { class: 'row' }, h('span', { class: 'ico' }, '🎥'), h('strong', {}, `Animação ${sel.length > 1 ? `(${sel.length} cenas)` : sel.length ? `da cena ${sel[0]!.index}` : ''}`),
+      h('span', { class: 'muted' }, 'movimento de câmera sobre a imagem/vídeo da cena')),
+    iconTiles(FX_ZOOM, pick, 'anim', (v) => { pick = v; apply({ zoom: v as Fx['zoom'] }); }),
+    batchRow(p, 'zoom', 'Animação', FX_ZOOM, () => pick),
+    h('h4', {}, 'Entrada e saída'),
+    h('div', { class: 'row' }, h('label', { class: 'inline chk' }, fi, 'Fade in (aparece do preto)'), h('label', { class: 'inline chk' }, fo, 'Fade out (some no preto)')));
+}
+
+/** Aba Texturas: textura por cena (chuviscado, VHS, poeira…) + grão de filme e faixas de cinema no vídeo inteiro. */
+function textureCard(p: Project, sel: Scene[]): HTMLElement {
+  const ids = sel.map((s) => s.id);
+  let pick: string = sel[0]?.effects?.texture ?? 'none';
+  const fe = { grain: false, letterbox: false, ...(p.finalEffects ?? {}) };
+  const save = (patch: Partial<NonNullable<Project['finalEffects']>>) => void guard(async () => {
+    current = await forge.updateProject(p.id, { finalEffects: { ...fe, ...patch } }); toast('Acabamento do vídeo final atualizado. Use "Renderizar final" para gravar.'); renderEditor(true);
+  });
+  const gr = h('input', { type: 'checkbox', id: 'ffx-grain' }) as HTMLInputElement; gr.checked = !!fe.grain; gr.addEventListener('change', () => save({ grain: gr.checked }));
+  const lb = h('input', { type: 'checkbox', id: 'ffx-letterbox' }) as HTMLInputElement; lb.checked = !!fe.letterbox; lb.addEventListener('change', () => save({ letterbox: lb.checked }));
+  return h('div', { class: 'card', id: 'tex-card' },
+    h('div', { class: 'row' }, h('span', { class: 'ico' }, '📺'), h('strong', {}, `Textura ${sel.length > 1 ? `(${sel.length} cenas)` : sel.length ? `da cena ${sel[0]!.index}` : ''}`),
+      h('span', { class: 'muted' }, 'por cima da imagem — gravada na montagem')),
+    iconTiles(FX_TEX, pick, 'tex', (v) => {
+      pick = v;
+      if (!ids.length) { toast('Selecione cenas na timeline (ou use "Em todas as cenas").', true); return; }
+      void applyFx(p, ids, () => ({ texture: v as Fx['texture'] }), `Textura aplicada a ${ids.length} cena(s).`);
+    }),
+    batchRow(p, 'texture', 'Textura', FX_TEX, () => pick),
+    h('h4', {}, 'Vídeo inteiro'),
+    h('div', { class: 'row' }, h('label', { class: 'inline chk' }, gr, '🎬 Grão de filme'), h('label', { class: 'inline chk' }, lb, '▬ Faixas de cinema (letterbox)')));
+}
+
+/** Aba Marca d'água: texto e/ou imagem, posição na tela, opacidade e tamanho (opcional). */
+function watermarkCard(p: Project): HTMLElement {
+  const w = { enabled: false, position: 'br' as const, opacity: 0.6, size: 6, ...(p.watermark ?? {}) };
+  const on = h('input', { type: 'checkbox', id: 'wm-on' }) as HTMLInputElement; on.checked = !!p.watermark?.enabled;
+  const text = h('input', { id: 'wm-text', value: w.text ?? '', placeholder: 'Ex.: @meucanal', maxlength: '120' }) as HTMLInputElement;
+  let image = w.image ?? '';
+  let position: NonNullable<Project['watermark']>['position'] = w.position;
+  const op = h('input', { type: 'range', min: '5', max: '100', value: String(Math.round(w.opacity * 100)), id: 'wm-op' }) as HTMLInputElement;
+  const size = h('input', { type: 'range', min: '2', max: '30', step: '0.5', value: String(w.size), id: 'wm-size' }) as HTMLInputElement;
+  const opL = h('span', { class: 'muted' }, `${op.value}%`), sizeL = h('span', { class: 'muted' }, `${size.value}%`);
+  const save = (msg?: string) => void guard(async () => {
+    const patch = text.value.trim() || image ? { enabled: on.checked, text: text.value.trim(), image, position, opacity: Number(op.value) / 100, size: Number(size.value) } : null;
+    current = await forge.updateProject(p.id, { watermark: patch });
+    showScene(current.scenes.find((s) => s.id === selected[0]));
+    if (msg) toast(msg);
+  });
+  on.addEventListener('change', () => save(on.checked ? 'Marca d\'água ligada — "Renderizar final" grava no vídeo' : 'Marca d\'água desligada'));
+  text.addEventListener('change', () => { if (text.value.trim() && !on.checked) on.checked = true; save(); });
+  op.addEventListener('input', () => { opL.textContent = `${op.value}%`; }); op.addEventListener('change', () => save());
+  size.addEventListener('input', () => { sizeL.textContent = `${size.value}%`; }); size.addEventListener('change', () => save());
+  /* posição: grade 3×3 com os 5 lugares possíveis */
+  const POS: Array<[NonNullable<Project['watermark']>['position'] | '', string]> = [['tl', '↖'], ['', ''], ['tr', '↗'], ['', ''], ['center', '⏺'], ['', ''], ['bl', '↙'], ['', ''], ['br', '↘']];
+  const grid = h('div', { class: 'wm-grid', id: 'wm-pos' }, ...POS.map(([v, ic]) => v
+    ? h('button', { class: `small${position === v ? ' on' : ''}`, 'data-wm-pos': v, title: { tl: 'Canto superior esquerdo', tr: 'Canto superior direito', bl: 'Canto inferior esquerdo', br: 'Canto inferior direito', center: 'Centro' }[v],
+      onclick: (e: Event) => { position = v; grid.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.currentTarget)); save(); } }, ic)
+    : h('span', {})));
+  const imgLbl = h('span', { class: 'muted', id: 'wm-img-name' }, image ? basename(image) : 'nenhuma imagem');
+  return h('div', { class: 'card', id: 'wm-card' },
+    h('div', { class: 'row' }, h('span', { class: 'ico' }, '💧'), h('strong', {}, "Marca d'água"), h('label', { class: 'inline chk' }, on, 'gravar no vídeo final'), h('span', { class: 'muted' }, '(opcional)')),
+    h('label', {}, 'Texto', text),
+    h('div', { class: 'row' }, h('strong', {}, 'Imagem/logo'), imgLbl,
+      h('button', { class: 'small', id: 'wm-img', onclick: () => void guard(async () => { const f = await forge.watermarkPick(p.id); if (!f) return; image = f; imgLbl.textContent = basename(f); on.checked = true; save('Logo da marca d\'água definido'); }) }, '📁 Escolher…'),
+      image ? h('button', { class: 'small', onclick: () => { image = ''; imgLbl.textContent = 'nenhuma imagem'; save(); } }, 'Tirar imagem') : null),
+    h('div', { class: 'row wm-row' }, h('div', {}, h('div', { class: 'muted' }, 'Posição na tela'), grid),
+      h('div', { class: 'grow' }, h('label', {}, 'Opacidade ', opL, op), h('label', {}, 'Tamanho ', sizeL, size))),
+    h('div', { class: 'muted' }, 'Aparece na prévia. Texto: altura em % do vídeo; imagem: largura em % do vídeo. Entra por cima das legendas ao "Renderizar final".'));
+}
+
+/** Aba Exportar: a timeline para DaVinci Resolve, Premiere Pro ou CapCut. */
+function exportCard(p: Project): HTMLElement {
+  const item = (target: 'davinci' | 'premiere' | 'capcut', ico: string, name: string, desc: string) =>
+    h('button', { class: 'export-item', 'data-exp': target, onclick: () => void exportTo(p, target) }, h('span', { class: 'exp-ico' }, ico), h('span', { class: 'exp-txt' }, h('strong', {}, name), h('span', { class: 'muted' }, desc)));
+  return h('div', { class: 'card', id: 'export-card' },
+    h('div', { class: 'row' }, h('span', { class: 'ico' }, '⇪'), h('strong', {}, 'Exportar como projeto de outro editor')),
+    item('davinci', '🎚️', 'DaVinci Resolve', 'Timeline XML + mídia: 1 clipe por cena, narração, efeitos e música em faixas, legendas .srt'),
+    item('premiere', '🅿️', 'Adobe Premiere Pro', 'Sequência XML (Arquivo → Importar) + mídia e legendas .srt'),
+    item('capcut', '✂️', 'CapCut', 'Pasta pronta: clipes numerados na ordem, faixas de áudio do tamanho do vídeo e legendas .srt'),
+    h('div', { class: 'muted' }, 'A pasta abre no fim, com o arquivo COMO-IMPORTAR.txt. Os clipes saem sem filtros/transições do FilmForge, para editar à vontade.'));
 }
 
 /** Vídeo final: filtro/vinheta em todo o vídeo (trecho até o fim) + grão de filme e faixas de cinema. */
@@ -2081,13 +2263,11 @@ function finalFxCard(p: Project): HTMLElement {
     current = await forge.updateProject(p.id, { finalEffects: { ...fe, ...patch } }); toast('Acabamento do vídeo final atualizado. Use "Renderizar final" para gravar.'); renderEditor(true);
   });
   const whole = (kind: FxSegment['kind']) => segsOf(p).find((s) => s.kind === kind && s.start <= 0.01 && segEnd(s, total) >= total - 0.01)?.value ?? 'none';
-  const gr = h('input', { type: 'checkbox', id: 'ffx-grain' }) as HTMLInputElement; gr.checked = !!fe.grain; gr.addEventListener('change', () => save({ grain: gr.checked }));
-  const lb = h('input', { type: 'checkbox', id: 'ffx-letterbox' }) as HTMLInputElement; lb.checked = !!fe.letterbox; lb.addEventListener('change', () => save({ letterbox: lb.checked }));
+  void save; void fe;   // grão e letterbox ficam na aba Texturas
   return h('div', { class: 'card', id: 'final-fx-card' },
     h('div', { class: 'row' }, h('span', { class: 'ico' }, '🎞️'), h('strong', {}, 'Vídeo inteiro'), h('span', { class: 'muted' }, 'filtro e vinheta do começo ao fim (viram trechos na timeline)')),
     h('h4', {}, '🎨 Filtro de cor'), fxTiles('filter', whole('filter'), (v) => void applySeg(p, 'filter', v, { all: true })),
-    h('h4', {}, '🔲 Vinheta'), fxTiles('vignette', whole('vignette'), (v) => void applySeg(p, 'vignette', v, { all: true })),
-    h('div', { class: 'row' }, h('label', { class: 'inline chk' }, gr, '🎬 Grão de filme'), h('label', { class: 'inline chk' }, lb, '▬ Faixas de cinema (letterbox)')));
+    h('h4', {}, '🔲 Vinheta'), fxTiles('vignette', whole('vignette'), (v) => void applySeg(p, 'vignette', v, { all: true })));
 }
 
 /** Estilo das legendas do projeto (prévia + opção de gravar no vídeo). */
@@ -2109,13 +2289,15 @@ function subtitlesCard(p: Project): HTMLElement {
   const mode = subtitlesSelect('sub-mode', p.subtitles ?? (st.burn ? 'burn' : 'srt'));
   const paintMode = () => { burn.checked = mode.value === 'burn'; for (const el of [kind, size, color, accent, ...posBtns]) el.disabled = mode.value === 'off'; };
   paintMode();
-  const style = () => ({ burn: mode.value === 'burn', position, size: Number(size.value) || 46, color: color.value, box: kind.value === 'box', kind: kind.value, accent: accent.value });
+  const style = () => ({ burn: mode.value === 'burn', position, size: Math.min(120, Math.max(16, Number(size.value) || 46)), color: color.value, box: kind.value === 'box', kind: kind.value, accent: accent.value });
   const save = () => void guard(async () => {
     current = await forge.updateProject(p.id, { subtitles: mode.value, subtitleStyle: style() } as never);
     showScene(current.scenes.find((s) => s.id === selected[0]));
   });
   mode.addEventListener('change', () => { paintMode(); save(); toast(mode.value === 'off' ? 'Legendas desligadas — use "Renderizar final" para tirar do vídeo' : 'Legendas ligadas — use "Renderizar final" para aplicar (as cenas não são refeitas)'); });
   burn.addEventListener('change', () => { mode.value = burn.checked ? 'burn' : 'srt'; paintMode(); save(); });
+  /* neon brilha em ciano por padrão; os outros destacam em amarelo — troca a cor só se ainda era a padrão do tipo anterior */
+  kind.addEventListener('change', () => { if (kind.value === 'neon' && accent.value.toLowerCase() === '#ffe14d') accent.value = '#00e5ff'; else if (kind.value !== 'neon' && accent.value.toLowerCase() === '#00e5ff') accent.value = '#ffe14d'; });
   [kind, size, color, accent].forEach((el) => el.addEventListener('change', save));
   /* criar agora: liga "gravar no vídeo" se estiver desligado, salva o estilo e refaz só legendas + montagem */
   const create = h('button', { class: 'primary small', id: 'sub-create', title: 'Gera as legendas (tempos da fala) no tipo e posição escolhidos e grava no vídeo final — as cenas não são refeitas', onclick: () => void guard(async () => {
@@ -2478,9 +2660,34 @@ function inspector(p: Project): HTMLElement {
   } else {
     fields = h('div', { class: 'card muted' }, sel.length === 0 ? 'Clique numa cena da timeline. Ctrl/⌘ ou Shift para selecionar várias.' : `${sel.length} cenas selecionadas — use o prompt, os efeitos, a regeneração ou as ações em lote.`);
   }
-  return h('div', { class: 'inspector' }, fields, effectsCard(p, sel), finalFxCard(p), subtitlesCard(p), aiRow,
-    h('div', { class: 'card' }, h('div', { class: 'row' }, h('strong', {}, 'Regenerar etapa'), h('label', { class: 'inline' }, reroll, 'nova variação (seed)')), regenButtons, batchOps),
-    productionCard(p), voiceCard(p), attachmentsCard(p), pluginsCard(p));
+  const regenCard = h('div', { class: 'card' }, h('div', { class: 'row' }, h('strong', {}, 'Regenerar etapa'), h('label', { class: 'inline' }, reroll, 'nova variação (seed)')), regenButtons, batchOps);
+  return inspectorTabs({
+    scene: () => [fields, regenCard],
+    ai: () => [aiRow],
+    fx: () => [effectsCard(p, sel), finalFxCard(p)],
+    anim: () => [animCard(p, sel)],
+    tex: () => [textureCard(p, sel)],
+    subs: () => [subtitlesCard(p)],
+    wm: () => [watermarkCard(p)],
+    export: () => [exportCard(p)],
+    project: () => [productionCard(p), voiceCard(p), attachmentsCard(p), pluginsCard(p)],
+  });
+}
+
+/** Abas do painel lateral do editor: cada grupo de ferramentas na sua aba (a escolhida fica lembrada). */
+const INSP_TABS: Array<[string, string, string]> = [['scene', '🎬', 'Cena'], ['ai', '✨', 'IA'], ['fx', '🎨', 'Efeitos'], ['anim', '🎥', 'Animação'], ['tex', '📺', 'Texturas'],
+  ['subs', '🔤', 'Legendas'], ['wm', '💧', "Marca d'água"], ['export', '⇪', 'Exportar'], ['project', '⚙️', 'Projeto']];
+function inspectorTabs(content: Record<string, () => Array<HTMLElement | null>>): HTMLElement {
+  if (!content[inspTab]) inspTab = 'scene';
+  const body = h('div', { class: 'insp-body', id: 'insp-body', role: 'tabpanel' }, ...content[inspTab]!());
+  const bar = h('div', { class: 'insp-tabs', role: 'tablist' }, ...INSP_TABS.filter(([id]) => content[id]).map(([id, ic, label]) =>
+    h('button', { class: `insp-tab${inspTab === id ? ' on' : ''}`, 'data-tab': id, role: 'tab', title: label, onclick: (e: Event) => {
+      inspTab = id; try { localStorage.setItem('ff.inspTab', id); } catch { /* sem armazenamento */ }
+      bar.querySelectorAll('.insp-tab').forEach((b) => b.classList.toggle('on', b === e.currentTarget));
+      body.replaceChildren(...content[id]!().filter((x): x is HTMLElement => !!x));
+      body.scrollTop = 0;
+    } }, h('span', { class: 'itab-ico' }, ic), h('span', { class: 'itab-lbl' }, label))));
+  return h('div', { class: 'inspector tabbed' }, bar, body);
 }
 
 /** Sem projeto aberto: escolha um projeto para editar. */

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Aspect, FinalEffects, FxFilter, FxMove, FxSegment, FxTransition, FxVignette, Scene, SceneEffects, SubtitleKind, SubtitleStyle } from '../shared/types';
+import type { Aspect, FinalEffects, FxFilter, FxMove, FxSegment, FxTexture, FxTransition, FxVignette, Scene, SceneEffects, SubtitleKind, SubtitleStyle, Watermark } from '../shared/types';
 
 /** ffmpeg/ffprobe fora do PATH: procura nas pastas comuns antes de desistir. */
 const BIN_CACHE = new Map<string, string>();
@@ -188,6 +188,75 @@ export function finalFilters(e: FinalEffects | undefined): string[] {
   return f;
 }
 
+/* ── texturas (chuviscado, VHS, poeira…) e marca d'água ── */
+
+export const FX_TEXTURES: Array<{ id: FxTexture; label: string }> = [
+  { id: 'static', label: 'Chuviscado (TV)' }, { id: 'vhs', label: 'VHS' }, { id: 'dust', label: 'Poeira + cintilação' }, { id: 'old_film', label: 'Filme antigo' },
+  { id: 'crt', label: 'Tela CRT (linhas)' }, { id: 'glitch', label: 'Glitch' }, { id: 'paper', label: 'Papel / granulado' },
+];
+/** Filtros ffmpeg de cada textura (só filtros de cadeia simples: entram no -vf do segmento). Função pura. */
+export function textureFilters(t: FxTexture | undefined): string[] {
+  switch (t) {
+    case 'static': return ['noise=alls=38:allf=t+u', 'eq=saturation=0.75:contrast=1.1'];
+    case 'vhs': return ['rgbashift=rh=-4:bh=4', 'gblur=sigma=0.8', 'eq=saturation=1.35:contrast=1.06', 'noise=alls=10:allf=t', 'drawgrid=w=iw:h=4:t=1:color=black@0.22'];
+    case 'dust': return ['noise=c0s=22:c0f=t+u', "eq=brightness='0.025*sin(37*t)':contrast=1.08:eval=frame", 'vignette=PI/5'];
+    case 'old_film': return ['colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131', 'noise=alls=20:allf=t+u', "eq=brightness='0.035*sin(29*t)':eval=frame", 'vignette=PI/4'];
+    case 'crt': return ['drawgrid=w=iw:h=3:t=1:color=black@0.35', 'gblur=sigma=0.5', 'eq=contrast=1.12:saturation=1.15', 'vignette=PI/4.5'];
+    case 'glitch': return ['rgbashift=rh=3:bh=-3', "rgbashift=rh=16:gv=-5:bh=-12:enable='lt(mod(t\\,1.3)\\,0.12)'", 'noise=alls=12:allf=t', 'eq=contrast=1.12'];
+    case 'paper': return ['noise=alls=12:allf=u', 'eq=saturation=0.85:brightness=0.03', 'colorbalance=rs=.05:gs=.03:bs=-.05'];
+    default: return [];
+  }
+}
+
+/** Posição da marca d'água (expressões do drawtext/overlay: W/H = vídeo, w/h = marca). Margem de 3% da altura. */
+export function watermarkXY(pos: Watermark['position'], v: { W: string; H: string; w: string; h: string } = { W: 'W', H: 'H', w: 'w', h: 'h' }): { x: string; y: string } {
+  const m = `${v.H}*0.03`;
+  switch (pos) {
+    case 'tl': return { x: m, y: m };
+    case 'tr': return { x: `${v.W}-${v.w}-${m}`, y: m };
+    case 'bl': return { x: m, y: `${v.H}-${v.h}-${m}` };
+    case 'center': return { x: `(${v.W}-${v.w})/2`, y: `(${v.H}-${v.h})/2` };
+    default: return { x: `${v.W}-${v.w}-${m}`, y: `${v.H}-${v.h}-${m}` };
+  }
+}
+/** Fonte do drawtext (Windows tem Arial Bold; outros sistemas usam a padrão do fontconfig). */
+const wmFont = () => { const f = 'C:/Windows/Fonts/arialbd.ttf'; return process.platform === 'win32' && fs.existsSync(f) ? `fontfile='${filterPath(f)}':` : ''; };
+/** Grafo da marca d'água (texto e/ou imagem). Entrada [0:v] (e [1:v] = imagem); saída [wm]. Função pura (menos a fonte). */
+export function watermarkGraph(wm: Watermark, textFile: string | undefined, videoW: number): string | undefined {
+  const op = Math.max(0.05, Math.min(1, wm.opacity || 0.6)).toFixed(2), size = Math.max(1, Math.min(60, wm.size || 6));
+  const parts: string[] = [];
+  let cur = '0:v';
+  if (wm.image) {
+    /* imagem: largura = size% da largura do vídeo (em pixels: funciona em qualquer versão do ffmpeg), opacidade no canal alfa */
+    const p = watermarkXY(wm.position, { W: 'main_w', H: 'main_h', w: 'overlay_w', h: 'overlay_h' });
+    parts.push(`[1:v]format=rgba,colorchannelmixer=aa=${op}[wmi]`, `[wmi]scale=${Math.max(8, Math.round(videoW * size / 100 / 2) * 2)}:-2[wms]`, `[${cur}][wms]overlay=x=${p.x}:y=${p.y}:shortest=1[wimg]`);
+    cur = 'wimg';
+  }
+  if (textFile) {
+    /* texto: altura da fonte = size% da altura do vídeo; contorno escuro para ler em qualquer fundo */
+    const p = watermarkXY(wm.position, { W: 'w', H: 'h', w: 'tw', h: 'th' });
+    parts.push(`[${cur}]drawtext=${wmFont()}textfile='${filterPath(textFile)}':expansion=none:fontsize=h*${(size / 100).toFixed(3)}:fontcolor=white@${op}:borderw=2:bordercolor=black@${(Number(op) * 0.6).toFixed(2)}:x=${p.x}:y=${p.y}[wtxt]`);
+    cur = 'wtxt';
+  }
+  if (!parts.length) return undefined;
+  parts.push(`[${cur}]format=yuv420p[wm]`);
+  return parts.join(';');
+}
+/** Grava a marca d'água no vídeo (texto via arquivo — sem problemas de escape —, imagem com opacidade). */
+export async function applyWatermark(ffmpeg: string, video: string, wm: Watermark, out: string, videoW: number, signal?: AbortSignal): Promise<boolean> {
+  if (!wm.enabled) return false;
+  const img = wm.image && fs.existsSync(wm.image) ? wm.image : undefined;
+  const text = wm.text?.trim();
+  const tf = text ? out + '.wm.txt' : undefined;
+  if (tf) fs.writeFileSync(tf, text!);
+  const g = watermarkGraph({ ...wm, image: img }, tf, videoW);
+  if (!g) return false;
+  try {
+    await run(ffmpeg, ['-y', '-i', video, ...(img ? ['-loop', '1', '-i', img] : []), '-filter_complex', g, '-map', '[wm]', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy', '-shortest', out], signal);
+  } finally { if (tf) fs.rmSync(tf, { force: true }); }
+  return true;
+}
+
 /**
  * Junta os segmentos com transições (xfade) SEM deslocar áudio e legendas: o vídeo
  * da cena com transição é estendido (último quadro congelado) pela duração da
@@ -239,6 +308,12 @@ export function moveExpr(m: FxMove | undefined, frames: number): { z: string; x:
     case 'pan_down': return { z: '1.18', x: cx, y: `(ih-ih/zoom)*${p}` };
     case 'in_left': return { z: `1+0.18*${p}`, x: `(${cx})*(1-${p})`, y: cy };
     case 'in_right': return { z: `1+0.18*${p}`, x: `(${cx})+(${cx})*${p}`, y: cy };
+    /* câmera na mão: zoom fixo pequeno + tremor suave (senos de frequências diferentes, sem aleatório = determinístico) */
+    case 'shake': return { z: '1.08', x: `${cx}+iw*0.012*sin(on*0.9)+iw*0.006*sin(on*2.3)`, y: `${cy}+ih*0.012*cos(on*1.1)+ih*0.005*sin(on*2.9)` };
+    /* pulso: zoom que "respira" uma vez por segundo (batida) */
+    case 'pulse': return { z: '1.06+0.04*sin(2*PI*on/30)', x: cx, y: cy };
+    /* deriva: zoom leve e deslocamento diagonal lento */
+    case 'drift': return { z: `1.1+0.04*${p}`, x: `(iw-iw/zoom)*(0.2+0.6*${p})`, y: `(ih-ih/zoom)*(0.3+0.4*${p})` };
     default: return undefined;
   }
 }
@@ -249,7 +324,7 @@ export function effectFilters(e: SceneEffects | undefined, seconds: number, w: n
   const frames = Math.max(1, Math.round(seconds * 30));
   const mv = moveExpr(e.zoom, frames);
   if (mv) f.push(`zoompan=z='${mv.z}':x='${mv.x}':y='${mv.y}':d=1:s=${w}x${h}:fps=30`);
-  f.push(...colorFilter(e.filter), ...vignetteFilter(e.vignette));
+  f.push(...colorFilter(e.filter), ...vignetteFilter(e.vignette), ...textureFilters(e.texture));
   if (e.fadeIn) f.push('fade=t=in:st=0:d=0.4');
   if (e.fadeOut && seconds > 0.8) f.push(`fade=t=out:st=${(seconds - 0.4).toFixed(2)}:d=0.4`);
   return f;
@@ -325,6 +400,9 @@ export interface SubWord { w: string; start: number; end: number }
 export const SUBTITLE_KINDS: Array<{ id: SubtitleKind; label: string }> = [
   { id: 'classic', label: 'Clássica (contorno)' }, { id: 'box', label: 'Tarja (fundo escuro)' }, { id: 'bold', label: 'Shorts (caixa alta, palavra em destaque)' },
   { id: 'karaoke', label: 'Karaokê (preenche no tempo da fala)' }, { id: 'word', label: 'Palavra por palavra (pop)' }, { id: 'neon', label: 'Neon (brilho colorido)' }, { id: 'minimal', label: 'Minimalista (pequena, sombra)' },
+  { id: 'highlight', label: 'Marca-texto (palavra falada com fundo colorido)' }, { id: 'reveal', label: 'Revelação (palavras surgem ao serem faladas)' },
+  { id: 'typewriter', label: 'Máquina de escrever (letra por letra)' }, { id: 'comic', label: 'Cartoon (contorno grosso + sombra colorida)' },
+  { id: 'slide', label: 'Deslizando (cada frase sobe e aparece)' },
 ];
 export const subtitleKind = (st: SubtitleStyle): SubtitleKind => st.kind ?? (st.box ? 'box' : 'classic');
 
@@ -404,11 +482,11 @@ const assEsc = (s: string) => s.replace(/[{}\\]/g, '').replace(/\r?\n/g, ' ');
 export function buildAss(words: SubWord[], st: SubtitleStyle, size: { w: number; h: number }): string {
   const kind = subtitleKind(st), H = size.h, W = size.w, tall = H > W;
   const base = Math.max(12, Math.round((st.size || 46) * H / 1080));
-  const fs = kind === 'word' ? Math.round(base * 1.6) : kind === 'bold' ? Math.round(base * (tall ? 1.05 : 1.25)) : kind === 'minimal' ? Math.round(base * 0.8) : base;
+  const fs = kind === 'word' ? Math.round(base * 1.6) : kind === 'bold' || kind === 'highlight' || kind === 'comic' ? Math.round(base * (tall ? 1.05 : 1.25)) : kind === 'minimal' ? Math.round(base * 0.8) : base;
   const color = assColor(st.color || '#ffffff'), accent = assColor(st.accent || (kind === 'neon' ? '#00e5ff' : '#ffe14d'));
   const align = st.position === 'top' ? 8 : st.position === 'middle' ? 5 : 2;
   const marginV = st.position === 'middle' ? 0 : Math.round(H * (tall ? (st.position === 'top' ? 0.12 : 0.16) : 0.07));
-  const font = kind === 'bold' || kind === 'word' ? 'Arial Black' : 'Arial';
+  const font = kind === 'bold' || kind === 'word' || kind === 'highlight' || kind === 'comic' ? 'Arial Black' : kind === 'typewriter' ? 'Courier New' : 'Arial';
   const ol = (k: number) => Math.max(1, Math.round(fs * k));
   /* Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding */
   const style = (() => {
@@ -419,13 +497,19 @@ export function buildAss(words: SubWord[], st: SubtitleStyle, size: { w: number;
       case 'karaoke': return `Main,${font},${fs},${accent},${color},&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,${ol(0.08)},${ol(0.03)},${align},${m},${m},${marginV},1`;
       case 'word': return `Main,${font},${fs},${color},${color},&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,${ol(0.1)},${ol(0.05)},${align},${m},${m},${marginV},1`;
       case 'neon': return `Main,${font},${fs},${color},${color},${accent},&H00000000,-1,0,0,0,100,100,1,0,1,${ol(0.12)},0,${align},${m},${m},${marginV},1`;
+      case 'highlight': return `Main,${font},${fs},${color},${color},&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,${ol(0.08)},${ol(0.04)},${align},${m},${m},${marginV},1`;
+      case 'comic': return `Main,${font},${fs},${color},${color},&H00000000,${accent},-1,0,0,0,100,100,1,0,1,${ol(0.14)},${ol(0.1)},${align},${m},${m},${marginV},1`;
+      case 'typewriter': return `Main,${font},${fs},${color},${color},&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${ol(0.07)},${ol(0.04)},${align},${m},${m},${marginV},1`;
       case 'minimal': return `Main,${font},${fs},${color},${color},&H00000000,&H90000000,0,0,0,0,100,100,0,0,1,0,${ol(0.06)},${align},${m},${m},${marginV},1`;
       default: return `Main,${font},${fs},${color},${color},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,${ol(0.08)},0,${align},${m},${m},${marginV},1`;
     }
   })();
-  const max = kind === 'word' ? 1 : kind === 'bold' ? 3 : tall ? 4 : 6;
+  const max = kind === 'word' ? 1 : kind === 'bold' || kind === 'comic' ? 3 : kind === 'highlight' ? 4 : tall ? 4 : 6;
   const cues = subtitleCues(words, max), lines: string[] = [];
-  const up = (s: string) => (kind === 'bold' || kind === 'word' ? s.toUpperCase() : s);
+  const up = (s: string) => (kind === 'bold' || kind === 'word' || kind === 'highlight' || kind === 'comic' ? s.toUpperCase() : s);
+  /* ponto de ancoragem do texto (para \move): centro horizontal, base/topo/meio conforme a posição */
+  const ax = Math.round(W / 2), ay = st.position === 'top' ? marginV : st.position === 'middle' ? Math.round(H / 2) : H - marginV;
+  const ms = (x: number) => Math.max(0, Math.round(x * 1000));
   cues.forEach((cue, ci) => {
     const a = cue[0]!.start, next = cues[ci + 1]?.[0]?.start;
     const b = Math.max(a + 0.25, Math.min(next ?? Infinity, cue[cue.length - 1]!.end + 0.35));
@@ -438,6 +522,38 @@ export function buildAss(words: SubWord[], st: SubtitleStyle, size: { w: number;
         const txt = cue.map((x, xi) => (xi === wi ? `{\\c${accent}\\fscx110\\fscy110}${assEsc(up(x.w))}{\\c${color}\\fscx100\\fscy100}` : assEsc(up(x.w)))).join(' ');
         lines.push(`Dialogue: 0,${assTime(wa)},${assTime(Math.max(wa + 0.05, wb))},Main,,0,0,0,,${txt}`);
       });
+    } else if (kind === 'highlight') {
+      /* marca-texto: a palavra falada ganha um contorno grosso na cor de destaque (fundo) e texto escuro */
+      let prevEnd = a;
+      cue.forEach((w, wi) => {
+        const wa = Math.max(prevEnd, wi === 0 ? a : w.start), wb = Math.max(wa + 0.05, wi === cue.length - 1 ? b : cue[wi + 1]!.start);
+        prevEnd = wb;
+        const txt = cue.map((x, xi) => (xi === wi ? `{\\c&H101010&\\3c${accent}\\bord${ol(0.3)}\\shad0}${assEsc(up(x.w))}{\\c${color}\\3c&H000000&\\bord${ol(0.08)}\\shad${ol(0.04)}}` : assEsc(up(x.w)))).join(' ');
+        lines.push(`Dialogue: 0,${assTime(wa)},${assTime(wb)},Main,,0,0,0,,${txt}`);
+      });
+    } else if (kind === 'reveal') {
+      /* revelação: o bloco inteiro ocupa o lugar (invisível) e cada palavra aparece quando é falada — o texto não pula */
+      let prevEnd = a;
+      cue.forEach((w, wi) => {
+        const wa = Math.max(prevEnd, wi === 0 ? a : w.start), wb = Math.max(wa + 0.05, wi === cue.length - 1 ? b : cue[wi + 1]!.start);
+        prevEnd = wb;
+        const seen = cue.slice(0, wi + 1).map((x) => assEsc(x.w)).join(' '), rest = cue.slice(wi + 1).map((x) => assEsc(x.w)).join(' ');
+        lines.push(`Dialogue: 0,${assTime(wa)},${assTime(wb)},Main,,0,0,0,,${seen}${rest ? ` {\\alpha&HFF&}${rest}` : ''}`);
+      });
+    } else if (kind === 'typewriter') {
+      /* máquina de escrever: cada letra aparece no tempo da sua palavra (as letras dividem a duração da palavra) */
+      const parts: string[] = [];
+      cue.forEach((w, wi) => {
+        const ws = Math.max(0, w.start - a), we = Math.max(ws + 0.05, (wi < cue.length - 1 ? cue[wi + 1]!.start : w.end) - a);
+        const chars = [...assEsc(w.w)], per = (we - ws) / Math.max(1, chars.length);
+        parts.push(chars.map((ch, k) => { const t = ms(ws + per * k); return `{\\alpha&HFF&\\t(${t},${t + 1},\\alpha&H00&)}${ch}`; }).join(''));
+      });
+      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${parts.join(' ')}`);
+    } else if (kind === 'comic') {
+      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\frz-3\\fscx60\\fscy60\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${assEsc(up(cue.map((w) => w.w).join(' ')))}`);
+    } else if (kind === 'slide') {
+      const dy = Math.round(H * 0.045);
+      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\move(${ax},${ay + dy},${ax},${ay},0,220)\\fad(180,140)}${assEsc(cue.map((w) => w.w).join(' '))}`);
     } else if (kind === 'karaoke') {
       const txt = cue.map((w, wi) => `{\\kf${Math.max(1, Math.round(((wi < cue.length - 1 ? cue[wi + 1]!.start : w.end) - w.start) * 100))}}${assEsc(w.w)}`).join(' ');
       lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${cue[0]!.start > a ? `{\\k${Math.round((cue[0]!.start - a) * 100)}}` : ''}${txt}`);

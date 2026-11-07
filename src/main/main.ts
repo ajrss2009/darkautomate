@@ -1662,7 +1662,19 @@ function registerIpc() {
     if (!r) throw new Error('ainda não há vídeo final (out/final.mp4): renderize o final primeiro');
     shell.showItemInFolder(r.video); return r;
   });
-  h('project:export-editor', async (id: string, target: 'davinci' | 'capcut') => {
+  /** Imagem da marca d'água: escolhe e copia para a pasta do projeto (fica portátil e a prévia consegue mostrar). */
+  h('project:watermark-pick', async (id: string) => {
+    const r = await dialog.showOpenDialog(win!, { title: "Imagem da marca d'água (PNG com transparência fica melhor)", properties: ['openFile'], filters: [{ name: 'Imagem', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    const src = r.canceled ? undefined : r.filePaths[0];
+    if (!src) return null;
+    const dir = path.join(projectDirOf(settings, id), 'assets');
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(dir, `watermark${path.extname(src).toLowerCase()}`);
+    for (const f of fs.readdirSync(dir).filter((x) => /^watermark\./i.test(x))) fs.rmSync(path.join(dir, f), { force: true });
+    fs.copyFileSync(src, dest);
+    return dest;
+  });
+  h('project:export-editor', async (id: string, target: 'davinci' | 'capcut' | 'premiere') => {
     const p = ops.readProject(settings, id);
     const r = await exportForEditor(settings, p, target);
     shell.showItemInFolder(r.main); return r;

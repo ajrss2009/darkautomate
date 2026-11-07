@@ -164,7 +164,9 @@ export interface Attachment {
 export type FxFilter = 'none' | 'bw' | 'sepia' | 'vivid' | 'warm' | 'cool' | 'blur' | 'cinematic' | 'teal_orange' | 'vintage' | 'noir' | 'matte' | 'dramatic';
 export type FxVignette = 'none' | 'soft' | 'strong';
 /** Movimento de câmera na cena: zoom, panorâmicas e zoom com deslocamento. */
-export type FxMove = 'none' | 'in' | 'out' | 'pan_left' | 'pan_right' | 'pan_up' | 'pan_down' | 'in_left' | 'in_right';
+export type FxMove = 'none' | 'in' | 'out' | 'pan_left' | 'pan_right' | 'pan_up' | 'pan_down' | 'in_left' | 'in_right' | 'shake' | 'pulse' | 'drift';
+/** Textura sobre a cena: chuviscado de TV, VHS, poeira/flicker, filme antigo, tela CRT (linhas), glitch, papel. */
+export type FxTexture = 'none' | 'static' | 'vhs' | 'dust' | 'old_film' | 'crt' | 'glitch' | 'paper';
 /** Transições do ffmpeg xfade (da cena para a próxima). */
 export type FxTransition = 'none' | 'fade' | 'fadeblack' | 'fadewhite' | 'dissolve' | 'wipeleft' | 'wiperight' | 'slideleft' | 'slideup' | 'circleopen' | 'circleclose' | 'radial' | 'pixelize' | 'zoomin' | 'hblur';
 export interface SceneEffects {
@@ -174,6 +176,7 @@ export interface SceneEffects {
   vignette?: FxVignette;               // escurece as bordas da cena
   transition?: FxTransition;           // transição desta cena para a PRÓXIMA
   transitionSec?: number;              // duração da transição (0,2–2 s)
+  texture?: FxTexture;                 // textura por cima (chuviscado, VHS, poeira…)
 }
 /** Efeito sonoro numa cena: `at` em segundos desde o início da cena, ou `word` = toca quando a palavra é falada. */
 /** Termos de busca vindos da IA (texto ou lista) → texto. */
@@ -193,7 +196,9 @@ export interface FxSegment { id: string; kind: 'filter' | 'vignette'; value: str
  * karaoke (a cor preenche cada palavra no tempo da fala), word (uma palavra por vez, grande, com pop), neon (brilho
  * colorido), minimal (pequena, só sombra). Ausente = classic ou box conforme `box`.
  */
-export type SubtitleKind = 'classic' | 'box' | 'bold' | 'karaoke' | 'word' | 'neon' | 'minimal';
+export type SubtitleKind = 'classic' | 'box' | 'bold' | 'karaoke' | 'word' | 'neon' | 'minimal' | 'highlight' | 'reveal' | 'typewriter' | 'comic' | 'slide';
+/** Marca d'água do vídeo final: texto e/ou imagem, num canto ou no centro, com opacidade e tamanho. */
+export interface Watermark { enabled: boolean; text?: string; image?: string; position: 'tl' | 'tr' | 'bl' | 'br' | 'center'; opacity: number; /** % da altura do vídeo (texto) ou da largura (imagem) */ size: number }
 export interface SubtitleStyle { burn: boolean; position: 'bottom' | 'middle' | 'top'; size: number; color: string; box: boolean; kind?: SubtitleKind; /** cor de destaque (bold/karaoke/neon) */ accent?: string }
 /** Fontes que uma skill mista pode mesclar: motion graphics/código, bancos de mídia e vídeo/imagem por IA (MiniMax etc.). */
 export type MixSource = 'motion' | 'stock' | 'ai';
@@ -456,6 +461,8 @@ export interface Project {
   subtitleStyle?: SubtitleStyle;
   /** filtro/vinheta/grão/letterbox do vídeo final inteiro */
   finalEffects?: FinalEffects;
+  /** marca d'água opcional (texto/imagem) gravada no vídeo final */
+  watermark?: Watermark;
   /** trechos de filtro e vinheta na timeline (arrastáveis) */
   fxSegments?: FxSegment[];
   /** volume da trilha (0 = mudo, 1 = 100%); vazio = o da rota */

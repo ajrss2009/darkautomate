@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { ExecutorBypass, FinalEffects, Project, Route, Scene, SceneEffects, SceneKind, Settings, StepKind } from '../shared/types';
+import type { ExecutorBypass, FinalEffects, Project, Watermark, Route, Scene, SceneEffects, SceneKind, Settings, StepKind } from '../shared/types';
 import { compilationFields, projectDirOf, projectsDir } from './settings';
 import { cleanSegments, migrateSceneFx } from '../shared/fx';
 import { sfxDef } from './sfx';
@@ -65,7 +65,7 @@ export function cleanBypass(v: unknown): ExecutorBypass | undefined {
 }
 
 export function updateProject(s: Settings, id: string, patch: Partial<Pick<Project,
-  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic'>>): Project {
+  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark'>>): Project {
   const p = readProject(s, id);
   const allowed = ['name', 'idea', 'aspect', 'targetDurationSec', 'language', 'memories', 'quality', 'videoType', 'maxProductionMin', 'sceneConcurrency', 'subtitleStyle', 'scriptStyle', 'videoStyle', 'musicStyle', 'musicMode', 'waveform', 'plugins'];
   Object.assign(p, Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && allowed.includes(k))));
@@ -73,6 +73,7 @@ export function updateProject(s: Settings, id: string, patch: Partial<Pick<Proje
   if ('flowAccount' in patch) { if (patch.flowAccount) p.flowAccount = patch.flowAccount; else delete p.flowAccount; }
   if ('agyAccount' in patch) { if (patch.agyAccount) p.agyAccount = patch.agyAccount; else delete p.agyAccount; }
   if ('channelId' in patch) { if (patch.channelId) p.channelId = patch.channelId; else delete p.channelId; }
+  if ('watermark' in patch) { const w = cleanWatermark(patch.watermark); if (w) p.watermark = w; else delete p.watermark; }
   if ('finalEffects' in patch) { const fe = cleanFinalEffects(patch.finalEffects); if (fe) p.finalEffects = fe; else delete p.finalEffects; }
   /* volumes da montagem (null = voltar ao padrão da rota) */
   for (const [k, max] of [['musicVolume', 1], ['sfxVolume', 1.5], ['narrationVolume', 2]] as const) if (k in patch) {
@@ -168,7 +169,8 @@ export interface ScenePatch {
   userMedia?: string;
 }
 export const FILTERS = ['none', 'bw', 'sepia', 'vivid', 'warm', 'cool', 'blur', 'cinematic', 'teal_orange', 'vintage', 'noir', 'matte', 'dramatic'];
-const ZOOMS = ['none', 'in', 'out', 'pan_left', 'pan_right', 'pan_up', 'pan_down', 'in_left', 'in_right'];
+const ZOOMS = ['none', 'in', 'out', 'pan_left', 'pan_right', 'pan_up', 'pan_down', 'in_left', 'in_right', 'shake', 'pulse', 'drift'];
+export const TEXTURES = ['none', 'static', 'vhs', 'dust', 'old_film', 'crt', 'glitch', 'paper'];
 const VIGNETTES = ['none', 'soft', 'strong'];
 export const TRANSITIONS = ['none', 'fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideup', 'circleopen', 'circleclose', 'radial', 'pixelize', 'zoomin', 'hblur'];
 const pick = <T extends string>(list: string[], v: unknown, def: T): T => (typeof v === 'string' && list.includes(v) ? v : def) as T;
@@ -178,6 +180,15 @@ export function cleanFinalEffects(e: unknown): FinalEffects | undefined {
   const x = e as Record<string, unknown>;
   const out: FinalEffects = { filter: pick(FILTERS, x['filter'], 'none'), vignette: pick(VIGNETTES, x['vignette'], 'none'), grain: !!x['grain'], letterbox: !!x['letterbox'] };
   return out.filter === 'none' && out.vignette === 'none' && !out.grain && !out.letterbox ? undefined : out;
+}
+/** Marca d'água (validada): precisa de texto ou imagem; posição, opacidade 5–100% e tamanho 1–60%. */
+export function cleanWatermark(v: unknown): Watermark | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const x = v as Record<string, unknown>;
+  const text = typeof x['text'] === 'string' ? x['text'].trim().slice(0, 120) : '', image = typeof x['image'] === 'string' ? x['image'].trim().slice(0, 600) : '';
+  if (!text && !image) return undefined;
+  return { enabled: x['enabled'] !== false, ...(text ? { text } : {}), ...(image ? { image } : {}), position: pick(['tl', 'tr', 'bl', 'br', 'center'], x['position'], 'br'),
+    opacity: Math.round(Math.min(1, Math.max(0.05, Number(x['opacity']) || 0.6)) * 100) / 100, size: Math.round(Math.min(60, Math.max(1, Number(x['size']) || 6)) * 10) / 10 };
 }
 export interface ChangeFlags { visual: boolean; audio: boolean }
 
@@ -194,7 +205,8 @@ function cleanPatch(patch: ScenePatch): ScenePatch {
     const e = patch.effects;
     out.effects = { filter: pick(FILTERS, e.filter, 'none'), zoom: pick(ZOOMS, e.zoom, 'none'), fadeIn: !!e.fadeIn, fadeOut: !!e.fadeOut,
       vignette: pick(VIGNETTES, e.vignette, 'none'), transition: pick(TRANSITIONS, e.transition, 'none'),
-      transitionSec: Math.min(2, Math.max(0.2, Number(e.transitionSec) || 0.6)) };
+      transitionSec: Math.min(2, Math.max(0.2, Number(e.transitionSec) || 0.6)), texture: pick(TEXTURES, e.texture, 'none') };
+    if (out.effects.texture === 'none') delete out.effects.texture;
   }
   if (Array.isArray(patch.sfx)) out.sfx = patch.sfx.map((x) => String(x).trim()).filter((x) => sfxDef(x.split(/[@:]/)[0]!)).slice(0, 8);
   if (patch.kind && SCENE_KINDS.includes(patch.kind)) out.kind = patch.kind;

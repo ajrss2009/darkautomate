@@ -72,11 +72,11 @@ async function joinedTrack(s: Settings, parts: Array<{ file?: string; seconds: n
 }
 
 /** Exporta o projeto para o DaVinci Resolve (XML) ou para o CapCut (pasta). Devolve a pasta e o arquivo principal. */
-export async function exportForEditor(s: Settings, p: Project, target: 'davinci' | 'capcut', log: (m: string) => void = () => {}): Promise<{ dir: string; main: string; notes: string[] }> {
+export async function exportForEditor(s: Settings, p: Project, target: 'davinci' | 'capcut' | 'premiere', log: (m: string) => void = () => {}): Promise<{ dir: string; main: string; notes: string[] }> {
   if (!p.scenes.length) throw new Error('o projeto não tem cenas para exportar');
   const root = projectDirOf(s, p.id), out = path.join(root, 'export', target);
   fs.rmSync(out, { recursive: true, force: true });
-  const media = target === 'davinci' ? path.join(out, 'midia') : out;
+  const media = target !== 'capcut' ? path.join(out, 'midia') : out;
   fs.mkdirSync(media, { recursive: true });
   const size = ff.resolution(p.aspect ?? '16:9'), notes: string[] = [];
   const vf = `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS},format=yuv420p`;
@@ -123,7 +123,21 @@ export async function exportForEditor(s: Settings, p: Project, target: 'davinci'
   if (words.length) ff.writeSrtFromWords(srt, words, size.h > size.w ? 4 : 6);
   const name = p.name || p.id;
   let main: string;
-  if (target === 'davinci') {
+  if (target === 'premiere') {
+    main = path.join(out, `${name.replace(/[\\/:*?"<>|]/g, '').trim() || 'timeline'}.xml`);
+    fs.writeFileSync(main, fcpXml(name, size, { video, audio }));
+    fs.writeFileSync(path.join(out, 'COMO-IMPORTAR.txt'), [
+      'Adobe Premiere Pro — importar a sequência do FilmForge',
+      '',
+      `1. Arquivo → Importar… (Ctrl+I) e escolha "${path.basename(main)}" (XML do Final Cut Pro 7, que o Premiere lê).`,
+      '2. O Premiere cria uma pasta com a sequência e os clipes; se pedir para localizar mídia, aponte para a pasta "midia".',
+      `3. Abra a sequência: vídeo com ${video.length} clipes (um por cena, ${FPS} fps, ${size.w}x${size.h}).`,
+      `4. Áudio: ${audio.map((a) => `${a.name} (${Math.round(a.level * 100)}%)`).join(', ') || 'nenhuma faixa'}.`,
+      words.length ? '5. Legendas: Arquivo → Importar "legendas.srt" e arraste para a sequência (vira faixa de legendas).' : '5. Sem legendas (a narração não tem texto).',
+      '',
+      'Os clipes saem sem os filtros, movimentos e transições do FilmForge, para você editar no Premiere.',
+    ].join('\r\n'));
+  } else if (target === 'davinci') {
     main = path.join(out, `${name.replace(/[\\/:*?"<>|]/g, '').trim() || 'timeline'}.xml`);
     fs.writeFileSync(main, fcpXml(name, size, { video, audio }));
     fs.writeFileSync(path.join(out, 'COMO-IMPORTAR.txt'), [
@@ -150,6 +164,6 @@ export async function exportForEditor(s: Settings, p: Project, target: 'davinci'
       'O CapCut não abre projetos de outros editores; esta pasta tem as mesmas peças da timeline do FilmForge, separadas para editar.',
     ].join('\r\n'));
   }
-  log(`exportado para ${target === 'davinci' ? 'DaVinci Resolve' : 'CapCut'}: ${out}`);
+  log(`exportado para ${target === 'davinci' ? 'DaVinci Resolve' : target === 'premiere' ? 'Premiere Pro' : 'CapCut'}: ${out}`);
   return { dir: out, main, notes };
 }
