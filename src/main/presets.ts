@@ -290,7 +290,7 @@ export const ROUTES: Route[] = [
       transcribeStep(),
       /* storyboard: elenco e paleta fixos + planos de cada cena nos tempos reais da fala (antes de escrever o código) */
       step({ id: 'storyboard', kind: 'asset_design', label: 'Storyboard (planos, elenco e paleta)', scope: 'project', dependsOn: ['scene_plan', 'transcribe'], bindings: textChain, timeoutSec: 900 }),
-      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena cartoon 3D (Three.js + cartoon3d) + revisão de cena', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'storyboard'], bindings: textChain, timeoutSec: 1800 }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena cartoon 3D (Three.js + cartoon3d) + revisão de cena', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'storyboard'], bindings: textChain, timeoutSec: 3600 }),
       sfxStep(false, ['code_scene']),
       /* thumbnail = quadro real do curta (o estilo não usa IA de imagem) */
       ...tail(['narration', 'code_scene', 'sfx'], {}, codeMusicChain).map((st) => st.kind === 'thumbnail' ? ({ ...st, bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] } as RouteStep) : st),
@@ -306,7 +306,7 @@ export const ROUTES: Route[] = [
       step({ id: 'narration', kind: 'narration', label: 'Narração (TTS)', scope: 'scene', dependsOn: ['scene_plan'], bindings: ttsChain, concurrency: 2 }),
       transcribeStep(),
       step({ id: 'storyboard', kind: 'asset_design', label: 'Storyboard do episódio (planos, elenco, cenários)', scope: 'project', dependsOn: ['scene_plan', 'transcribe'], bindings: textChain, timeoutSec: 2400 }),
-      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena cartoon 3D (Three.js + cartoon3d) + revisão de cena', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'storyboard'], bindings: textChain, timeoutSec: 1800 }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena cartoon 3D (Three.js + cartoon3d) + revisão de cena', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'storyboard'], bindings: textChain, timeoutSec: 3600 }),
       sfxStep(false, ['code_scene']),
       ...tail(['narration', 'code_scene', 'sfx'], {}, codeMusicChain).map((st) => st.kind === 'thumbnail' ? ({ ...st, bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] } as RouteStep) : st),
     ],

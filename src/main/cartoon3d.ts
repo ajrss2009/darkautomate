@@ -188,6 +188,8 @@ export function framingFixPrompt(rel: string, issues: string[]): string {
     '- LETREIRO ILEGÍVEL (placa st.sign ou texto desenhado com fillText num st.poster/st.draw): aumente a placa/cartaz (w/h) ou, no desenho, a fonte (g.font) ocupando boa parte do canvas, ou aproxime a câmera enquanto ele aparece, vire-a para a câmera (yaw), encurte o texto (até 3 palavras), use fundo e texto contrastantes (no desenho: faixa clara com letra escura, ou contorno g.strokeText) e não deixe nada na frente; se ela está CORTADA pela borda, afaste a câmera, mude o look ou mova a placa para ela caber inteira no quadro; ou retire a placa se ela não importa.\n' +
     '- COR BRUSCA: não troque cor/material de um quadro para o outro; se a mudança é intencional, faça uma transição de 0,4 a 1 s (lerp da cor com C.ease). A luz (st.setLight) fica a mesma na cena inteira.\n' +
     'Mantenha o visual, os textos, os tempos, a narração e os efeitos sonoros. Dica: num close, olhe (look) para a altura do peito (y ≈ 1,2) e mantenha 1 a 2 personagens no quadro.',
+    `TRABALHE RÁPIDO: leia só ${rel}, edite o necessário e grave — NÃO crie scripts de teste nem arquivos auxiliares, NÃO rode node/npm/python/ffmpeg/navegador nem servidores: ` +
+    'o FilmForge renderiza a cena de novo e mede cada quadro sozinho (e devolve o que ainda estiver errado).',
   ].join('\n\n');
 }
 

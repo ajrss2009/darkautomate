@@ -303,6 +303,7 @@ export function tolerantSeek(page: string): string {
 }
 
 const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
+  const stepT0 = Date.now();   // orçamento de tempo das rodadas de revisão (não podem estourar o prazo da etapa)
   const b = c.binding as HarnessBinding;
   // obreiro com harness/modelo próprios assume o executor principal da etapa
   const w = workersFor(c.project, c.step).find((x) => x.harness && x.harness !== 'auto');
@@ -441,11 +442,14 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       if (!issues.length) { c.log('agente de revisão de cena: enquadramento, bloqueios, letreiros e cores ok ✓'); return done; }
       c.log(`agente de revisão de cena: ${issues.length} problema(s) — ${issues.join('; ').slice(0, 500)}`);
       if (framingRounds >= 2 || c.signal.aborted) { c.log('⚠ revisão de cena ainda com problemas depois de 2 correções — cena mantida assim'); return done; }
+      /* orçamento: a correção + o render novo têm que caber no prazo da etapa; sem tempo, fica o render que já passou */
+      const budget = (c.step.timeoutSec ?? 900) * 1000, left = budget - (Date.now() - stepT0), renderMs = Math.max(120_000, budget * 0.2);
+      if (left < renderMs + 180_000) { c.log(`⚠ revisão de cena: sem tempo para outra correção (${Math.round(left / 60000)} min restantes) — cena mantida com o último render`); return done; }
       framingRounds++;
       c.log(`agente de revisão de cena: pedindo ao ${id} para corrigir (${framingRounds}/2)`);
       const stop = watchOutputs(cwd, c.log);
       let r: Awaited<ReturnType<typeof runHarness>>;
-      try { r = await runHarness(cfg, { cwd, prompt: framingFixPrompt(path.relative(cwd, file).split(path.sep).join('/'), issues), model, effort, signal: c.signal, onLine: c.log, timeoutSec: c.step.timeoutSec, env,
+      try { r = await runHarness(cfg, { cwd, prompt: framingFixPrompt(path.relative(cwd, file).split(path.sep).join('/'), issues), model, effort, signal: c.signal, onLine: c.log, timeoutSec: Math.max(120, Math.floor((left - renderMs) / 1000)), env,
         tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
       finally { stop(); }
       if (!r.ok) { c.log(`⚠ ${id} não conseguiu corrigir a cena — mantida como estava`); return done; }

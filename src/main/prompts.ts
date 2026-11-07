@@ -842,7 +842,10 @@ export function buildPrompt(c: ExecContext): string {
       return head + `\nIdeia: ${p.idea}\nPesquise e verifique fatos quando possível. Escreva o roteiro narrado em Markdown, com gancho nos 3 primeiros segundos, ritmo para retenção e ${ENDING_TEXT[scriptEnding(p)]}. ` +
         (p.targetDurationSec >= 120 ? `${RETENTION_RULES} ` : 'Vídeo curto: a primeira frase já é o gancho; uma ideia por frase, sem introdução. ') +
         /* a narração define a duração do vídeo: sem limite, um "vídeo de 10 s" saía com 55 palavras (28 s de voz) */
-        (p.targetDurationSec > 0 ? `TAMANHO: a narração tem de caber em ${p.targetDurationSec} s — no máximo ${wordBudget(p)} palavras faladas no total (≈ ${/^en/i.test(p.language ?? '') ? '2,8' : '2,6'} palavras/s); conte as palavras antes de gravar e corte o que passar (a linha de fontes não conta). ` : '') +
+        (p.targetDurationSec > 0 ? (p.targetDurationSec >= 60
+          /* vídeo longo: só com o teto, o modelo escrevia bem menos (episódio de 3 min saiu com 2 min de voz) — pede a faixa */
+          ? `TAMANHO: a narração define a duração (${p.targetDurationSec} s) — escreva ENTRE ${Math.round(wordBudget(p) * 0.9)} e ${wordBudget(p)} palavras faladas no total (≈ ${/^en/i.test(p.language ?? '') ? '2,8' : '2,6'} palavras/s); conte as palavras antes de gravar: se faltar, desenvolva as batidas com fatos, números e exemplos concretos (sem enrolação); se passar, corte (a linha de fontes e os títulos de capítulo não contam). `
+          : `TAMANHO: a narração tem de caber em ${p.targetDurationSec} s — no máximo ${wordBudget(p)} palavras faladas no total (≈ ${/^en/i.test(p.language ?? '') ? '2,8' : '2,6'} palavras/s); conte as palavras antes de gravar e corte o que passar (a linha de fontes não conta). `) : '') +
         (p.titleModel?.chosen ? `O roteiro precisa cumprir a promessa do título "${p.titleModel.chosen}" logo no início. ` : '') +
         `Apenas o texto a ser falado, organizado por blocos` +
         (p.skill?.multiVoice ? ' — como é um diálogo, escreva cada fala numa linha no formato "NOME: fala".' : '.');
