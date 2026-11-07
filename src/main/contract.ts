@@ -108,7 +108,6 @@ const RAW_CANVAS: Array<[RegExp, string]> = [
   [/\.closePath\s*\(/, '.closePath()'],
   [/\.fill\s*\(\s*\)/, '.fill()'],
   [/\.stroke\s*\(\s*\)/, '.stroke()'],
-  [/\.clip\s*\(\s*\)/, '.clip()'],
   [/new\s+Path2D\b/, 'new Path2D'],
 ];
 
@@ -120,8 +119,10 @@ export function canvasViolations(page: string, allow: string[] = []): Array<{ li
     for (const [i, raw] of lines.entries()) {
       const line = b.firstLine + i;
       if (allow.some((a) => a.trim() && raw.includes(a.trim()))) continue;
-      /* já CHAMANDO a biblioteca (L.x) nesta linha: a chamada pronta é o caminho certo — ignora o resto */
-      const hit = RAW_CANVAS.find(([re]) => re.test(raw));
+      /* chamar a BIBLIOTECA (L.ellipse, L.fill…) é o caminho certo: só as primitivas cruas do contexto contam
+         (antes "L.ellipse(ctx, …)" era acusado como .ellipse() cru e o modelo "corrigia" código certo) */
+      const code = raw.replace(/\bL\.[A-Za-z_$][\w$]*/g, 'LIB');
+      const hit = RAW_CANVAS.find(([re]) => re.test(code));
       if (!hit) continue;
       out.push({ line, what: hit[1], snippet: raw.trim().slice(0, 120) });
       if (out.length >= 12) return out;

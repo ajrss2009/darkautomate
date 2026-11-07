@@ -448,7 +448,8 @@ export function ensureThreeImport(page: string, imports: Record<string, string>)
  */
 export function freeHtmlPrompt(p: Pick<Project, 'idea' | 'aspect'>, html: string, dur: number, w: number, h: number, existing: boolean, plugins = '', lib?: FreeLib): string {
   const fps = 30;
-  return `${p.idea.trim()}\n\n${plugins ? plugins + '\n\n' : ''}---\n` +
+  /* modo estrito (modelos locais): plugin, API real e esqueleto marcados → vão ao prompt de sistema em tags XML */
+  return `${p.idea.trim()}\n\n${plugins ? mark('plugin', plugins) + '\n\n' : ''}${lib?.names?.length ? mark('api', libApiText(lib)) + '\n\n' : ''}---\n` +
     (lib ? `Entrega: responda SOMENTE com UMA página HTML (HTML+CSS+JS inline, sem rede; Canvas 2D) com a animação deste vídeo, desenhada com a biblioteca do plugin (L) — `
       : `Entrega: responda SOMENTE com UMA página HTML autocontida (HTML+CSS+JS inline, sem rede, sem bibliotecas externas; Canvas 2D ou SVG) com a animação deste vídeo — `) +
     `nada antes de <!doctype html> e nada depois de </html>. O FilmForge grava a resposta em ${html} e transforma a página no vídeo final: ` +
@@ -458,7 +459,106 @@ export function freeHtmlPrompt(p: Pick<Project, 'idea' | 'aspect'>, html: string
     `O renderizador NÃO roda a página em tempo real: ele chama window.__forge.seek(i/${fps}) para cada um dos ${Math.round(dur * fps)} quadros e fotografa. ` +
     `Por isso TODO o desenho tem de sair de uma função render(t) que desenha o quadro inteiro a partir de t — sem requestAnimationFrame, setInterval, Date.now, performance.now ou Math.random sem seed. ` +
     FREE_SFX_RULE + rigRule(lib?.rigs) +
-    `Use EXATAMENTE este esqueleto${lib ? ' (mantenha o import da biblioteca e a linha do window.__forge)' : ''} e escreva a animação dentro de render(t):\n` + freeSkeleton(dur, fps, w, h, lib);
+    `Use EXATAMENTE este esqueleto${lib ? ' (mantenha o import da biblioteca e a linha do window.__forge)' : ''} e escreva a animação dentro de render(t):\n` + mark('example', freeSkeleton(dur, fps, w, h, lib));
+}
+
+const CTX_PARAM = /^(?:ctx|g|c|context)$/;
+
+/**
+ * <library_api> do vídeo livre com plugin: cada função com a assinatura real e COMO se usa — as que desenham na hora
+ * (1º parâmetro = contexto), as que devolvem canvas/função — e um exemplo correto montado com nomes reais da
+ * biblioteca. Visto: o 9B guardava SETUP.sky = L.skyGradient(g, …) e chamava SETUP.sky.draw() (desenham e devolvem
+ * undefined → a página quebrava em todo quadro). Função pura.
+ */
+export function libApiText(lib: FreeLib, maxChars = 4500): string {
+  const names = lib.names ?? [], fp = lib.firstParam ?? {}, fac = lib.factories ?? {}, sig = (n: string) => `L.${lib.sigs?.[n] ?? `${n}(…)`}`;
+  const draw = names.filter((n) => CTX_PARAM.test(fp[n] ?? '') && !fac[n]);
+  const canvas = names.filter((n) => fac[n] === 'canvas'), fns = names.filter((n) => fac[n] === 'frame' || fac[n] === 't');
+  const other = names.filter((n) => !draw.includes(n) && !canvas.includes(n) && !fns.includes(n) && fp[n] !== undefined);
+  const rig = (lib.rigs ?? [])[0]?.name, d1 = draw.find((n) => n !== rig && /sky|grad|back/i.test(n)) ?? draw.find((n) => n !== rig), d2 = draw.find((n) => n !== rig && n !== d1);
+  const example = `EXEMPLO CORRETO (estrutura):\n` +
+    (canvas[0] ? `const camada = L.${canvas[0]}(W, H);              // canvas: UMA vez, fora do render\n` : '') +
+    `function render(t) {\n` +
+    (d1 ? `  L.${d1}(g, …);                          // desenha direto, sem guardar o retorno\n` : '') +
+    (canvas[0] ? `  g.drawImage(camada, 0, 0);\n` : '') +
+    (d2 ? `  L.${d2}(g, …);\n` : '') +
+    (rig ? `  L.${rig}(g, x, chao, 1, { gait: t * 10 });  // personagem pronto\n` : '') +
+    `}`;
+  /* formas do cenário também pela biblioteca (o contrato do plugin recusa ctx.beginPath/arc/fill crus) */
+  const shapes = ['ellipse', 'poly', 'fill', 'stroke'].every((n) => names.includes(n))
+    ? 'FORMAS DO CENÁRIO (câmaras, sol, folhas, chão): use SEMPRE as da biblioteca, NUNCA ctx.beginPath/arc/ellipse/moveTo/lineTo/fill/stroke crus:\n' +
+      'círculo/oval → L.ellipse(g, x, y, rx, ry) e depois L.fill(g, cor) ou L.stroke(g, largura, cor)\n' +
+      'polígono/linha → L.poly(g, [[x, y], …]) ou L.smooth(g, pontos) e depois L.fill / L.stroke; traço solto → L.line(g, pontos, largura, cor)\n' +
+      'mover/girar/escalar um grupo → L.at(g, x, y, escala, rotação, () => { … })'
+    : '';
+  const parts = [
+    example,
+    shapes,
+    draw.length ? `DESENHAM NA HORA no canvas (1º parâmetro = o contexto g) e NÃO devolvem nada — chame dentro de render(t), a cada quadro; NUNCA guarde o retorno nem chame .draw():\n${draw.map(sig).join('\n')}` : '',
+    canvas.length ? `DEVOLVEM UM CANVAS pronto (camada): crie UMA vez fora do render (const camada = L.nome(W, H)) e desenhe com g.drawImage(camada, x, y):\n${canvas.map(sig).join('\n')}` : '',
+    fns.length ? `DEVOLVEM UMA FUNÇÃO que desenha: guarde fora do render (const f = L.nome(…)) e chame f(g, ${fns.some((n) => fac[n] === 't') ? 't ou frame' : 'frame'}) a cada quadro:\n${fns.map((n) => `${sig(n)} → (g, ${fac[n] === 't' ? 't' : 'frame'})`).join('\n')}` : '',
+    other.length ? `CÁLCULO / UTILITÁRIOS (devolvem valor; não desenham):\n${other.map(sig).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
+  /* corta por LINHA (nunca no meio de uma assinatura); o exemplo vem primeiro e sempre fica */
+  if (parts.length <= maxChars) return parts;
+  const out: string[] = []; let n = 0;
+  for (const line of parts.split('\n')) { if (n + line.length + 1 > maxChars) break; out.push(line); n += line.length + 1; }
+  return out.join('\n') + '\n… (lista cortada: use só nomes que aparecem acima ou no esqueleto)';
+}
+
+/** Separa os argumentos de uma chamada respeitando parênteses/colchetes/chaves (função pura). */
+function splitArgs(s: string): string[] {
+  const out: string[] = []; let depth = 0, cur = '';
+  for (const ch of s) {
+    if ('([{'.includes(ch)) depth++; else if (')]}'.includes(ch)) depth--;
+    if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/**
+ * Primitivas cruas de Canvas → as MESMAS formas pela biblioteca do plugin (claude-animation tem ellipse/fill/stroke):
+ *   x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2)  → L.ellipse(x, cx, cy, r, r)
+ *   x.beginPath(); x.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2) → L.ellipse(x, cx, cy, rx, ry, rot)
+ *   x.fill() → L.fill(x, x.fillStyle) · x.stroke() → L.stroke(x, x.lineWidth, x.strokeStyle)
+ * O desenho é idêntico; o contrato do plugin (só funções da biblioteca) passa a valer. Visto: o 9B desenhava as câmaras
+ * do formigueiro com arc/fill e o contrato recusava a página 3 vezes. Função pura.
+ */
+export function rawCanvasToLib(page: string, names: string[]): { page: string; fixes: number } {
+  const has = (n: string) => names.includes(n);
+  let fixes = 0, out = page;
+  const FULL = /^(?:Math\.PI\s*\*\s*2|2\s*\*\s*Math\.PI|Math\.PI\s*\*\s*2\.0|6\.28\d*|TAU)$/;
+  if (has('ellipse')) {
+    out = out.replace(/([A-Za-z_$][\w$]*)\.beginPath\(\)\s*;?\s*\1\.(arc|ellipse)\(([^;]*?)\)\s*;/g, (m, ctx: string, kind: string, argsTxt: string) => {
+      const a = splitArgs(argsTxt);
+      if (kind === 'arc' && a.length >= 5 && /^0(\.0+)?$/.test(a[3]!) && FULL.test(a[4]!.replace(/\s+/g, ' '))) { fixes++; return `L.ellipse(${ctx}, ${a[0]}, ${a[1]}, ${a[2]}, ${a[2]});`; }
+      if (kind === 'ellipse' && a.length >= 7 && /^0(\.0+)?$/.test(a[5]!) && FULL.test(a[6]!.replace(/\s+/g, ' '))) { fixes++; return `L.ellipse(${ctx}, ${a[0]}, ${a[1]}, ${a[2]}, ${a[3]}, ${a[4]});`; }
+      return m;
+    });
+  }
+  if (has('fill')) out = out.replace(/(?<![\w$.])([A-Za-z_$][\w$]*)\.fill\(\s*\)/g, (_m, ctx: string) => { fixes++; return `L.fill(${ctx}, ${ctx}.fillStyle)`; });
+  if (has('stroke')) out = out.replace(/(?<![\w$.])([A-Za-z_$][\w$]*)\.stroke\(\s*\)/g, (_m, ctx: string) => { fixes++; return `L.stroke(${ctx}, ${ctx}.lineWidth, ${ctx}.strokeStyle)`; });
+  return { page: out, fixes };
+}
+
+/**
+ * Uso errado de função que DESENHA (guardar o retorno e tratá-lo como objeto: x = L.grass(g, …); x.draw()) — sempre
+ * quebra a página. Devolve o erro no formato do agente de correção, ou undefined. Função pura.
+ */
+export function freeLibMisuse(page: string, lib: FreeLib): string | undefined {
+  const fp = lib.firstParam ?? {}, fac = lib.factories ?? {};
+  const bad: string[] = [];
+  for (const m of page.matchAll(/([A-Za-z_$][\w$]*)\s*[:=]\s*L\.([A-Za-z_$][\w$]*)\s*\(/g)) {
+    const [, holder, fn] = m;
+    if (!CTX_PARAM.test(fp[fn!] ?? '') || fac[fn!]) continue;
+    /* o retorno guardado é usado como objeto (holder.algo / SETUP.holder.algo) */
+    if (new RegExp(String.raw`\b` + holder + String.raw`\s*\.\s*[A-Za-z_$]`).test(page.replace(m[0], ''))) bad.push(fn!);
+  }
+  if (!bad.length) return undefined;
+  const u = [...new Set(bad)];
+  return `Erro: ${u.map((n) => `L.${n}`).join(', ')} desenha(m) NA HORA no canvas (o 1º parâmetro é o contexto g) e devolve(m) undefined — não existe(m) em <library_api> como objeto com .draw() ou outros métodos. ` +
+    `Reescreva chamando ${u.map((n) => `L.${lib.sigs?.[n] ?? n + '(g, …)'}`).slice(0, 4).join('; ')} DENTRO de render(t), a cada quadro, sem guardar o retorno.`;
 }
 
 /**
@@ -593,7 +693,7 @@ export function ensureImportMap(page: string, importmap: string): string {
 }
 
 /** Biblioteca de um plugin no vídeo livre: import map do adaptador de canvas + import da biblioteca inteira como L. */
-export interface FreeLib { importmap: string; line: string; names?: string[]; firstParam?: Record<string, string>; factories?: Record<string, 'frame' | 't' | 'canvas'>; rigs?: Array<{ name: string; what: string }> }
+export interface FreeLib { importmap: string; line: string; names?: string[]; firstParam?: Record<string, string>; /** assinaturas "nome(a, b = 1)" (library_api) */ sigs?: Record<string, string>; factories?: Record<string, 'frame' | 't' | 'canvas'>; rigs?: Array<{ name: string; what: string }> }
 
 /**
  * Personagens: modelo pequeno desenhava formiga/robô à mão (bonecos de palito) com o rig pronto na biblioteca.
@@ -604,7 +704,7 @@ export function rigRule(rigs: Array<{ name: string; what: string }> | undefined)
   return `PERSONAGENS — OBRIGATÓRIO usar os rigs prontos da biblioteca (desenhados no estilo do plugin, com poses e animação): ` +
     rigs.map((r) => `L.${r.name}${r.what ? ` = ${r.what}` : ''}`).join('; ') + '. ' +
     'Para cada personagem do vídeo escolha o rig mais parecido (ex.: barata → L.roach, robô → L.robot, formiga → L.ant, besouro → L.bug, pessoa → L.chibi) e chame L.nome(g, x, chão, escala, { gait: t * 10, ... }) dentro de render(t). ' +
-    'NÃO escreva funções próprias para desenhar personagens que têm rig; desenhe à mão só cenário e objetos. ';
+    'NÃO escreva funções próprias para desenhar personagens que têm rig; cenário e objetos com as formas da biblioteca (L.ellipse, L.poly, L.fill, L.stroke…), não com ctx.beginPath/arc crus. ';
 }
 
 /**

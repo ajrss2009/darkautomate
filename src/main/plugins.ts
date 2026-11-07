@@ -1091,7 +1091,7 @@ function adaptCodeSkill(st: { rel: string; files: string[] }, ctx: PluginPromptC
  * Cabeçalho do esqueleto do vídeo livre quando um plugin do projeto traz biblioteca JS: import map do adaptador
  * de canvas + import da biblioteca inteira (lib/_all.mjs, criado no staging) como L. Chamar depois do pluginPrompt.
  */
-export function freeLibImport(s: Settings, ids: string[] | undefined, projectDir: string, htmlDir: string): { importmap: string; line: string; names: string[]; firstParam: Record<string, string>; factories: Record<string, 'frame' | 't' | 'canvas'>; rigs: Array<{ name: string; what: string }>; contract: { forbidCanvas: boolean; allow: string[]; maxPromptChars?: number; requireLib: boolean; plugin: string } } | undefined {
+export function freeLibImport(s: Settings, ids: string[] | undefined, projectDir: string, htmlDir: string): { importmap: string; line: string; names: string[]; firstParam: Record<string, string>; sigs: Record<string, string>; factories: Record<string, 'frame' | 't' | 'canvas'>; rigs: Array<{ name: string; what: string }>; contract: { forbidCanvas: boolean; allow: string[]; maxPromptChars?: number; requireLib: boolean; plugin: string } } | undefined {
   for (const id of ids ?? []) {
     const p = getPlugin(s, id);
     if (!p || p.styles?.length) continue;
@@ -1106,13 +1106,15 @@ export function freeLibImport(s: Settings, ids: string[] | undefined, projectDir
         .flatMap((m) => [...readText(path.join(libDir, ...m[1].split('/'))).matchAll(/^export\s+((?:async\s+)?(?:function|const|class)\s+(\w+).*)$/gm)]);
       const names = decls.map((x) => x[2]!);
       /* primeiro parâmetro de cada função (ctx? W? t?): o FilmForge acerta chamadas L.x(...) com o g a mais/a menos */
-      const firstParam: Record<string, string> = {};
+      const firstParam: Record<string, string> = {}, sigs: Record<string, string> = {};
       for (const d of decls) {
         if (/^(?:async\s+)?class\s/.test(d[1]!)) continue;
         const sig = signatureOf(d[1]!);
         const open = sig.indexOf('(');
         if (open < 0) continue;
         firstParam[d[2]!] = sig.slice(open + 1).split(/[,)=]/)[0]!.trim();
+        /* assinatura "nome(a, b = 1, …)" para a <library_api> do modo estrito */
+        sigs[d[2]!] = `${d[2]}${sig.slice(open).replace(/\s+/g, ' ').slice(0, 140)}`;
       }
       const factories = libFactories(libDir);
       /* personagens prontos (rigs/*.mjs, função (ctx, x, y, …)): o prompt manda usá-los em vez de desenhar à mão */
@@ -1126,7 +1128,7 @@ export function freeLibImport(s: Settings, ids: string[] | undefined, projectDir
       }
       const cfg = contractCfgOf(p.dir);
       return {
-        names, firstParam, factories, rigs,
+        names, firstParam, sigs, factories, rigs,
         /* contrato do plugin: proibição de canvas cru + cap declarados nele (rigs prontos proíbem por padrão) */
         contract: { plugin: id, forbidCanvas: cfg?.forbidCanvas ?? rigs.length > 0, allow: cfg?.allow ?? [], maxPromptChars: cfg?.maxPromptChars, requireLib: !!cfg?.requireLib },
         importmap: shim ? `<script type="importmap">{"imports":{"@napi-rs/canvas":"${up}/plugins/_shim/napi-canvas.mjs"}}</script>` : '',

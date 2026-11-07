@@ -13,7 +13,7 @@ import * as prov from './providers';
 import * as ff from './ffmpeg';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
-import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
+import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
 import { fetchForScene } from './stock';
 import { estimateWords, readWords, transcribe, wordsPath, type WordTime } from './whisper';
 import { getVideoType } from './presets';
@@ -197,6 +197,10 @@ async function freeViaHtmlOnce(c: ExecContext, o: ExecutorOptions, hh: { id: str
         const calls = fixLibCalls(page, lib.names, lib.firstParam ?? {}, lib.factories ?? {});
         page = calls.page;
         if (calls.fixes.length) c.log(`chamadas à biblioteca do plugin corrigidas pelo FilmForge: ${calls.fixes.slice(0, 8).join(' · ')}`);
+        /* círculos/ovais/preenchimentos crus → as mesmas formas pela biblioteca (contrato: só funções do plugin) */
+        const shapes = rawCanvasToLib(page, lib.names);
+        page = shapes.page;
+        if (shapes.fixes) c.log(`${shapes.fixes} primitiva(s) crua(s) de Canvas trocada(s) pelas formas da biblioteca do plugin (L.ellipse/L.fill/L.stroke) pelo FilmForge`);
         const own = preferLibRigs(page, (lib.rigs ?? []).map((r) => r.name));
         page = own.page;
         if (own.replaced.length) c.log(`a página desenhava à mão personagens que a biblioteca tem (${own.replaced.join(', ')}) — trocados pelos rigs do plugin`);
@@ -206,7 +210,7 @@ async function freeViaHtmlOnce(c: ExecContext, o: ExecutorOptions, hh: { id: str
       }
       /* funções próprias com nome da biblioteca (leaf, egg…) não quebram a página (L.leaf continua em L): só aviso —
          pedir a correção gastava uma rodada e, ao reescrever, o modelo pequeno introduzia bugs novos */
-      problem = freeHtmlProblem(page) ?? (lib ? freeLibProblem(page, lib.line) : undefined);
+      problem = freeHtmlProblem(page) ?? (lib ? freeLibProblem(page, lib.line) ?? freeLibMisuse(page, lib) : undefined);
       const own = lib && !problem ? freeLibProblem(page, lib.line, lib.names) : undefined;
       if (own) c.log(`⚠ ${own.split(' — ')[0]} — aceita assim mesmo (o visual é do modelo, não do plugin)`);
       const missing = lib ? freeLibMissing(page, lib.names ?? []) : [];
