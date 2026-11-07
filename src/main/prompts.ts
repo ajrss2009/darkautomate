@@ -861,8 +861,13 @@ export function ensureForgeContract(page: string, dur: number, fps = 30): { page
  */
 export function ensureCanvasShim(page: string): string {
   if (page.includes('__forgeCanvasShim')) return page;
-  const shim = '<script>/* __forgeCanvasShim (FilmForge) */(()=>{const P=CanvasRenderingContext2D.prototype,s=P.scale,t=P.translate;'
-    + 'P.scale=function(x,y){return s.call(this,x,arguments.length<2?x:y)};P.translate=function(x,y){return t.call(this,x,arguments.length<2?0:y)};})();</script>';
+  /* também: drawImage com algo que não é imagem (função/objeto da biblioteca, canvas 0×0) é ignorado em vez de
+     derrubar o quadro inteiro; fill/stroke com objeto que não é Path2D (ex.: L.fill(path) confundido) viram fill()/stroke() */
+  const shim = '<script>/* __forgeCanvasShim (FilmForge) */(()=>{const P=CanvasRenderingContext2D.prototype,s=P.scale,t=P.translate,d=P.drawImage,f=P.fill,k=P.stroke;'
+    + 'P.scale=function(x,y){return s.call(this,x,arguments.length<2?x:y)};P.translate=function(x,y){return t.call(this,x,arguments.length<2?0:y)};'
+    + 'P.drawImage=function(){try{return d.apply(this,arguments)}catch(e){}};'
+    + 'const np=(a)=>a!=null&&typeof a==="object"&&!(a instanceof Path2D);'
+    + 'P.fill=function(a){return np(a)?f.call(this):f.apply(this,arguments)};P.stroke=function(a){return np(a)?k.call(this):k.apply(this,arguments)};})();</script>';
   const head = page.search(/<head[^>]*>/i);
   if (head >= 0) { const end = page.indexOf('>', head) + 1; return page.slice(0, end) + shim + page.slice(end); }
   const first = page.search(/<script/i);

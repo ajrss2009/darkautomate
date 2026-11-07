@@ -34,7 +34,8 @@ import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt } from './cast';
 import { projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
-import { stepSchema } from '../shared/strict';
+import { mark, stepSchema } from '../shared/strict';
+import { backdropRef, fallbackPlan, mergeShotSfx, parsePlan, planPrompt, planSchema, shotDurations, shotIdea, shotsWanted, type ShotPlan } from './free-shots';
 import { cartoon3dApiFrom, cartoon3dApiProblem, type Cartoon3dApi } from './cartoon3d';
 import { cartoon3dBundle } from './plugins';
 
@@ -296,6 +297,74 @@ async function freeViaHtmlOnce(c: ExecContext, o: ExecutorOptions, hh: { id: str
   }
 }
 
+/**
+ * Vídeo livre em planos de 3–4 s (modelos locais): o modelo planeja as ações (JSON guiado, visual fixo), cada plano
+ * vira uma página curta pelo mesmo pipeline (modo estrito, validadores, correções) em out/shots/sNN, e o app junta os
+ * vídeos e desloca os sons de cada plano para o tempo dele. Planos prontos são reaproveitados (falha no 6º não refaz 1–5).
+ */
+async function freeInShots(c: ExecContext, o: ExecutorOptions, hh: { id: string; cfg: HarnessConfig; model?: string; effort?: ReasoningEffort }, video: string, dur: number): Promise<ExecResult> {
+  const dir = path.join(c.outDir, 'shots');
+  fs.mkdirSync(dir, { recursive: true });
+  const durs = shotDurations(dur);
+  const key = crypto.createHash('sha1').update(JSON.stringify([c.project.idea, durs, c.project.aspect, c.project.plugins ?? []])).digest('hex').slice(0, 16);
+  const planFile = path.join(dir, 'plan.json');
+  let plan: ShotPlan | undefined;
+  try { const j = JSON.parse(fs.readFileSync(planFile, 'utf8')) as { key?: string; plan?: ShotPlan }; if (j.key === key) plan = j.plan; } catch { /* plano novo */ }
+  if (!plan) {
+    c.log(`vídeo livre em ${durs.length} planos de 3–4 s (modelo local: uma ação simples por plano) — planejando as ações…`);
+    const res = await runHarness(hh.cfg, {
+      cwd: c.projectDir, model: hh.model, effort: hh.effort, signal: c.signal, onLine: c.log, timeoutSec: 600, schema: planSchema(durs.length),
+      prompt: mark('skill', 'Você é o diretor de um curta de animação feito por código, em planos curtos. Cada plano tem UMA ação simples, desenhável em poucos segundos com a biblioteca do plugin; personagem e cenário iguais em todos os planos.') +
+        '\n' + planPrompt(c.project.idea, durs, c.project.aspect),
+    });
+    plan = res.ok ? parsePlan(res.stdout, durs) : undefined;
+    if (!plan) { c.log('⚠ o modelo não devolveu um plano válido — dividindo a ideia pelas setas/frases'); plan = fallbackPlan(c.project.idea, durs); }
+    fs.writeFileSync(planFile, JSON.stringify({ key, plan }, null, 1));
+  }
+  c.log(`planos: ${plan.shots.map((s, i) => `${i + 1}) ${s.seconds}s ${s.action.slice(0, 60)}`).join(' · ')}`);
+  const vids: string[] = [], sfxLists: Array<Array<{ t?: number; at?: number; name: string }>> = [];
+  let ref: string | undefined;
+  for (const [i, s] of plan.shots.entries()) {
+    if (i === 1) { try { ref = backdropRef(fs.readFileSync(path.join(dir, 's01', 'free.html'), 'utf8')); } catch { /* sem referência */ } }
+    const sd = path.join(dir, `s${String(i + 1).padStart(2, '0')}`), sv = path.join(sd, 'final.mp4'), mark0 = path.join(sd, 'done.json');
+    const sig = `${key}|${i}|${s.action}|${s.seconds}`;
+    let done = false;
+    try { done = fs.existsSync(sv) && fs.statSync(sv).size > 1000 && (JSON.parse(fs.readFileSync(mark0, 'utf8')) as { sig?: string }).sig === sig; } catch { /* refaz */ }
+    if (done) c.log(`plano ${i + 1}/${plan.shots.length}: já pronto (reaproveitado)`);
+    else {
+      fs.mkdirSync(sd, { recursive: true });
+      c.log(`▶ plano ${i + 1}/${plan.shots.length} (${s.seconds} s): ${s.action}`);
+      const c2: ExecContext = { ...c, outDir: sd, project: { ...c.project, idea: shotIdea(c.project.idea, plan, i, c.project.aspect, ref), targetDurationSec: s.seconds } };
+      const tol = path.join(sd, 'free.tolerant.html');
+      fs.rmSync(tol, { force: true });
+      await freeViaHtml(c2, o, hh, sv);
+      /* plano renderizado "ignorando erros" costuma sair vazio (só o fundo): tenta mais UMA vez do zero e fica com
+         a versão sem erros — ou, se as duas tiveram erro, com a de vídeo maior (mais coisa desenhada) */
+      if (fs.existsSync(tol)) {
+        c.log(`⚠ plano ${i + 1} saiu com erros na página — gerando de novo uma vez`);
+        const keep = `${sd}_try1`;
+        fs.rmSync(keep, { recursive: true, force: true });
+        fs.renameSync(sd, keep);
+        fs.mkdirSync(sd, { recursive: true });
+        let ok2 = false;
+        try { await freeViaHtml(c2, o, hh, sv); ok2 = fs.existsSync(sv); } catch (e) { if (c.signal.aborted) throw e; c.log(`2ª tentativa do plano ${i + 1} falhou: ${(e as Error).message.slice(0, 160)}`); }
+        const better = ok2 && (!fs.existsSync(tol) || fs.statSync(sv).size >= fs.statSync(path.join(keep, 'final.mp4')).size);
+        if (better) fs.rmSync(keep, { recursive: true, force: true });
+        else { fs.rmSync(sd, { recursive: true, force: true }); fs.renameSync(keep, sd); }
+        c.log(`plano ${i + 1}: fica a ${better ? '2ª' : '1ª'} versão`);
+      }
+      fs.writeFileSync(mark0, JSON.stringify({ sig }));
+    }
+    vids.push(sv);
+    try { sfxLists.push(JSON.parse(fs.readFileSync(path.join(sd, 'final.sfx.json'), 'utf8'))); } catch { sfxLists.push([]); }
+  }
+  /* junta os planos (mesmo renderizador → mesmo codec) e põe os sons no tempo de cada plano */
+  await ff.concat(c.settings.ffmpeg, vids, video, c.signal);
+  fs.writeFileSync(path.join(c.outDir, 'final.sfx.json'), JSON.stringify(mergeShotSfx(sfxLists, durs), null, 1));
+  c.log(`${vids.length} planos juntados em ${path.basename(video)} (${dur} s)`);
+  return { files: [video, planFile] };
+}
+
 /** Som do vídeo livre: efeitos que a página declarou (window.__forge.sfx) + trilha do projeto. Falha aqui não perde o vídeo. */
 async function freeAudio(c: ExecContext): Promise<void> {
   const dur = Math.round(Math.min(180, Math.max(2, c.project.targetDurationSec || 15)) * 100) / 100;
@@ -335,7 +404,9 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
   const file = primaryFile(c.step.kind, c);
   ensureDir(file);
   if (c.step.kind === 'free' && isHttpHarness(cfg) && o.renderHtml) {
-    const r = await freeViaHtml(c, o, { id, cfg, model, effort }, file);
+    const fdur = Math.round(Math.min(180, Math.max(2, c.project.targetDurationSec || 15)) * 100) / 100;
+    /* modelo local: vídeo em planos de 3–4 s (uma ação simples por página), juntados pelo app */
+    const r = shotsWanted(id, fdur) ? await freeInShots(c, o, { id, cfg, model, effort }, file, fdur) : await freeViaHtml(c, o, { id, cfg, model, effort }, file);
     await freeAudio(c);
     return r;
   }

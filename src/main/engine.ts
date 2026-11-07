@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { shotDurations, shotsWanted } from './free-shots';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type {
@@ -613,7 +614,10 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
         const maxTries = Math.max(1, step.retry.max, isModel ? Math.min(5, deps.settings.stepAttempts ?? 2) : 1);
         let agentTimeouts = 0;
         /* elenco e cenários do motor do plugin: o agente lê a API inteira e grava vários arquivos (rotas antigas tinham 900 s) */
-        const timeoutSec = step.id === 'kit_assets' ? Math.max(1800, step.timeoutSec) : step.timeoutSec;
+        /* vídeo livre em planos de 3–4 s (modelo local): cada plano é uma página — até 15 min por plano */
+        const shotsFree = step.kind === 'free' && binding.type === 'harness' && shotsWanted(binding.harness, project.targetDurationSec || 15);
+        const timeoutSec = step.id === 'kit_assets' ? Math.max(1800, step.timeoutSec)
+          : shotsFree ? Math.max(step.timeoutSec, shotDurations(Math.min(180, project.targetDurationSec || 15)).length * 1500 + 600) : step.timeoutSec;
         for (let attempt = 1; attempt <= maxTries; attempt++) {
           if (signal.aborted) return { ok: false, reason: 'cancelado' };
           emit({ t: 'step.attempt', stepId: step.id, sceneId, binding: label, attempt });
