@@ -147,6 +147,15 @@ function writeJsonAtomic(file: string, data: unknown) {
   catch { fs.copyFileSync(tmp, file); fs.rmSync(tmp, { force: true }); }
 }
 
+/**
+ * Projeto visto pelas etapas de UMA cena: skill e plugins trocados na regeneração ("regenerar com outra skill/plugin")
+ * valem só para ela. Sem troca, o próprio projeto. Função pura.
+ */
+export function sceneProject(project: Project, scene?: Scene): Project {
+  if (!scene || (!scene.skillOverride && !scene.pluginsOverride)) return project;
+  return { ...project, ...(scene.skillOverride ? { skill: scene.skillOverride } : {}), ...(scene.pluginsOverride ? { plugins: scene.pluginsOverride } : {}) };
+}
+
 export function cacheKey(project: Project, step: RouteStep, binding: Binding, scene?: Scene): string {
   const h = crypto.createHash('sha256');
   h.update(JSON.stringify({
@@ -162,6 +171,8 @@ export function cacheKey(project: Project, step: RouteStep, binding: Binding, sc
     mix: step.kind === 'edit' && (project.musicVolume !== undefined || project.sfxVolume !== undefined) ? { m: project.musicVolume, x: project.sfxVolume } : undefined,
     nv: step.kind === 'narration' && project.narrationVoice ? project.narrationVoice : undefined,
     cast: step.kind === 'narration' && scene?.speaker && project.cast?.length ? project.cast.find((m) => m.speaker === scene.speaker) : undefined,
+    /* skill/plugins trocados só nesta cena: outra chave (a cena é refeita com eles) */
+    so: scene?.skillOverride ? scene.skillOverride.id : undefined, po: scene?.pluginsOverride,
   }));
   return h.digest('hex').slice(0, 24) + (scene ? '-' + scene.id : '');
 }
@@ -618,7 +629,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
           const timer = setTimeout(() => ac.abort(new Error(`timeout (${timeoutSec}s)`)), timeoutSec * 1000);
           try {
             const res = await exec({
-              project, projectDir, step, binding, scene, sceneDir, outDir,
+              project: sceneProject(project, scene), projectDir, step, binding, scene, sceneDir, outDir,
               settings: deps.settings, signal: ac.signal,
               log: (line) => emit({ t: 'log', stepId: step.id, sceneId, line }),
             });

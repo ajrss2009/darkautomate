@@ -1668,6 +1668,13 @@ function openRegenDialog(p: Project, ids: string[]) {
     const cat = await (forge as unknown as { catalog: () => Promise<{ harnesses: Array<{ id: string; models: string[] }> }> }).catalog();
     exList.replaceChildren(...(cat.harnesses.find((x) => x.id === exSel.value)?.models ?? []).map((m) => h('option', { value: m })));
   }));
+  /* skill e plugins desta vez: a cena é refeita com o estilo/procedimento de outra skill ou de outros plugins (só ela) */
+  const skNow = [...new Set(scs.map((sc) => sc.skillOverride?.name).filter(Boolean))] as string[];
+  const skSel = h('select', { id: 'regen-skill' }, h('option', { value: '' }, '(a mesma de agora)'), skNow.length ? h('option', { value: 'reset' }, `(voltar à do projeto: ${p.skill?.name ?? '—'})`) : null) as HTMLSelectElement;
+  void guard(async () => { const m = await forge.meta(); for (const k of m.skills ?? []) if (k.id !== p.skill?.id) skSel.append(h('option', { value: k.id }, k.name)); });
+  const plNow = scs[0]?.pluginsOverride ?? p.plugins ?? [];
+  const plMode = h('select', { id: 'regen-plugins-mode' }, h('option', { value: '' }, '(os mesmos de agora)'), h('option', { value: 'set' }, 'escolher abaixo'), scs.some((sc) => sc.pluginsOverride) ? h('option', { value: 'reset' }, '(voltar aos do projeto)') : null) as HTMLSelectElement;
+  const plBoxes = pluginCache.map((k) => { const cb = h('input', { type: 'checkbox', 'data-regen-plugin': k.id }) as HTMLInputElement; cb.checked = plNow.includes(k.id); cb.addEventListener('change', () => { plMode.value = 'set'; }); return { k, cb }; });
   const note = h('textarea', { id: 'regen-note', rows: '2', placeholder: 'Opcional: o que mudar (ex.: "câmera mais aberta, céu ao entardecer"). Entra no prompt da cena.' }) as HTMLTextAreaElement;
   const before = scs.length === 1 ? sceneSfx(scs[0]!) : [];
   const picker = sfxPicker(before);
@@ -1681,6 +1688,11 @@ function openRegenDialog(p: Project, ids: string[]) {
       h('label', { class: 'inline chk' }, reroll, 'Nova variação (outro resultado, novo seed)'),
       h('div', { class: 'row', title: 'Vale para as etapas de texto/código marcadas (cena por código, motion graphics…). Fica gravado nesta(s) cena(s); o executor da rota vira reserva.' },
         h('span', {}, '🎛 Executor desta vez'), exSel, exModel, exList, ovNow.length ? h('span', { class: 'muted small' }, `agora: ${ovNow.join(' · ')}`) : null),
+      h('div', { class: 'row', title: 'A cena é refeita seguindo outra skill (roteiro visual, estilo, biblioteca de código) — só esta(s) cena(s); o resto do projeto continua com a skill dele.' },
+        h('span', {}, '🧩 Skill desta vez'), skSel, skNow.length ? h('span', { class: 'muted small' }, `agora: ${skNow.join(' · ')}`) : null),
+      pluginCache.length ? h('div', { class: 'regen-plugins', title: 'Plugins usados só nesta(s) cena(s): as instruções, a biblioteca e os exemplos deles entram no pedido da cena.' },
+        h('div', { class: 'row' }, h('span', {}, '🔌 Plugins desta vez'), plMode),
+        h('div', { class: 'row wrap' }, ...plBoxes.map(({ k, cb }) => h('label', { class: 'inline chk' }, cb, k.name)))) : null,
       h('label', {}, 'Ajuste para a nova versão', note),
       h('details', { class: 'sfxbox', open: before.length > 0 }, h('summary', {}, `🔊 Efeitos sonoros (gerados por código)${scs.length > 1 ? ' — vale para todas as cenas escolhidas' : ''}`), picker.el),
       h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { onclick: close }, 'Cancelar'),
@@ -1701,7 +1713,9 @@ function openRegenDialog(p: Project, ids: string[]) {
           busy = `Regerando ${scs.length > 1 ? `${scs.length} cenas` : `cena ${scs[0]!.index}`}…`; renderEditor(true);
           try {
             const executor = exSel.value === 'reset' ? 'reset' : exSel.value ? { type: 'harness', harness: exSel.value, ...(exModel.value.trim() ? { model: exModel.value.trim() } : {}) } : undefined;
-            current = (await forge.regenerate(p.id, { sceneIds: scs.map((s) => s.id), stepIds, reroll: reroll.checked, finalize: false, executor })).project;
+            const skillId = skSel.value === 'reset' ? '' : skSel.value || undefined;
+            const plugins = plMode.value === 'reset' ? 'reset' : plMode.value === 'set' ? plBoxes.filter((x) => x.cb.checked).map((x) => x.k.id) : undefined;
+            current = (await forge.regenerate(p.id, { sceneIds: scs.map((s) => s.id), stepIds, reroll: reroll.checked, finalize: false, executor, skillId, plugins })).project;
             if (wantSfx) { busy = 'Sincronizando efeitos com o novo visual…'; renderEditor(true); await applySceneSfx(current ?? p, scs.map((s) => s.id), picker.value(), picker.sync()); }
             toast(`Cena(s) regerada(s)${wantSfx ? ' com efeitos sonoros sincronizados' : ''}. Renderize o final para gravar no vídeo.`);
           }
@@ -1766,7 +1780,8 @@ function timeline(p: Project): HTMLElement {
     }
     const clip = h('div', { class: `clip${selected.includes(sc.id) ? ' sel' : ''}`, draggable: 'true', 'data-id': sc.id },
       vis ? (vis.video ? h('video', { src: forge.mediaUrl(vis.path) + '#t=0.1', preload: 'metadata', muted: true }) : h('img', { src: forge.mediaUrl(vis.path), alt: '' })) : null,
-      h('div', { class: 'lbl' }, `${sc.index}. ${sc.title}`), stepDots(p, sc),
+      h('div', { class: 'lbl', title: [sc.skillOverride ? `skill desta cena: ${sc.skillOverride.name}` : '', sc.pluginsOverride ? `plugins desta cena: ${sc.pluginsOverride.join(', ') || 'nenhum'}` : ''].filter(Boolean).join(' · ') },
+        `${sc.skillOverride || sc.pluginsOverride ? '🧩 ' : ''}${sc.index}. ${sc.title}`), stepDots(p, sc),
       hasFx ? h('span', { class: 'fxbadge', title: 'Esta cena tem efeitos — clique para abrir o exibidor', onclick: (e) => { e.stopPropagation(); openFxViewer(p, [sc.id], 'filter'); } }, icon('fx')) : null,
       h('div', { class: 'rz', title: 'Arraste para ajustar a duração' }));
     clip.style.left = `${x}px`; clip.style.width = `${w - 2}px`;

@@ -1,4 +1,5 @@
 import type { Aspect } from '../shared/types';
+import { mark } from '../shared/strict';
 
 /**
  * "Curta cartoon 3D": cenas em Three.js com a biblioteca local cartoon3d (vendor/cartoon3d, MIT — visual do
@@ -81,8 +82,8 @@ export function cartoon3dScenePrompt(o: { file: string; exists: boolean; dur: nu
     `CONTRATO OBRIGATÓRIO: window.__forge = { duration: ${o.dur}, fps: ${o.fps}, seek(t), pause(), sfx }. São ${frames} quadros; o renderizador chama pause() e depois seek(i/${o.fps}). ` +
     `seek(t) posiciona câmera/personagens/efeitos em função SÓ de t e termina com st.render(). Não use Date.now/performance.now dentro do seek nem Math.random: o único relógio é t. ` +
     (o.loops ? `LOOP PERFEITO: seek(0) e seek(${o.dur}) idênticos. ` : `CENA LINEAR: acompanhe a fala do começo ao fim; o último quadro fecha a ação (não volte ao início). `) +
-    `Construa o mundo e o elenco UMA vez fora do seek; no seek só mude poses, posições, câmera e efeitos.\n\n${CARTOON3D_RULES}\n\n${CARTOON3D_API}\n\n` +
-    `Mantenha EXATAMENTE este import map e o import (os caminhos apontam para a cópia local no projeto). Parta deste esqueleto:\n${cartoon3dSkeleton(o.dur, o.fps, w, h, o.imports)}\n` +
+    `Construa o mundo e o elenco UMA vez fora do seek; no seek só mude poses, posições, câmera e efeitos.\n\n${CARTOON3D_RULES}\n\n${mark('api', CARTOON3D_API)}\n\n` +
+    `Mantenha EXATAMENTE este import map e o import (os caminhos apontam para a cópia local no projeto). Parta deste esqueleto:\n${mark('example', cartoon3dSkeleton(o.dur, o.fps, w, h, o.imports))}\n` +
     (o.sfx ? `\n${o.sfx}` : '');
 }
 
@@ -256,4 +257,64 @@ export function storyboardShots(block: string): Array<{ a: number; b: number; te
     if (m) out.push({ a: Number(m[1]!.replace(',', '.')), b: Number(m[2]!.replace(',', '.')), text: m[3]!.trim() });
   }
   return out;
+}
+
+/* ───────── validador da API (modo estrito): a cena só pode chamar o que EXISTE na biblioteca ───────── */
+
+export interface Cartoon3dApi { c: Set<string>; stage: Set<string>; actor: Set<string> }
+
+/** Membros de uma classe do bundle ("Nome = class { … }"): métodos, campos e this.x = …. Função pura. */
+function classMembers(js: string, name: string): Set<string> {
+  const at = js.search(new RegExp(String.raw`\b` + name + String.raw` = class\b`));
+  const out = new Set<string>();
+  if (at < 0) return out;
+  /* corpo da classe: do "{" até a chave que fecha (contando chaves; strings e regex não atrapalham o suficiente aqui) */
+  const open = js.indexOf('{', at);
+  let depth = 0, end = open;
+  for (let i = open; i < js.length; i++) { const ch = js[i]; if (ch === '{') depth++; else if (ch === '}') { depth--; if (!depth) { end = i; break; } } }
+  const body = js.slice(open + 1, end);
+  for (const m of body.matchAll(/^\s{2}(?:static\s+|async\s+|get\s+|set\s+)*([A-Za-z_$][\w$]*)\s*(?:\(|=)/gm)) if (m[1] !== 'constructor') out.add(m[1]!);
+  for (const m of body.matchAll(/this\.([A-Za-z_$][\w$]*)\s*=/g)) out.add(m[1]!);
+  for (const m of body.matchAll(/__publicField\(this,\s*"([A-Za-z_$][\w$]*)"/g)) out.add(m[1]!);   // campos de classe no bundle
+  return out;
+}
+
+/** API real da biblioteca, lida do bundle compilado (cartoon3d.js). Função pura. */
+export function cartoon3dApiFrom(js: string): Cartoon3dApi {
+  const ex = /export\s*\{([\s\S]*?)\}/.exec(js)?.[1] ?? '';
+  const c = new Set(ex.split(',').map((x) => x.trim().split(/\s+as\s+/).pop()!.trim()).filter(Boolean));
+  return { c, stage: classMembers(js, 'Stage'), actor: classMembers(js, 'Actor') };
+}
+
+const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:"'`\\])\/\/[^\n]*/g, '$1');
+
+/**
+ * Funções/membros chamados pela cena que NÃO existem na biblioteca: C.x (exportados), <palco>.x (Stage) e <ator>.x
+ * (Actor). Devolve a mensagem de correção (formato do agente de correção) ou undefined. Função pura.
+ */
+export function cartoon3dApiProblem(page: string, api: Cartoon3dApi): string | undefined {
+  if (!api.c.size || !api.stage.size) return undefined;
+  const code = stripComments([...page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join('\n'));
+  const bad = new Set<string>();
+  for (const m of code.matchAll(/(?<![\w$.])C\.([A-Za-z_$][\w$]*)/g)) if (!api.c.has(m[1]!)) bad.add(`C.${m[1]}`);
+  const stages = new Set(['st', ...[...code.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:C\.createStage|new\s+C\.Stage)\s*\(/g)].map((m) => m[1]!)]);
+  const actors = new Set<string>();
+  for (const v of stages) {
+    for (const m of code.matchAll(new RegExp(String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*` + v + String.raw`\.actor\s*\(`, 'g'))) actors.add(m[1]!);
+    for (const m of code.matchAll(new RegExp(String.raw`(?<![\w$.])` + v + String.raw`\.([A-Za-z_$][\w$]*)`, 'g'))) if (!api.stage.has(m[1]!)) bad.add(`${v}.${m[1]}`);
+  }
+  if (api.actor.size) for (const a of actors) {
+    if (stages.has(a)) continue;
+    for (const m of code.matchAll(new RegExp(String.raw`(?<![\w$.])` + a + String.raw`\.([A-Za-z_$][\w$]*)`, 'g'))) if (!api.actor.has(m[1]!)) bad.add(`${a}.${m[1]} (ator)`);
+  }
+  /* acesso defensivo ("if (hero.root) …", "hero.root?.x", "hero.root &&") testa se existe — não é chamar função inventada */
+  for (const b of [...bad]) {
+    const ref = b.replace(/ \(ator\)$/, '').replace(/[.$]/g, (ch) => '\\' + ch);
+    if (new RegExp(String.raw`if\s*\(\s*!?\s*` + ref + String.raw`\s*[)&|]|` + ref + String.raw`\s*(?:\?\.|&&|\?\?)|typeof\s+` + ref + String.raw`\b`).test(code)) bad.delete(b);
+  }
+  if (!bad.size) return undefined;
+  const pub = (s: Set<string>) => [...s].filter((x) => !/^_/.test(x)).sort().join(', ');
+  return `Erro: ${[...bad].slice(0, 12).join(', ')} não ${bad.size > 1 ? 'estão definidas' : 'está definida'} em <library_api> (biblioteca cartoon3d). ` +
+    `Reescreva o código usando APENAS os métodos permitidos — palco (st.*): ${pub(api.stage)}; ator (a.*): ${pub(api.actor)}; módulo (C.*): ${pub(api.c)}. ` +
+    'Para o que não existir na API, combine o que existe (st.mesh com geometria do THREE, st.draw/st.poster com Canvas 2D).';
 }

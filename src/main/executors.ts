@@ -13,7 +13,7 @@ import * as prov from './providers';
 import * as ff from './ffmpeg';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
-import { TEXT_KINDS, isLyricVideo, buildPrompt, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
+import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
 import { fetchForScene } from './stock';
 import { estimateWords, readWords, transcribe, wordsPath, type WordTime } from './whisper';
 import { getVideoType } from './presets';
@@ -34,6 +34,20 @@ import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt } from './cast';
 import { projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
+import { stepSchema } from '../shared/strict';
+import { cartoon3dApiFrom, cartoon3dApiProblem, type Cartoon3dApi } from './cartoon3d';
+import { cartoon3dBundle } from './plugins';
+
+/** Prefixo do erro do validador da API cartoon3d (o pedido de correção é outro). */
+const C3D_LINT = 'API cartoon3d: ';
+let c3dApiCache: { file: string; mtime: number; api: Cartoon3dApi } | undefined;
+/** API real da biblioteca (lida do bundle; recarrega se o arquivo mudar). */
+function loadCartoon3dApi(): Cartoon3dApi | undefined {
+  const f = cartoon3dBundle(); if (!f) return undefined;
+  const mtime = fs.statSync(f).mtimeMs;
+  if (!c3dApiCache || c3dApiCache.file !== f || c3dApiCache.mtime !== mtime) c3dApiCache = { file: f, mtime, api: cartoon3dApiFrom(fs.readFileSync(f, 'utf8')) };
+  return c3dApiCache.api;
+}
 
 export type RenderHtml = (html: string, out: string, o: { w: number; h: number; ffmpeg: string; duration?: number; fps?: number; log?: (l: string) => void }) => Promise<void>;
 
@@ -338,10 +352,18 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
     }
   }
   if (env?.['USERPROFILE']) c.log(`Antigravity com a conta "${c.project.agyAccount || c.settings.automations?.agyAccount}"${c.project.agyAccount ? ' (escolhida no projeto)' : ' (padrão de Automações)'}`);
-  try { res = await runHarness(cfg, { cwd, prompt: buildPrompt(c), model, effort, signal: c.signal, onLine: c.log, timeoutSec: c.step.timeoutSec, env,
-    tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
+  /* modelos locais em modo estrito: etapas que gravam JSON (plano de cenas, metadados) usam decodificação guiada —
+     a resposta só pode ser JSON no esquema da etapa (sem ferramentas: o app grava o arquivo) */
+  const schema = isHttpHarness(cfg) && cfg.strict !== false ? stepSchema(c.step.kind) : undefined;
+  try { res = await runHarness(cfg, { cwd, prompt: buildPromptMarked(c) + (schema ? `\nResponda SOMENTE com o JSON de ${path.basename(file)} (o app grava o arquivo).` : ''), model, effort, signal: c.signal, onLine: c.log, timeoutSec: c.step.timeoutSec, env, schema,
+    tools: schema ? undefined : { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
   finally { stopWatch(); }
   if (!res.ok) throw new Error(res.code === null ? `${id}: ${res.stderr.slice(-400)}` : `${id} saiu com código ${res.code}: ${res.stderr.slice(-400)}`);
+  if (schema && res.stdout.trim()) {
+    const raw = prov.stripFences(res.stdout).trim();
+    try { JSON.parse(raw); ensureDir(file); fs.writeFileSync(file, raw); c.log(`JSON guiado gravado em ${path.basename(file)}`); }
+    catch { /* não veio JSON (servidor sem suporte ao esquema): segue o caminho normal abaixo */ }
+  }
   if (!fs.existsSync(file) && res.stdout.trim()) {
     if (TEXT_KINDS.includes(c.step.kind)) fs.writeFileSync(file, prov.stripFences(res.stdout)); // fallback: usa stdout
     else if ((c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && res.stdout.includes('__forge')) {
@@ -380,8 +402,13 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
   /* contrato do plugin com biblioteca JS (pré-parse de sintaxe + forbidCanvas): pré-checa a página ANTES de
      gastar um render — erro que o modelo vai cometer vira uma rodada de texto em vez de render quebrado */
   const contract = (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') ? pluginContract(c.settings, c.project.plugins, c.projectDir) : undefined;
-  const preCheck = /\.html?$/i.test(file) && (contract?.lib || (contract != null && contract.allow.length > 0)) ?
+  const libCheck = /\.html?$/i.test(file) && (contract?.lib || (contract != null && contract.allow.length > 0)) ?
     (page: string) => contractProblem(page, { forbidCanvas: contract!.forbidCanvas, allow: contract!.allow, pluginName: contract!.plugin, rigs: contract!.rigs, requireLib: contract!.lib, known: contract!.names }) : undefined;
+  /* cartoon 3D: a cena só pode chamar o que EXISTE na biblioteca (lido do bundle real) — função inventada volta ao
+     modelo como "Erro: … não está definida em <library_api>" antes de gastar um render */
+  const c3dApi = c.step.kind === 'code_scene' && c.project.skill?.codeKit === 'cartoon3d' && /\.html?$/i.test(file) ? loadCartoon3dApi() : undefined;
+  const c3dCheck = c3dApi ? (page: string) => { const e = cartoon3dApiProblem(page, c3dApi); return e ? `${C3D_LINT}${e}` : undefined; } : undefined;
+  const preCheck = libCheck || c3dCheck ? (page: string) => libCheck?.(page) ?? c3dCheck?.(page) : undefined;
   let framingRounds = 0;
   for (let fix = 0; ; fix++) {
     if (fix > 0) repairArrows();
@@ -396,7 +423,13 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
         const names = (contract?.names ?? []).filter(Boolean).slice(0, 24);
         const libRel = contract?.libFile ? path.relative(path.dirname(file), contract.libFile).split(path.sep).join('/') : '';
         const impLine = libRel ? `import L from '${/^\.\.?\//.test(libRel) ? libRel : './' + libRel}';` : `import L from "../plugins/…/lib/_all.mjs";`;
-        const prompt = [
+        /* cartoon 3D: correção pela API real da biblioteca (sem o texto de plugins L.*) */
+        const prompt = lint.startsWith(C3D_LINT) ? [
+          `O arquivo ${rel2} é uma cena cartoon 3D (Three.js + biblioteca local cartoon3d, window.__forge = { duration, fps, seek(t), pause(), sfx }).`,
+          'O VALIDADOR do app, antes da renderização, recusou o código:', lint.slice(C3D_LINT.length),
+          'CORRIJA AGORA: edite o arquivo trocando SÓ essas chamadas por funções que existem (mantenha a duração, os textos, os tempos, o elenco e os efeitos sonoros).',
+          'REGRAS: NÃO invente funções, métodos nem propriedades; NÃO rode comandos nem crie arquivos de teste; NÃO pergunte nada — grave o arquivo e termine.',
+        ].join('\n\n') : [
           `O arquivo ${rel2} é uma cena HTML determinística (window.__forge = { duration, fps, seek(t), pause(), sfx }).`,
           'A PRÉ-CHECAGEM antes da renderização FALHOU com este problema:', lint,
           'CORRIJA AGORA: reescreva o arquivo inteiro com a ferramenta de escrita, mantendo a duração, os textos, os tempos e os efeitos sonoros.',

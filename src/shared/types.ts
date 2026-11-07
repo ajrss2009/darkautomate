@@ -135,6 +135,10 @@ export interface Scene {
   /** efeitos sonoros gerados por código: nome da biblioteca + instante (s) ou palavra da narração */
   sfxCues?: SfxCue[];
   overrides?: Record<string, Binding[]>; // stepId -> bindings
+  /** regenerar com OUTRA skill: cópia da skill usada só nesta cena (o resto do projeto segue a skill dele) */
+  skillOverride?: Skill;
+  /** regenerar com OUTROS plugins: ids usados só nesta cena ([] = sem plugins) */
+  pluginsOverride?: string[];
   notes?: string;                      // instruções de ajuste (edição por prompt)
   variation?: number;                  // incrementa ao 'regenerar' para mudar seed/cache
   manualDuration?: boolean;            // duração definida pelo usuário (ignora a do áudio)
@@ -507,6 +511,12 @@ export interface HarnessConfig {
   numCtx?: number;
   /** Ollama: deixa o modelo "pensar" antes de responder (qwen3, gemma, deepseek-r1). Padrão: desligado. */
   think?: boolean;
+  /**
+   * Harnesses locais (Ollama, LM Studio, llama.cpp): modo estrito — regras da skill, dos plugins e da API da biblioteca
+   * no prompt de sistema (tags XML, ordens imperativas) e decodificação guiada por JSON schema nas etapas que gravam
+   * JSON. Padrão: ligado (false desliga).
+   */
+  strict?: boolean;
   note?: string;
 }
 export interface ComfyServer { id: string; url: string; token?: string; freeAfter?: boolean }

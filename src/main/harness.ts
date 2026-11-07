@@ -1,4 +1,5 @@
 import { httpFetch } from './http';
+import { stripMarks, strictSplit } from '../shared/strict';
 /** fetch do Chromium: certificados do Windows + proxy/PAC (ver http.ts) */
 const fetch = httpFetch();
 
@@ -381,6 +382,8 @@ export async function ollamaModelParams(cfg: HarnessConfig, model: string): Prom
 async function httpChat(
   cfg: HarnessConfig, model: string, messages: unknown[], tools: unknown[] | undefined, signal: AbortSignal,
   effort?: ReasoningEffort, numCtx = 24576, think?: boolean, sampling?: Record<string, number>,
+  /** decodificação guiada: a resposta só pode ser um JSON neste esquema (Ollama "format"; llama.cpp/LM Studio "response_format") */
+  schema?: object,
 ): Promise<{ ok: boolean; error?: string; warning?: string; text: string; message: any }> {
   const proto = protocolOf(cfg);
   const url = proto === 'ollama' ? `${baseUrl(cfg)}/api/chat` : `${baseUrl(cfg)}/v1/chat/completions`;
@@ -403,6 +406,7 @@ async function httpChat(
     /* modelos que "pensam" (qwen3, gemma, deepseek-r1) gastam o num_predict no raciocínio e a resposta
        vinha cortada (done_reason=length) ou vazia. Desligado por padrão; cfg.think=true religa. */
     if (think !== undefined) body.think = think;
+    if (schema) body.format = schema;
     body.stream = true;
     return ollamaChatStream(url, body, signal);
   }
@@ -410,6 +414,7 @@ async function httpChat(
      o fetch do Node desistia em 5 min sem cabeçalho (UND_ERR_HEADERS_TIMEOUT); node:http não tem esse limite */
   const local = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\//i.test(url);
   body.max_tokens = local ? 16384 : 8192;
+  if (schema) body.response_format = { type: 'json_schema', json_schema: { name: 'saida', strict: true, schema } };
   if (sampling && local) Object.assign(body, sampling);   // llama-server aceita repeat_penalty/frequency_penalty no corpo
   const fail = (status: number, text: string) => ({ ok: false, error: `HTTP ${status}${status === 401 ? ' (chave de API ausente ou inválida)' : status === 402 ? ' (saldo insuficiente na conta da API)' : ''}: ${text.slice(0, 400)}`, text: '', message: {} });
   const done = (j: any) => {
@@ -568,7 +573,7 @@ function normalizeToolCalls(message: any): Array<{ id: string; name: string; arg
  */
 async function runHttp(
   cfg: HarnessConfig,
-  opts: { cwd: string; prompt: string; model?: string; effort?: ReasoningEffort; signal: AbortSignal; onLine?: (l: string) => void; tools?: { roots: string[]; allowShell?: boolean }; images?: string[]; sampling?: Record<string, number> },
+  opts: { cwd: string; prompt: string; model?: string; effort?: ReasoningEffort; signal: AbortSignal; onLine?: (l: string) => void; tools?: { roots: string[]; allowShell?: boolean }; images?: string[]; sampling?: Record<string, number>; schema?: object },
 ): Promise<HarnessRun> {
   let model = opts.model || cfg.defaultModel || (await httpModels(cfg).catch(() => []))[0];
   if (!model) return { ok: false, stdout: '', stderr: 'harness HTTP: nenhum modelo disponível (baixe um modelo no Ollama/LM Studio ou carregue no llama.cpp)', code: 1 };
@@ -580,10 +585,18 @@ async function runHttp(
   const imgs = (opts.images ?? []).filter((f) => { try { return fs.statSync(f).size < 4_000_000; } catch { return false; } }).slice(0, 16)
     .map((f) => ({ b64: fs.readFileSync(f).toString('base64'), mime: /\.png$/i.test(f) ? 'image/png' : 'image/jpeg' }));
   if (imgs.length) opts.onLine?.(`${imgs.length} imagem(ns) enviada(s) ao modelo local (precisa de um modelo com visão: gemma3, qwen2.5vl, llava…)`);
-  const first: any = !imgs.length ? { role: 'user', content: opts.prompt }
-    : proto === 'ollama' ? { role: 'user', content: opts.prompt, images: imgs.map((i) => i.b64) }
-    : { role: 'user', content: [{ type: 'text', text: opts.prompt }, ...imgs.map((i) => ({ type: 'image_url', image_url: { url: `data:${i.mime};base64,${i.b64}` } }))] };
-  const messages: any[] = [first];
+  /* MODO ESTRITO (padrão nos locais): regras da skill/plugins/API e exemplos no PROMPT DE SISTEMA, em tags XML, com ordens
+     imperativas; a tarefa isolada em <task>. Modelos pequenos priorizam o sistema e param de inventar API. */
+  const split = cfg.strict !== false ? strictSplit(opts.prompt) : undefined;
+  const userText = split ? split.user : stripMarks(opts.prompt);
+  if (split) opts.onLine?.('modo estrito: regras da skill, dos plugins e da API no prompt de sistema (o modelo só pode usar o que está lá)');
+  const first: any = !imgs.length ? { role: 'user', content: userText }
+    : proto === 'ollama' ? { role: 'user', content: userText, images: imgs.map((i) => i.b64) }
+    : { role: 'user', content: [{ type: 'text', text: userText }, ...imgs.map((i) => ({ type: 'image_url', image_url: { url: `data:${i.mime};base64,${i.b64}` } }))] };
+  const messages: any[] = split ? [{ role: 'system', content: split.system }, first] : [first];
+  /* decodificação guiada: com esquema, a resposta é o próprio JSON (sem ferramentas) */
+  let schema = opts.schema;
+  if (schema) opts.onLine?.('decodificação guiada: a resposta só pode ser JSON no esquema da etapa');
   /* janela de contexto: o Ollama descarta as mensagens mais antigas quando a conversa passa do num_ctx —
      e a primeira é o pedido (o template do modelo falha com "no user query found"). Por isso a janela
      acompanha o tamanho do pedido e os resultados antigos de ferramentas são resumidos antes de estourar. */
@@ -605,7 +618,7 @@ async function runHttp(
   for (let round = 0; round < 30; round++) {
     if (opts.signal.aborted) return { ok: false, stdout: transcript.join('\n'), stderr: abortMessage(opts.signal, 'abortado'), code: null };
     if (fitContext(messages, budget) && round > 0 && !ctxWarned) { ctxWarned = true; opts.onLine?.('contexto do modelo local quase cheio — resultados antigos de ferramentas resumidos'); }
-    let res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling);
+    let res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling, schema);
     /* laço: nenhuma das repetições abaixo (sem ferramentas, outro modelo…) resolve; o trecho parcial vai no stdout */
     if (!res.ok && /^o modelo entrou em laço/.test(res.error ?? '')) return { ok: false, stdout: [...transcript, res.text].join('\n'), stderr: res.error!, code: null };
     /* modelo padrão apagado do servidor (HTTP 404 "model ... not found"): usa um instalado em vez de
@@ -616,30 +629,36 @@ async function runHttp(
       if (alt) {
         opts.onLine?.(`⚠ o modelo "${model}" não existe mais neste servidor — usando "${alt}" (ajuste o modelo padrão em Provedores)`);
         model = alt;
-        res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling);
+        res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling, schema);
       }
     }
     // Ollama antigo ou servidor que não conhece "think": repete sem o campo
     if (!res.ok && think !== undefined && /think/i.test(res.error ?? '')) {
       think = undefined;
-      res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling);
+      res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling, schema);
+    }
+    /* servidor que não aceita esquema (versão antiga): segue sem ele — o executor ainda valida o JSON gravado */
+    if (!res.ok && schema && /format|schema|response_format|grammar|400|422/i.test(res.error ?? '')) {
+      schema = undefined;
+      opts.onLine?.(`este servidor não aceitou a decodificação guiada — seguindo sem ela (${(res.error ?? '').slice(0, 160)})`);
+      res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling, schema);
     }
     if (!res.ok && /no user query|user query/i.test(res.error ?? '')) {
       /* o pedido caiu da janela mesmo assim: resume tudo o que é antigo e tenta de novo */
       fitContext(messages, Math.floor(budget / 2));
       opts.onLine?.('o pedido não coube na janela do modelo local — resumindo o histórico e repetindo');
-      res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling);
+      res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, effort, ctx, think, opts.sampling, schema);
     }
     // modelo/servidor sem suporte a tools: segue sem elas em vez de falhar
     if (!res.ok && useTools && /tool|function|400|422/i.test(res.error ?? '')) {
       useTools = false;
       opts.onLine?.(`este modelo não aceitou ferramentas — seguindo sem elas (${(res.error ?? '').slice(0, 200)})`);
-      res = await httpChat(cfg, model, messages, undefined, opts.signal, effort, ctx, think, opts.sampling);
+      res = await httpChat(cfg, model, messages, undefined, opts.signal, effort, ctx, think, opts.sampling, schema);
     }
     // modelo/servidor que não conhece reasoning_effort: repete sem o parâmetro
     if (!res.ok && effort && /reason|effort|thinking|400|422/i.test(res.error ?? '')) {
       opts.onLine?.('este modelo não aceitou o esforço de raciocínio — seguindo com o padrão');
-      res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, undefined, ctx, think, opts.sampling);
+      res = await httpChat(cfg, model, messages, useTools ? TOOL_SPECS : undefined, opts.signal, undefined, ctx, think, opts.sampling, schema);
     }
     if (res.warning) opts.onLine?.(`⚠ ${res.warning}`);
     if (!res.ok) return { ok: false, stdout: transcript.join('\n'), stderr: res.error ?? 'falhou', code: null };
@@ -793,9 +812,13 @@ export function runHarness(
     /** harnesses HTTP: imagens anexadas à mensagem (modelos com visão); os CLIs abrem os arquivos pela pasta */
     images?: string[];
     /** Ollama: opções de amostragem desta chamada (ex.: repeat_penalty numa nova tentativa depois de um laço) */
-    sampling?: Record<string, number> },
+    sampling?: Record<string, number>;
+    /** harnesses HTTP: decodificação guiada (resposta = JSON neste esquema) */
+    schema?: object },
 ): Promise<HarnessRun> {
   if (isHttpHarness(cfg)) return runHttp(cfg, opts);
+  /* CLIs (Claude, Antigravity, Codex…): o pedido normal, sem as marcas do modo estrito */
+  opts = { ...opts, prompt: stripMarks(opts.prompt) };
   const cmd = resolveHarnessCommand(cfg);
   if (!cmd.found) {
     const hint = /opencode/i.test(cfg.command)

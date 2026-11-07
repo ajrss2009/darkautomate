@@ -1707,8 +1707,19 @@ function registerIpc() {
     const run = o.regenerate === false ? undefined : await startRun(id, { sceneIds: o.sceneIds, stepIds: finalizeSteps(p, steps, true) });
     return { project: ops.readProject(settings, id), run };
   });
-  h('scene:regenerate', async (id: string, o: { sceneIds: string[]; stepIds: string[]; reroll?: boolean; finalize?: boolean; executor?: Binding | 'reset' }) => {
+  h('scene:regenerate', async (id: string, o: { sceneIds: string[]; stepIds: string[]; reroll?: boolean; finalize?: boolean; executor?: Binding | 'reset'; skillId?: string; plugins?: string[] | 'reset' }) => {
     idle(id); const p = ops.readProject(settings, id);
+    /* skill e/ou plugins só destas cenas (o resto do projeto continua com os dele); "" / 'reset' = voltar ao do projeto */
+    if (o.skillId !== undefined || o.plugins !== undefined) {
+      const sk = o.skillId ? lib.getSkill(settings, o.skillId) : undefined;
+      if (o.skillId && !sk) throw new Error(`skill "${o.skillId}" não encontrada`);
+      for (const sc of p.scenes) {
+        if (!o.sceneIds.includes(sc.id)) continue;
+        if (o.skillId !== undefined) { if (sk && sk.id !== p.skill?.id) sc.skillOverride = JSON.parse(JSON.stringify(sk)); else delete sc.skillOverride; }
+        if (o.plugins !== undefined) { if (o.plugins === 'reset') delete sc.pluginsOverride; else sc.pluginsOverride = [...new Set(o.plugins)]; }
+      }
+      ops.saveProjectFile(settings, p);
+    }
     /* executor só destas cenas (texto/código): grava overrides na cena; o da rota fica como reserva */
     if (o.executor) {
       for (const sc of p.scenes) {

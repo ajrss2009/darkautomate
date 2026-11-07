@@ -1050,7 +1050,11 @@ export async function renderSettings(c: Ctx, reload = true) {
           h('label', { class: 'inline chk' }, (() => {
             const cb = h('input', { type: 'checkbox', 'data-field': 'tools' }) as HTMLInputElement; cb.checked = cfg.tools !== false;
             cb.addEventListener('change', () => { cfg.tools = cb.checked; redraw(); }); return cb;
-          })(), 'Ferramentas (arquivos, internet, REST, comandos)')) : null,
+          })(), 'Ferramentas (arquivos, internet, REST, comandos)'),
+          h('label', { class: 'inline chk', title: 'Modo estrito para modelos locais: as regras da skill, dos plugins e a API da biblioteca vão no prompt de sistema em tags XML (<skill_instructions>, <plugin_instructions>, <library_api>, <examples>) com a ordem de usar SÓ o que está lá; plano de cenas e metadados saem por decodificação guiada (JSON schema); e o validador recusa funções inventadas antes do render.' }, (() => {
+            const cb = h('input', { type: 'checkbox', 'data-field': 'strict' }) as HTMLInputElement; cb.checked = cfg.strict !== false;
+            cb.addEventListener('change', () => { cfg.strict = cb.checked; }); return cb;
+          })(), '🔒 Modo estrito (só procedimentos e funções das skills/plugins)')) : null,
         toolsInfo,
         h('div', {}, h('strong', {}, 'Modelos carregados'), h('span', { class: 'muted' }, ' — só estes aparecem ao montar as rotas'), ml.el),
         h('div', { class: 'row' },

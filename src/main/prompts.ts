@@ -12,6 +12,7 @@ import { SFX_LIBRARY, sfxCatalogText } from './sfx';
 import { RETENTION_RULES, TITLE_RULES } from './youtube-rules';
 import { cartoon3dScenePrompt, storyboardFor, storyboardPrompt } from './cartoon3d';
 import { allThumbTemplates } from './thumb-render';
+import { mark, stripMarks } from '../shared/strict';
 
 /** Arquivo principal que cada etapa deve produzir. */
 export function primaryFile(kind: StepKind, c: Pick<ExecContext, 'projectDir' | 'outDir' | 'sceneDir'>): string {
@@ -780,7 +781,11 @@ export function freeHtmlProblem(page: string): string | undefined {
   return undefined;
 }
 
-export function buildPrompt(c: ExecContext): string {
+/** Pedido da etapa sem as marcas do modo estrito (CLIs, APIs, testes). */
+export function buildPrompt(c: ExecContext): string { return stripMarks(buildPromptMarked(c)); }
+
+/** Pedido com as partes de REGRA marcadas (skill, plugins, API, exemplos): os harnesses locais as levam ao prompt de sistema. */
+export function buildPromptMarked(c: ExecContext): string {
   const p = c.project;
   /* modelos locais pequenos (9B em servidor local, nome com "…9b"…): bloco de plugins menor para caber no contexto */
   const bnd = c.binding as { harness?: string; provider?: string; model?: string };
@@ -812,7 +817,7 @@ export function buildPrompt(c: ExecContext): string {
     (p.musicMode ? ` Música: ${p.musicMode === 'song' ? 'canção (com letra)' : 'instrumental'}.` : '') +
     (p.waveform ? ` Waveform: ${p.waveform}.` : '') +
     mixHint(p) +
-    `${mem}${skill ? '\n' + skill + '\n' : ''}${plugins ? '\n' + plugins + '\n' : ''}${extra ? extra + '\n' : ''}\n` +
+    `${mem}${skill ? '\n' + mark('skill', skill) + '\n' : ''}${plugins ? '\n' + mark('plugin', plugins) + '\n' : ''}${extra ? extra + '\n' : ''}\n` +
     `Trabalhe SOMENTE dentro do diretório atual e de ${path.dirname(file)}. Grave o resultado em: ${file}\n` +
     /* agentes (Antigravity, Claude Code, OpenCode) gastavam minutos explorando a pasta, relendo project.json, rodando git/
        powershell/python para contar palavras e abrindo backups antigos antes de escrever uma etapa de texto */

@@ -1165,6 +1165,12 @@ export function stageThree(projectDir: string, htmlDir: string): { importmap: Re
  * Biblioteca "cartoon3d" (vendor/cartoon3d/cartoon3d.js, MIT — visual do claude-animated-shorts) + Three.js copiados para o
  * projeto; devolve o import map relativo à pasta da página com "three" e "cartoon3d".
  */
+/** Bundle da biblioteca cartoon3d que vem com o app (vendor/cartoon3d/cartoon3d.js). */
+export function cartoon3dBundle(): string | undefined {
+  const f = vendorThreeFile() && path.join(path.dirname(path.dirname(vendorThreeFile()!)), 'cartoon3d', 'cartoon3d.js');
+  return f && fs.existsSync(f) ? f : undefined;
+}
+
 export function stageCartoon3d(projectDir: string, htmlDir: string): { importmap: Record<string, string> } | undefined {
   const three = stageThree(projectDir, htmlDir);
   const src = vendorThreeFile() && path.join(path.dirname(path.dirname(vendorThreeFile()!)), 'cartoon3d', 'cartoon3d.js');
