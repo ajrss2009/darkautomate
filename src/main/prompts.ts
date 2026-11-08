@@ -1040,7 +1040,11 @@ export function buildPromptMarked(c: ExecContext): string {
         : '';
       /* velocidade: harnesses com shell testavam a cena sozinhos (navegador, node, ffmpeg) — minutos por cena */
       const fastRule = `TRABALHE RÁPIDO: escreva o arquivo ${file} inteiro numa única gravação e termine. NÃO abra navegador, NÃO rode node/npm/python/ffmpeg/servidores, NÃO crie testes nem arquivos auxiliares e não abra arquivos além dos citados neste pedido: ` +
-        `o FilmForge renderiza e valida cada quadro e, se seek(t) falhar, devolve o erro exato para você corrigir.`;
+        `o FilmForge renderiza e valida cada quadro e, se seek(t) falhar, devolve o erro exato para você corrigir. ` +
+        /* teste_vancker: um save() sem restore() acumulava o translate a cada quadro (a cena saía da tela) e o
+           <video> era desenhado antes do quadro novo existir (a captura ficava presa no 1º quadro) */
+        `CANVAS: cada quadro desenha tudo do zero; todo ctx.save() tem o seu ctx.restore() no MESMO quadro (sem return entre eles) e comece seek(t) com ctx.setTransform(1,0,0,1,0,0). ` +
+        `VÍDEO DO USUÁRIO: em seek(t) defina video.currentTime e, se ele mudou, devolva uma Promise que resolve no evento "seeked" e SÓ ENTÃO desenhe o vídeo no canvas.`;
       /* curta cartoon 3D: Three.js + biblioteca local cartoon3d (o executor copia as duas para o projeto) */
       if (c.step.kind === 'code_scene' && p.skill?.codeKit === 'cartoon3d') {
         const up = path.relative(path.dirname(file), c.projectDir).split(path.sep).join('/') || '.';
@@ -1069,7 +1073,11 @@ export function buildPromptMarked(c: ExecContext): string {
         `Dimensão do viewport: ${p.aspect}. Estilo: ${vt?.stylePrompt}. Evite: ${vt?.negativePrompt}. Nada de fetch/XHR/imports externos. ` +
         /* velocidade: harnesses com shell testavam a cena sozinhos (navegador, node, ffmpeg) — minutos por cena */
         `TRABALHE RÁPIDO: escreva o arquivo ${file} inteiro numa única gravação e termine. NÃO abra navegador, NÃO rode node/npm/python/ffmpeg/servidores, NÃO crie testes nem arquivos auxiliares e não abra arquivos além dos citados neste pedido: ` +
-        `o FilmForge renderiza e valida cada quadro e, se seek(t) falhar, devolve o erro exato para você corrigir.`;
+        `o FilmForge renderiza e valida cada quadro e, se seek(t) falhar, devolve o erro exato para você corrigir. ` +
+        /* teste_vancker: um save() sem restore() acumulava o translate a cada quadro (a cena saía da tela) e o
+           <video> era desenhado antes do quadro novo existir (a captura ficava presa no 1º quadro) */
+        `CANVAS: cada quadro desenha tudo do zero; todo ctx.save() tem o seu ctx.restore() no MESMO quadro (sem return entre eles) e comece seek(t) com ctx.setTransform(1,0,0,1,0,0). ` +
+        `VÍDEO DO USUÁRIO: em seek(t) defina video.currentTime e, se ele mudou, devolva uma Promise que resolve no evento "seeked" e SÓ ENTÃO desenhe o vídeo no canvas.`;
     }
     case 'review': {
       if (c.step.scope === 'project') {

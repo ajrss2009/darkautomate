@@ -6,7 +6,7 @@
  * Este arquivo é puro (nada de electron): quem abre a página é injetado (main.ts) — testável.
  */
 
-import { rankVideos, type FinderQuery, type FinderResult, type FinderVideo } from './finder';
+import { OUTLIER_MAX_SUBS, OUTLIER_MIN_RATIO, outlierSeeds, rankVideos, type FinderQuery, type FinderResult, type FinderVideo } from './finder';
 
 export type SocialPlatform = 'tiktok' | 'instagram' | 'facebook' | 'kwai';
 
@@ -307,16 +307,22 @@ export async function findSocial(platform: SocialPlatform, q: FinderQuery, d: So
   const langs = q.languages.length ? q.languages : [''];
   const done = new Set<string>();
   for (const lang of langs) {
-    const term = (q.queries?.[lang] || q.query).trim();
-    if (!term || done.has(term.toLowerCase())) continue;   // mesma consulta em dois idiomas: uma busca só
-    done.add(term.toLowerCase());
-    const r = await scrapeSocial(platform, term, d, { max: q.perLanguage ?? 30 });
-    loginWall ||= !!r.loginWall;
-    for (const w of r.warnings) if (!warnings.includes(w)) warnings.push(w);
-    raw.push(...r.raw.map((v) => toFinderVideo(v, lang)));
+    /* Outliers: sem nicho — 2 buscas amplas (hashtags genéricas) por idioma; senão o termo (traduzido) */
+    const terms = q.outliers ? outlierSeeds(lang, platform).slice(0, 2) : [(q.queries?.[lang] || q.query).trim()];
+    for (const term of terms) {
+      if (!term || done.has(term.toLowerCase())) continue;   // mesma consulta em dois idiomas: uma busca só
+      done.add(term.toLowerCase());
+      const r = await scrapeSocial(platform, term, d, { max: q.outliers ? Math.ceil((q.perLanguage ?? 30) / terms.length) : q.perLanguage ?? 30 });
+      loginWall ||= !!r.loginWall;
+      for (const w of r.warnings) if (!warnings.includes(w)) warnings.push(w);
+      raw.push(...r.raw.map((v) => toFinderVideo(v, lang)));
+    }
   }
   if (!raw.some((v) => v.subs !== undefined) && raw.length) warnings.push(`${SOCIAL_SITES[platform].label}: seguidores dos perfis não informados — o critério "canal pequeno" e o filtro de máximo de seguidores ficam de fora.`);
-  const { videos, channels } = rankVideos(raw, q, ui);
+  const { videos, channels, unknownSubs } = rankVideos(raw, q, ui);
+  if (q.outliers) warnings.push(unknownSubs
+    ? `🔥 Outliers: o ${SOCIAL_SITES[platform].label} não informou os seguidores — a lista mostra os vídeos com melhor nota (velocidade e engajamento), sem confirmar o tamanho do perfil.`
+    : `🔥 Outliers: só perfis com até ${(q.maxSubs || OUTLIER_MAX_SUBS).toLocaleString('pt-BR')} seguidores e views ≥ ${OUTLIER_MIN_RATIO}× o tamanho do perfil, sem filtro de nicho.`);
   d.log?.(`${SOCIAL_SITES[platform].label}: ${videos.length} vídeos pontuados · ${channels.length} perfis`);
   return { videos, channels, engine: 'browser', warnings, platform, loginWall: loginWall || undefined };
 }

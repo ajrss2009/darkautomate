@@ -19,6 +19,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { resolveBin } from './ffmpeg';
 import type { RenderHtml } from './executors';
 import * as crypto from 'node:crypto';
+import { parseRange } from './render-range';
 
 /* ───────── kits de plugin (motor próprio do plugin: player.html/engine ou peça montada) ─────────
  * Cada kit é "montado" num host próprio do forge-scene:// (forge-scene://k<hash>/…), com o mesmo layout que o
@@ -186,6 +187,60 @@ const MIME: Record<string, string> = { '.html': 'text/html', '.htm': 'text/html'
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.webm': 'video/webm',
   '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 /**
+ * Proteções do render de cenas por código, instaladas depois que a página carregou:
+ *  - CANVAS: guarda o transform/alfa/composição de cada contexto 2D como estavam depois da preparação da cena e
+ *    os repõe antes de cada quadro. Um ctx.save() sem ctx.restore() fazia o translate se acumular quadro a quadro
+ *    e a cena "escorregava" para fora da tela (o print e os destaques sumiam);
+ *  - VÍDEO: a cena desenha o <video> logo depois de mudar currentTime, antes de o quadro novo estar decodificado.
+ *    Depois do seek, espera os vídeos terminarem de pular e chama seek de novo (agora com o quadro certo).
+ */
+const SEEK_GUARDS_SETUP = `try {
+  const ctxs = []; const base = new Map();
+  /* base = identidade; só uma escala uniforme igual à proporção do canvas (HiDPI: ctx.scale(dpr) na preparação) é mantida —
+     a prévia já rodou alguns quadros antes daqui, então um translate "vazado" não pode virar a base */
+  const keep = (c) => { if (c && !base.has(c)) { ctxs.push(c); try {
+    const m = c.getTransform(), cv = c.canvas, ratio = cv && cv.clientWidth ? cv.width / cv.clientWidth : 1;
+    const hidpi = m.b === 0 && m.c === 0 && m.e === 0 && m.f === 0 && Math.abs(m.a - m.d) < 1e-6 && Math.abs(m.a - ratio) < 1e-3 && m.a !== 1;
+    base.set(c, { m: hidpi ? m : new DOMMatrix(), a: 1, o: 'source-over' }); } catch {} } };
+  document.querySelectorAll('canvas').forEach((cv) => { try { keep(cv.getContext('2d')); } catch {} });
+  const gc = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...a) { const c = gc.call(this, type, ...a); if (type === '2d') keep(c); return c; };
+  /* restore() a mais com a pilha vazia não faz nada: desfaz os save() sem par e depois repõe a base */
+  window.__forgeBefore = () => { for (const c of ctxs) { const b = base.get(c); if (!b) continue; try { for (let i = 0; i < 32; i++) c.restore(); c.setTransform(b.m); c.globalAlpha = b.a; c.globalCompositeOperation = b.o; c.shadowBlur = 0; c.shadowColor = 'transparent'; c.filter = 'none'; } catch {} } };
+  const vids = new Set(); document.querySelectorAll('video').forEach((v) => vids.add(v));
+  const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+  if (d && d.set) Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', { configurable: true, get() { return d.get.call(this); }, set(v) { if (this instanceof HTMLVideoElement) vids.add(this); d.set.call(this, v); } });
+  window.__forgeAfter = async (t) => {
+    let waited = false;
+    for (let i = 0; i < 80; i++) {
+      const busy = [...vids].filter((v) => v.seeking || (v.readyState < 2 && v.networkState !== 3 && !v.error));
+      if (!busy.length) break;
+      waited = true; await new Promise((r) => setTimeout(r, 25));
+    }
+    if (waited) { try { window.__forgeBefore(); } catch {} await window.__forge.seek(t); }
+  };
+} catch {}`;
+
+/**
+ * Resposta de arquivo com suporte a PEDIDO PARCIAL (Range → 206). Sem isso o <video> não é "navegável":
+ * currentTime volta para 0 e a cena por código que mostra um trecho da captura fica presa no 1º quadro.
+ */
+function fileResponse(file: string, range: string | null): Response {
+  const type = MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
+  const size = fs.statSync(file).size;
+  const r = parseRange(range, size);
+  const base = { 'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'Accept-Ranges': 'bytes' };
+  if (!r) return new Response(fs.readFileSync(file), { headers: { ...base, 'Content-Length': String(size) } });
+  const [start, end] = r;
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(end - start + 1);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    return new Response(buf, { status: 206, headers: { ...base, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(buf.length) } });
+  } finally { fs.closeSync(fd); }
+}
+
+/**
  * forge-scene://scene/<caminho codificado>: serve as cenas e as bibliotecas dos plugins copiadas no projeto
  * com origem própria, para que <script type="module"> e import map funcionem (file:// bloqueia módulos).
  * Só entrega arquivos dentro das pastas permitidas.
@@ -200,7 +255,7 @@ export function registerSceneProtocol(roots: () => string[]) {
       const file = path.resolve(u.pathname.replace(/^\//, '').split('/').map(decodeURIComponent).join(path.sep));
       const ok = roots().map((x) => path.resolve(x) + path.sep);
       if (!ok.some((root) => file.startsWith(root)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return new Response('not found', { status: 404 });
-      return new Response(fs.readFileSync(file), { headers: { 'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream', 'Access-Control-Allow-Origin': '*' } });
+      return fileResponse(file, req.headers.get('range'));
     } catch { return new Response('bad request', { status: 400 }); }
   };
   protocol.handle('forge-scene', handler);
@@ -288,13 +343,16 @@ export const renderHtml: RenderHtml = async (htmlFile, out, { w, h, ffmpeg, dura
         document.head && document.head.appendChild(st);
       } catch {}
       try { if (window.__forge) { window.__forge.duration = ${total}; window.__forge.fps = ${fps}; } } catch {}
+      ${SEEK_GUARDS_SETUP}
       return true;
     })()`);
     await new Promise((r) => setTimeout(r, 120));
     win.webContents.setFrameRate(fps);
 
     /* URLs forge-scene:// (caminho absoluto inteiro) comiam os 600 caracteres: a linha da página que chamou a biblioteca sumia */
-    const seekJs = (t: number) => `Promise.resolve().then(() => window.__forge.seek(${t.toFixed(5)})).then(() => null, (e) => String((e && (e.stack || e.message)) || e).replace(/forge-scene:\\/\\/scene\\/[^\\s)]*\\//g, '').slice(0, 600))`;
+    const seekJs = (t: number) => `Promise.resolve().then(() => { try { window.__forgeBefore && window.__forgeBefore(); } catch {} return window.__forge.seek(${t.toFixed(5)}); })
+      .then(() => (window.__forgeAfter ? window.__forgeAfter(${t.toFixed(5)}) : null))
+      .then(() => null, (e) => String((e && (e.stack || e.message)) || e).replace(/forge-scene:\\/\\/scene\\/[^\\s)]*\\//g, '').slice(0, 600))`;
     /* checagem rápida ANTES de capturar: seek em ~2 pontos por segundo + o último quadro, sem capturar.
        Um erro no meio da cena aparece em ~1 s (e vai para a IA corrigir) em vez de depois de capturar metade dela. */
     const probes = [...new Set([...Array.from({ length: Math.ceil(total * 2) }, (_, k) => Math.min(frames - 1, Math.round((k / 2) * fps))), frames - 1])];

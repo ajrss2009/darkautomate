@@ -1025,3 +1025,17 @@ main.ed .tl-tools { flex: none; }
 .sb-card .sb-n { background:var(--acc); color:#fff; border-radius:6px; padding:0 6px; font-weight:700; }
 .sb-card .sb-act { color:var(--acc); border:1px solid var(--acc); border-radius:999px; padding:0 6px; font-size:10px; }
 .sb-card p { margin:3px 0; }
+
+/* ── editor: painéis ajustáveis (divisores arrastáveis; medidas em --ed-left e --ed-top-h) ── */
+main.ed .ed-top { grid-template-columns:var(--ed-left, minmax(280px, 0.9fr)) 10px minmax(300px, 1fr); gap:4px; }
+main.ed .ed-top > .inspector, main.ed .ed-top > div:last-child { min-width:0; }
+.ed-split-v { align-self:stretch; width:10px; cursor:col-resize; border-radius:6px; position:relative; touch-action:none; }
+.ed-split-v::after { content:''; position:absolute; left:4px; top:30%; bottom:30%; width:2px; border-radius:2px; background:var(--line2); }
+.ed-split-h { flex:none; height:10px; margin:2px 0; cursor:row-resize; border-radius:6px; position:relative; touch-action:none; }
+.ed-split-h::after { content:''; position:absolute; top:4px; left:40%; right:40%; height:2px; border-radius:2px; background:var(--line2); }
+.ed-split-v:hover, .ed-split-v.on, .ed-split-h:hover, .ed-split-h.on { background:color-mix(in srgb, var(--acc) 22%, transparent); }
+.ed-split-v:hover::after, .ed-split-v.on::after, .ed-split-h:hover::after, .ed-split-h.on::after { background:var(--acc); }
+main.ed.ed-sized .ed-top { flex:none; height:var(--ed-top-h); }
+main.ed.ed-sized .tl { flex:1 1 auto; max-height:none; min-height:80px; }
+body.ed-dragging, body.ed-dragging * { user-select:none !important; }
+.ed-layout-btns { display:inline-flex; gap:6px; margin-right:10px; }

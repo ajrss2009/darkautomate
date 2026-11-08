@@ -8,6 +8,7 @@ import { designTemplateCards, openThumbStudio, thumbPreview } from './thumb-stud
 import { promptComposer } from './prompt-composer';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 import { routeIcon, skillIcon, withIcon } from '../shared/list-icons';
+import { bigPreview, clampEdLayout } from '../shared/ed-layout';
 import { renderVideosPage, type VideosCtx } from './videos-page';
 import { renderChannelsPage, type ChannelsCtx } from './channels-page';
 import { voicePicker, type NarrationVoice } from './voice-picker';
@@ -2902,10 +2903,56 @@ function renderEditor(keepScroll = false) {
     ...(p.scenes.length ? [tlTools(p)] : []),
     timeline(p));
   main.classList.add('ed');
+  edLayout(main);
   if (p.scenes.length) showScene(first);
   else if (media.final) stage.replaceChildren(h('video', { src: forge.mediaUrl(media.final), controls: true }));
   else stage.replaceChildren(h('div', { class: 'muted pad' }, 'Ainda sem vídeo. Use ▶ Executar rota.'));
   const tl = $('#tl'); if (tl) tl.scrollLeft = oldScroll;
+}
+
+/* ───────── editor: painéis ajustáveis (largura da prévia × painel lateral, altura da área de cima × timeline) ───────── */
+const ED_LEFT = 'ff.ed.left', ED_TOP = 'ff.ed.top';
+const lsNum = (k: string) => { try { return Number(localStorage.getItem(k)) || 0; } catch { return 0; } };
+const lsSet = (k: string, v: number | undefined) => { try { if (v) localStorage.setItem(k, String(Math.round(v))); else localStorage.removeItem(k); } catch { /* sem armazenamento */ } };
+let edApply: (() => void) | undefined;
+function edLayout(root: HTMLElement): void {
+  const top = root.querySelector<HTMLElement>('.ed-top'), bar = root.querySelector<HTMLElement>('.tl-bar');
+  if (!top || !bar) return;
+  const apply = () => {
+    const box = root.getBoundingClientRect();
+    const v = clampEdLayout(lsNum(ED_LEFT), lsNum(ED_TOP), { width: top.getBoundingClientRect().width || box.width, height: box.height });
+    if (v.left) root.style.setProperty('--ed-left', `${v.left}px`); else root.style.removeProperty('--ed-left');
+    if (v.top) { root.style.setProperty('--ed-top-h', `${v.top}px`); root.classList.add('ed-sized'); } else { root.style.removeProperty('--ed-top-h'); root.classList.remove('ed-sized'); }
+  };
+  const drag = (handle: HTMLElement, move: (e: PointerEvent) => void) => {
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); handle.setPointerCapture(e.pointerId); handle.classList.add('on'); document.body.classList.add('ed-dragging');
+      const mv = (ev: PointerEvent) => { move(ev); apply(); };
+      const up = () => { handle.removeEventListener('pointermove', mv); handle.removeEventListener('pointerup', up); handle.classList.remove('on'); document.body.classList.remove('ed-dragging'); };
+      handle.addEventListener('pointermove', mv); handle.addEventListener('pointerup', up);
+    });
+  };
+  const preview = top.querySelector<HTMLElement>(':scope > .preview');
+  const sv = h('div', { class: 'ed-split-v', title: 'Arraste para mudar a largura da prévia · duplo clique: padrão', 'data-act': 'ed-split-v' });
+  if (preview?.nextSibling) top.insertBefore(sv, preview.nextSibling);
+  const sh = h('div', { class: 'ed-split-h', title: 'Arraste para mudar a altura da prévia × timeline · duplo clique: padrão', 'data-act': 'ed-split-h' });
+  root.insertBefore(sh, bar);
+  drag(sv, (e) => lsSet(ED_LEFT, e.clientX - top.getBoundingClientRect().left));
+  drag(sh, (e) => lsSet(ED_TOP, e.clientY - top.getBoundingClientRect().top));
+  sv.addEventListener('dblclick', () => { lsSet(ED_LEFT, undefined); apply(); });
+  sh.addEventListener('dblclick', () => { lsSet(ED_TOP, undefined); apply(); });
+  /* atalhos: prévia grande (≈ 70% da largura e a timeline enxuta) e layout padrão */
+  const big = h('button', { class: 'small', 'data-act': 'ed-big', title: 'Prévia grande: painel lateral estreito e timeline enxuta', onclick: () => {
+    const v = bigPreview({ width: top.getBoundingClientRect().width, height: root.getBoundingClientRect().height });
+    lsSet(ED_LEFT, v.left); lsSet(ED_TOP, v.top); apply();
+  } }, '⛶ Prévia grande');
+  const std = h('button', { class: 'small', 'data-act': 'ed-std', title: 'Volta as larguras e alturas ao padrão', onclick: () => { lsSet(ED_LEFT, undefined); lsSet(ED_TOP, undefined); apply(); } }, '▣ Layout padrão');
+  const zoomLbl = bar.querySelector('label');
+  bar.insertBefore(h('span', { class: 'ed-layout-btns' }, big, std), zoomLbl ?? null);
+  apply();
+  /* janela redimensionada: as medidas guardadas são limitadas ao novo tamanho */
+  if (!edApply) window.addEventListener('resize', () => { if (document.querySelector('main.ed')) edApply?.(); });
+  edApply = apply;
 }
 
 document.addEventListener('keydown', (e) => {

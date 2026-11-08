@@ -1226,6 +1226,7 @@ function registerIpc() {
   /** mesma pesquisa da aba YouTube (idiomas, período, formato, até 100 por idioma, views mín., máx. de seguidores) */
   h('social:search', (platform: string, q: FinderQuery | string, o?: { max?: number }) => {
     if (!isSocialPlatform(platform)) throw new Error(`rede desconhecida: ${platform}`);
+    if (platform === 'kwai') throw new Error('a pesquisa no Kwai foi retirada: as páginas públicas dele não devolvem vídeos');
     if (typeof q === 'string') return searchSocial(platform, q, socialDeps(), o);
     return findSocial(platform, q, socialDeps(), settings.uiLanguage === 'en' || settings.uiLanguage === 'es' ? settings.uiLanguage : 'pt-BR');
   });

@@ -55,6 +55,7 @@ const SITES: Record<Platform, { label: string; icon: string; note: string }> = {
   facebook: { label: 'Facebook', icon: '📘', note: 'sem API: a busca de vídeos do Facebook num navegador invisível — precisa de login (botão ao lado), feito por você numa janela do app' },
   kwai: { label: 'Kwai', icon: '🎬', note: 'sem API: as páginas públicas de tema do Kwai num navegador invisível (melhor esforço)' },
 };
+const SEARCHABLE: Platform[] = ['youtube', 'tiktok', 'instagram', 'facebook'];
 let tab: Platform = 'youtube';
 const lastBy: Partial<Record<Platform, Result>> = {};
 let last: Result | undefined;
@@ -78,7 +79,8 @@ const isFav = (id: string) => favs.some((f) => f.id === id);
 
 export async function renderVideosPage(c: VideosCtx): Promise<void> {
   const { main } = c;
-  const tabs = h('div', { class: 'vf-tabs' }, ...(Object.keys(SITES) as Platform[]).map((id) =>
+  /* Kwai fora da pesquisa: as páginas públicas dele nunca devolvem vídeos (continua como plataforma de canal) */
+  const tabs = h('div', { class: 'vf-tabs' }, ...(Object.keys(SITES) as Platform[]).filter((id) => SEARCHABLE.includes(id)).map((id) =>
     h('button', { class: `vf-tab${tab === id ? ' on' : ''}`, 'data-tab-v': id, onclick: () => {
       if (id === tab) return;
       if (last) lastBy[tab] = last;
@@ -106,9 +108,26 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
   const status = h('div', { class: 'muted', id: 'vf-status' });
   const results = h('div', { id: 'vf-results' });
 
+  /* 🔥 Outliers: vídeos bombando em canais PEQUENOS, sem nicho (ignora termo e tipo; usa idiomas, período, formato e quantidade) */
+  const outliers = async () => {
+    if (!form.languages.length) return c.toast('Escolha ao menos um idioma.', true);
+    status.textContent = `🔥 procurando vídeos que explodiram em canais pequenos (${yt ? 'YouTube' : site.label}, sem nicho)…`;
+    await c.guard(async () => {
+      const fq = { query: '', languages: form.languages, period: form.period, perLanguage: form.perLanguage, minViews: form.minViews || undefined, maxSubs: form.maxSubs || undefined, format: form.format, outliers: true };
+      last = (yt ? await c.forge['finderSearch'](fq) : await c.forge['socialSearch'](tab, fq)) as Result;
+      lastBy[tab] = last;
+      if (last.loginWall) c.toast(`${site.label} pediu login — clique em "Entrar no ${site.label}" e tente de novo`, true);
+      status.textContent = '';
+      insights = undefined;
+      if (view === 'favorites' || view === 'clones') view = 'videos';
+      paint();
+    });
+    if (!last) status.textContent = '';
+  };
+
   const search = async () => {
     const term = form.query.trim();
-    if (!term && !form.videoType) return c.toast('Escreva o termo da pesquisa ou escolha um tipo de vídeo.', true);
+    if (!term && !form.videoType) return c.toast('Escreva o termo da pesquisa ou escolha um tipo de vídeo (ou use 🔥 Outliers, que não precisa de nicho).', true);
     if (!form.languages.length) return c.toast('Escolha ao menos um idioma.', true);
     status.textContent = yt ? '⏳ procurando e analisando os vídeos… (sem a chave da API leva 20–60 s por idioma)' : `⏳ abrindo a busca do ${site.label} e lendo os vídeos… (30–120 s por idioma)`;
     await c.guard(async () => {
@@ -250,7 +269,9 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
   main.replaceChildren(
     h('h2', {}, '🔎 Pesquisar'), tabs,
     h('div', { class: 'card vf-form' },
-      h('div', { class: 'row' }, q, typeSel, h('button', { class: 'primary', id: 'vf-search', onclick: () => void search() }, '🔍 Pesquisar')),
+      h('div', { class: 'row' }, q, typeSel, h('button', { class: 'primary', id: 'vf-search', onclick: () => void search() }, '🔍 Pesquisar'),
+        h('button', { id: 'vf-outliers', title: `Vídeos que estão bombando em canais PEQUENOS, sem depender do nicho: buscas amplas nos idiomas marcados, só canais com até ${form.maxSubs || 100000} ${yt ? 'inscritos' : 'seguidores'} (campo "Máx.") e views ≥ 3× o tamanho do canal. Usa período, formato e quantidade.`,
+          onclick: () => void outliers() }, '🔥 Outliers')),
       h('div', { class: 'muted small' }, 'Pesquise pelo termo, pelo tipo de vídeo ou pelos dois (ex.: "abelhas" + Documentário, ou só "Histórias de terror").'),
       h('div', { class: 'muted small' }, 'Idiomas (busca em cada um e compara):'), langs,
       h('div', { class: 'row' },

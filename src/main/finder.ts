@@ -18,6 +18,42 @@ export interface FinderQuery {
   perLanguage?: number; minViews?: number; maxSubs?: number; format?: 'any' | 'shorts' | 'long';
   /** consultas já traduzidas por idioma (opcional; senão usa a mesma em todos) */
   queries?: Record<string, string>;
+  /**
+   * OUTLIERS sem nicho: ignora o termo, varre buscas amplas por idioma e fica só com vídeos que explodiram em canais
+   * PEQUENOS (≤ maxSubs, padrão 100 mil) com views ≥ 3× os inscritos/seguidores.
+   */
+  outliers?: boolean;
+}
+
+/** Padrões do modo Outliers. */
+export const OUTLIER_MAX_SUBS = 100_000;
+export const OUTLIER_MIN_RATIO = 3;
+
+/** Buscas AMPLAS por idioma (sem nicho) para o modo Outliers; nas redes curtas, hashtags genéricas. Função pura. */
+export function outlierSeeds(lang: string, platform: 'youtube' | 'tiktok' | 'instagram' | 'facebook' | 'kwai' = 'youtube'): string[] {
+  const l = (lang || 'en').slice(0, 2).toLowerCase();
+  const yt: Record<string, string[]> = {
+    pt: ['você sabia', 'como fazer', 'história real'], en: ['did you know', 'how to', 'true story'], es: ['sabías que', 'cómo hacer', 'historia real'],
+    fr: ['le saviez-vous', 'comment faire', 'histoire vraie'], de: ['wusstest du', 'wie man', 'wahre geschichte'], it: ['lo sapevi', 'come fare', 'storia vera'],
+    hi: ['क्या आप जानते हैं', 'कैसे करें', 'सच्ची कहानी'], ja: ['知ってた', 'やり方', '実話'], ko: ['알고 계셨나요', '하는 방법', '실화'], ar: ['هل تعلم', 'كيف', 'قصة حقيقية'],
+    ru: ['а вы знали', 'как сделать', 'реальная история'], id: ['tahukah kamu', 'cara membuat', 'kisah nyata'], tr: ['biliyor muydunuz', 'nasıl yapılır', 'gerçek hikaye'],
+  };
+  const social: Record<string, string[]> = {
+    pt: ['viral', 'curiosidades', 'fyp'], en: ['viral', 'fyp', 'facts'], es: ['viral', 'curiosidades', 'parati'], fr: ['viral', 'pourtoi', 'astuce'], de: ['viral', 'fürdich', 'fakten'],
+    it: ['virale', 'perte', 'curiosità'], id: ['viral', 'fyp', 'faktaunik'], tr: ['viral', 'keşfet', 'bilgi'], ru: ['вирусное', 'рекомендации', 'факты'],
+  };
+  if (platform === 'youtube') return yt[l] ?? yt['en']!;
+  return social[l] ?? social['en']!;
+}
+
+/**
+ * Filtro do modo Outliers (função pura): canal pequeno (≤ maxSubs) E views ≥ 3× o tamanho do canal.
+ * Vídeos sem inscritos/seguidores conhecidos só ficam se NENHUM tiver (algumas redes não informam).
+ */
+export function outlierFilter<T extends { views: number; subs?: number }>(list: T[], maxSubs = OUTLIER_MAX_SUBS, minRatio = OUTLIER_MIN_RATIO): { kept: T[]; unknownSubs: boolean } {
+  const known = list.filter((v) => v.subs !== undefined);
+  if (!known.length) return { kept: list, unknownSubs: list.length > 0 };
+  return { kept: known.filter((v) => v.subs! <= maxSubs && v.views / Math.max(v.subs!, 100) >= minRatio), unknownSubs: false };
 }
 export interface FinderParts { outlier: number; velocity: number; engagement: number; small: number; young: number; language: number }
 export interface FinderVideo {
@@ -139,14 +175,15 @@ async function searchApi(key: string, q: FinderQuery, signal?: AbortSignal): Pro
   const out: Array<Omit<FinderVideo, 'score' | 'parts' | 'reasons'>> = [];
   const after = iso(q.period);
   for (const lang of q.languages.length ? q.languages : ['']) {
-    const text = q.queries?.[lang] || q.query;
+    /* Outliers: sem termo — a API aceita a busca só com idioma, período e ordem por views */
+    const text = q.outliers ? '' : q.queries?.[lang] || q.query;
     const dur2 = q.format === 'shorts' ? '&videoDuration=short' : q.format === 'long' ? '&videoDuration=medium' : '';
     /* até 100 por idioma: a API devolve no máximo 50 por página — pagina com nextPageToken */
     const want = clamp(q.perLanguage ?? 15, 5, 100);
     const ids: string[] = [];
     let page: string | undefined;
     do {
-      const s = await api<{ items?: Array<{ id: { videoId: string } }>; nextPageToken?: string }>(`search?part=id&type=video&maxResults=${Math.min(50, want - ids.length)}&order=viewCount&q=${encodeURIComponent(text)}${lang ? `&relevanceLanguage=${lang}` : ''}${after ? `&publishedAfter=${after}` : ''}${dur2}${page ? `&pageToken=${page}` : ''}`, key, signal);
+      const s = await api<{ items?: Array<{ id: { videoId: string } }>; nextPageToken?: string }>(`search?part=id&type=video&maxResults=${Math.min(50, want - ids.length)}&order=viewCount${text ? `&q=${encodeURIComponent(text)}` : ''}${lang ? `&relevanceLanguage=${lang}` : ''}${after ? `&publishedAfter=${after}` : ''}${dur2}${page ? `&pageToken=${page}` : ''}`, key, signal);
       ids.push(...(s.items ?? []).map((x) => x.id.videoId).filter(Boolean));
       page = s.nextPageToken;
     } while (page && ids.length < want);
@@ -230,7 +267,19 @@ export async function findOutliers(s: Settings, q: FinderQuery, o: { log?: (l: s
     try { raw = await searchApi(key, q, o.signal); }
     catch (e) { warnings.push(`API do YouTube falhou (${(e as Error).message}) — usando o yt-dlp`); engine = 'yt-dlp'; }
   }
-  if (engine === 'yt-dlp') { raw = await searchYtDlp(s, q, log, o.signal); warnings.push('Sem a chave da YouTube Data API a idade do canal não é conhecida (o critério "canal novo" fica de fora).'); }
+  if (engine === 'yt-dlp') {
+    if (q.outliers) {
+      /* sem chave: 3 buscas AMPLAS por idioma (sem nicho), dividindo a quantidade pedida */
+      const per = Math.max(5, Math.ceil((q.perLanguage ?? 30) / 3));
+      raw = [];
+      for (let i = 0; i < 3; i++) {
+        const queries = Object.fromEntries((q.languages.length ? q.languages : ['en']).map((l) => [l, outlierSeeds(l)[i] ?? outlierSeeds(l)[0]!]));
+        raw.push(...await searchYtDlp(s, { ...q, query: queries[q.languages[0] ?? 'en'] ?? 'viral', queries, perLanguage: per }, log, o.signal));
+      }
+    } else raw = await searchYtDlp(s, q, log, o.signal);
+    warnings.push('Sem a chave da YouTube Data API a idade do canal não é conhecida (o critério "canal novo" fica de fora).');
+  }
+  if (q.outliers) warnings.push(`🔥 Outliers: só canais com até ${(q.maxSubs || OUTLIER_MAX_SUBS).toLocaleString('pt-BR')} inscritos e views ≥ ${OUTLIER_MIN_RATIO}× o tamanho do canal, sem filtro de nicho.`);
   const { videos, channels } = rankVideos(raw, q, s.uiLanguage === 'en' || s.uiLanguage === 'es' ? s.uiLanguage : 'pt-BR');
   log(`${videos.length} vídeos pontuados · ${channels.length} canais`);
   return { videos, channels, engine, warnings };
@@ -243,13 +292,16 @@ export const periodDays = (p: FinderQuery['period']): number | undefined => (p =
  * Os MESMOS critérios para todas as plataformas: sem repetidos, views mínimas, máximo de inscritos/seguidores,
  * formato (Shorts ≤ 60 s / longos), período (quando a data é conhecida), nota e agrupamento por canal/perfil.
  */
-export function rankVideos(raw: Array<Omit<FinderVideo, 'score' | 'parts' | 'reasons'>>, q: FinderQuery, ui: UiLang = 'pt-BR'): { videos: FinderVideo[]; channels: FinderChannel[] } {
+export function rankVideos(raw: Array<Omit<FinderVideo, 'score' | 'parts' | 'reasons'>>, q: FinderQuery, ui: UiLang = 'pt-BR'): { videos: FinderVideo[]; channels: FinderChannel[]; unknownSubs?: boolean } {
   const maxAge = periodDays(q.period);
   const seen = new Set<string>();
-  const videos = raw.filter((v) => (seen.has(v.id) ? false : (seen.add(v.id), true)))
+  const filtered = raw.filter((v) => (seen.has(v.id) ? false : (seen.add(v.id), true)))
     .filter((v) => (q.minViews ? v.views >= q.minViews : true) && (q.maxSubs && v.subs !== undefined ? v.subs <= q.maxSubs : true))
     .filter((v) => (q.format === 'shorts' ? (v.durationSec ?? 61) <= 60 : q.format === 'long' ? (v.durationSec ?? 0) > 60 : true))
-    .filter((v) => (maxAge === undefined || v.ageDays === undefined ? true : v.ageDays <= maxAge))
+    .filter((v) => (maxAge === undefined || v.ageDays === undefined ? true : v.ageDays <= maxAge));
+  /* modo Outliers: só canais pequenos com views muito acima do tamanho do canal */
+  const out = q.outliers ? outlierFilter(filtered, q.maxSubs || OUTLIER_MAX_SUBS) : { kept: filtered, unknownSubs: false };
+  const videos = out.kept
     .map((v) => ({ ...v, ...scoreVideo(v, q.languages, ui) }))
     .sort((a, b) => b.score - a.score);
   const map = new Map<string, FinderChannel>();
@@ -262,5 +314,5 @@ export function rankVideos(raw: Array<Omit<FinderVideo, 'score' | 'parts' | 'rea
     map.set(k, c);
   }
   const channels = [...map.values()].sort((a, b) => b.best - a.best || b.avgRatio - a.avgRatio);
-  return { videos, channels };
+  return { videos, channels, unknownSubs: out.unknownSubs || undefined };
 }
