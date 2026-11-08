@@ -1,0 +1,16 @@
+{
+  "_doc": "Wan2GP · Chatterbox multilíngue (instalado e completo): CLONA a voz do projeto/elenco (audio_guide, audio_prompt_type A) e fala no idioma do projeto (model_mode = código: pt, en, es...). Precisa de uma voz de referência: sem ela, a etapa passa para o próximo provedor. exaggeration = expressividade; pace = ritmo. ATENÇÃO: no Wan2GP instalado (commit bd1ff590, 04/11/2026) o Chatterbox falha ao ler a voz de referência ('Input type (torch.FloatTensor) and weight type (torch.cuda.FloatTensor)' no s3tokenizer), mesmo com os padrões do próprio Wan2GP — atualize o Wan2GP antes de usar.",
+  "model_type": "chatterbox",
+  "needsRefAudio": true,
+  "settings": {
+    "prompt": "{{text}}",
+    "audio_prompt_type": "A",
+    "audio_guide": "{{ref_audio}}",
+    "model_mode": "{{language_code}}",
+    "temperature": 0.8,
+    "custom_settings": { "exaggeration": 0.5, "pace": 0.5 },
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP · narração com voz clonada (Chatterbox)",
+  "capability": "voice"
+}

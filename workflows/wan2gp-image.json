@@ -1,5 +1,5 @@
 {
-  "_doc": "Wan2GP texto->imagem. model_type PROVÁVEL ('z_image'): CONFIRA no app: Provedores → Listar modelos Wan2GP (ids) e 'Ver padrões' (chaves). ",
+  "_doc": "Wan2GP texto->imagem com Z-Image Turbo 6B (instalado e completo). 8 passos, sem CFG.",
   "model_type": "z_image",
   "maxSide": 1280,
   "multiple": 16,
@@ -7,8 +7,10 @@
     "prompt": "{{prompt}}",
     "resolution": "{{resolution}}",
     "seed": "{{seed}}",
-    "video_length": 1
+    "num_inference_steps": 8,
+    "guidance_scale": 0,
+    "batch_size": 1
   },
-  "label": "Wan2GP · imagem (Z-Image)",
+  "label": "Wan2GP · imagem (Z-Image Turbo)",
   "capability": "image"
 }

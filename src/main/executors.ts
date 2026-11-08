@@ -8,7 +8,8 @@ import { termsText } from '../shared/types';
 import type { ExecContext, ExecResult, Executor } from './engine';
 import { isHttpHarness, resolveHarness, runHarness } from './harness';
 import { ComfyClient, applyVariables, collectOutputs, isUiFormat, placeholders } from './comfyui';
-import { Wan2gpClient } from './wan2gp';
+import { refPrompt, speechSeconds, Wan2gpClient, wan2gpLanguage } from './wan2gp';
+import { runShowrunner, showrunnerKind } from './showrunner';
 import * as prov from './providers';
 import * as ff from './ffmpeg';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
@@ -831,13 +832,24 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   if (!cfg?.root) throw new Error('Wan2GP não configurado (Provedores → wan2gp.root e wan2gp.python)');
   const tplPath = path.join(o.workflowsDir, b.template);
   if (!fs.existsSync(tplPath)) throw new Error(`template Wan2GP não encontrado: ${b.template}`);
-  const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8')) as { model_type: string; settings: Record<string, unknown>; maxSide?: number; multiple?: number; megapixels?: number; refAudio?: string; vars?: Record<string, string | number> };
-  const vars: Record<string, string | number> = { ...commonVars(c, tpl), ...(tpl.vars ?? {}) };
+  const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8')) as { model_type: string; settings: Record<string, unknown>; maxSide?: number; multiple?: number; megapixels?: number; refAudio?: string; vars?: Record<string, string | number>; needsRefs?: boolean; needsRefAudio?: boolean };
+  const lang = wan2gpLanguage(c.project.language);
+  const vars: Record<string, string | number> = { ...commonVars(c, tpl), language_name: lang.name, language_code: lang.code, language_label: lang.label, ...(tpl.vars ?? {}) };
+  vars['speech_seconds'] = speechSeconds(String(vars['text'] ?? ''));
   const prevImg = c.scene?.artifacts['image']?.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
   if (prevImg) vars['init_image'] = prevImg;                       // caminho absoluto local
+  /* elenco como referência (image_refs): foto do usuário ou retrato já gerado de cada personagem da cena */
+  if (c.scene && (tpl.needsRefs || placeholders(tpl.settings).includes('ref_images'))) {
+    const refs = charactersInScene(c.projectDir, c.scene, 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file));
+    if (!refs.length) throw new Error(`${b.template}: nenhum retrato do elenco nesta cena (adicione fotos dos personagens ou gere os retratos antes) — usando o próximo provedor`);
+    (vars as Record<string, unknown>)['ref_images'] = refs.map((r) => r.file);
+    vars['ref_prompt'] = refPrompt(refs.map((r) => r.name), String(vars['prompt'] ?? ''));
+    c.log(`Wan2GP: elenco como referência — ${refs.map((r) => r.name).join(', ')}`);
+  }
   const member = c.step.kind === 'narration' ? castFor(c.project, c.scene?.speaker) : undefined;
   const refAudio = member?.refAudio || (c.step.kind === 'narration' ? c.project.narrationVoice?.refAudio : undefined) || b.refAudio || tpl.refAudio;
   if (refAudio) { if (!fs.existsSync(refAudio)) throw new Error(`áudio de referência não encontrado: ${refAudio}`); vars['ref_audio'] = refAudio; }
+  else if (tpl.needsRefAudio) throw new Error(`${b.template}: este modelo clona uma voz — adicione a voz do projeto ou do personagem — usando o próximo provedor`);
   const missing = placeholders(tpl.settings).filter((k) => !(k in vars));
   if (missing.length) throw new Error(`${b.template}: variável(is) sem valor: ${missing.join(', ')}`);
   const settings = applyVariables(tpl.settings, vars) as Record<string, unknown>;
@@ -1694,11 +1706,44 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     } catch (e) {
       c.log(`masterização de áudio ignorada: ${(e as Error).message.slice(0, 120)}`);
     }
+    /* pós-processamento do Wan2GP (opcional): upscale (FlashVSR/SeedVR2/Lanczos) e fluidez (RIFE, dobra o fps) */
+    const post = { spatial: c.project.wan2gpPost?.spatial ?? (typeof params.wan2gpUpscale === 'string' ? params.wan2gpUpscale : ''), temporal: c.project.wan2gpPost?.temporal ?? (typeof params.wan2gpSmooth === 'string' ? params.wan2gpSmooth : '') };
+    if (post.spatial || post.temporal) {
+      if (!c.settings.wan2gp?.root) c.log('⚠ pós-processamento do Wan2GP ignorado: configure a pasta do Wan2GP em Configurações');
+      else {
+        try {
+          c.log(`Wan2GP: pós-processando o vídeo final (${[post.spatial && `upscale ${post.spatial}`, post.temporal && `fluidez ${post.temporal}`].filter(Boolean).join(' + ')}) — pode demorar`);
+          const client = Wan2gpClient.get(c.settings.wan2gp, path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'wan2gp_bridge.py'));
+          const pp = await client.postprocess(final, post, c.signal, c.log);
+          /* o áudio masterizado vem do final.mp4 (o pós-processamento cuida só da imagem) */
+          const tmp = path.join(c.outDir, 'final.post.mp4');
+          await ff.run(c.settings.ffmpeg, ['-y', '-i', pp, '-i', final, '-map', '0:v:0', '-map', '1:a:0?', '-c', 'copy', '-movflags', '+faststart', tmp], c.signal);
+          try { fs.renameSync(tmp, final); } catch { fs.copyFileSync(tmp, final); fs.rmSync(tmp, { force: true }); }
+          c.log(`Wan2GP: vídeo final pós-processado (${path.basename(pp)})`);
+        } catch (e) { if (c.signal.aborted) throw e; c.log(`⚠ pós-processamento do Wan2GP ignorado: ${(e as Error).message.slice(0, 200)}`); }
+      }
+    }
     return { files: [final] };
   }
   if (tool === 'lyric-song') return lyricSong(c, o);
   if (tool === 'lyric-words') return lyricWords(c);
   if (tool === 'frame-thumbnail') return frameThumbnail(c);
+  if (tool === 'wan2gp-showrunner') {
+    /* o Showrunner do Wan2GP produz o vídeo inteiro (plano, elenco, tomadas, revisão e montagem) e o FilmForge traz o final */
+    if (!c.settings.wan2gp?.root) throw new Error('Showrunner: configure a pasta do Wan2GP em Configurações → Wan2GP');
+    const params = (c.step.params ?? {}) as Record<string, unknown>;
+    Wan2gpClient.shutdownAll();   // a ponte local solta a GPU: o servidor do Wan2GP vai usá-la
+    const r = await runShowrunner({ cfg: c.settings.wan2gp, project: c.project, kind: showrunnerKind(c.project, params.kind), dest: primaryFile('edit', c),
+      stateFile: path.join(c.outDir, 'showrunner.json'), log: c.log, signal: c.signal, maxHours: Number(params.maxHours) || 8,
+      mode: params.mode === 'app' ? 'app' : 'director', director: typeof params.director === 'string' && params.director ? params.director : c.settings.wan2gp.director,
+      narratorVoice: typeof params.narratorVoice === 'string' ? params.narratorVoice : undefined });
+    const final = primaryFile('edit', c);
+    /* mp4 com faststart (o export do Showrunner pode vir em outro contêiner) */
+    await ff.run(c.settings.ffmpeg, ['-y', '-i', r.file, '-map', '0:v:0', '-map', '0:a?', '-c:v', /\.mp4$/i.test(r.file) ? 'copy' : 'libx264', '-c:a', 'aac', '-movflags', '+faststart', final], c.signal);
+    fs.rmSync(r.file, { force: true });
+    c.log(`Showrunner: vídeo final em out/final.mp4 (produção ${r.production})`);
+    return { files: [final] };
+  }
   if (tool === 'youtube-upload') {
     /* publicação automática: envia out/final.mp4 com título/descrição/thumbnail do SEO (padrão: não listado) */
     const params = (c.step.params ?? {}) as Record<string, unknown>;

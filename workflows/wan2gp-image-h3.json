@@ -1,0 +1,17 @@
+{
+  "_doc": "Wan2GP texto->imagem com MiniMax H3 P-H3-Image 8 passos (pesos principais baixados; o Wan2GP completa o que faltar no 1º uso). Mesmo estilo visual dos vídeos MiniMax H3.",
+  "model_type": "minimax_h3_image",
+  "megapixels": 1.0,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "resolution": "{{resolution}}",
+    "seed": "{{seed}}",
+    "image_mode": 1,
+    "num_inference_steps": 8,
+    "guidance_scale": 1,
+    "batch_size": 1
+  },
+  "label": "Wan2GP · imagem (MiniMax H3 Image) — completa downloads no 1º uso",
+  "capability": "image"
+}

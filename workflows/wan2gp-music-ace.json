@@ -1,0 +1,14 @@
+{
+  "_doc": "Wan2GP música com ACE-Step v1.5 XL Turbo 4B (instalado e completo): rápido (8 passos). Letra em prompt ([Instrumental] para trilha sem voz) e estilo em alt_prompt; duração em segundos.",
+  "model_type": "ace_step_v1_5_xl",
+  "settings": {
+    "prompt": "{{lyrics}}",
+    "alt_prompt": "{{style}}",
+    "audio_prompt_type": "",
+    "duration_seconds": "{{music_seconds}}",
+    "num_inference_steps": 8,
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP · música (ACE-Step 1.5 XL Turbo)",
+  "capability": "music"
+}

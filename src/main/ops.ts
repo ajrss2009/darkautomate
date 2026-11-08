@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { ExecutorBypass, FinalEffects, Project, Watermark, Route, Scene, SceneEffects, SceneKind, Settings, StepKind } from '../shared/types';
+import type { ExecutorBypass, FinalEffects, Project, Watermark, Wan2gpPost, Route, Scene, SceneEffects, SceneKind, Settings, StepKind } from '../shared/types';
+import { WAN2GP_SMOOTH, WAN2GP_UPSCALE } from '../shared/types';
 import { compilationFields, projectDirOf, projectsDir } from './settings';
 import { cleanSegments, migrateSceneFx } from '../shared/fx';
 import { sfxDef } from './sfx';
@@ -65,7 +66,7 @@ export function cleanBypass(v: unknown): ExecutorBypass | undefined {
 }
 
 export function updateProject(s: Settings, id: string, patch: Partial<Pick<Project,
-  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark'>>): Project {
+  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark' | 'wan2gpPost'>>): Project {
   const p = readProject(s, id);
   const allowed = ['name', 'idea', 'aspect', 'targetDurationSec', 'language', 'memories', 'quality', 'videoType', 'maxProductionMin', 'sceneConcurrency', 'subtitleStyle', 'scriptStyle', 'videoStyle', 'musicStyle', 'musicMode', 'waveform', 'plugins'];
   Object.assign(p, Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && allowed.includes(k))));
@@ -74,6 +75,7 @@ export function updateProject(s: Settings, id: string, patch: Partial<Pick<Proje
   if ('agyAccount' in patch) { if (patch.agyAccount) p.agyAccount = patch.agyAccount; else delete p.agyAccount; }
   if ('channelId' in patch) { if (patch.channelId) p.channelId = patch.channelId; else delete p.channelId; }
   if ('watermark' in patch) { const w = cleanWatermark(patch.watermark); if (w) p.watermark = w; else delete p.watermark; }
+  if ('wan2gpPost' in patch) { const w = cleanWan2gpPost(patch.wan2gpPost); if (w) p.wan2gpPost = w; else delete p.wan2gpPost; }
   if ('finalEffects' in patch) { const fe = cleanFinalEffects(patch.finalEffects); if (fe) p.finalEffects = fe; else delete p.finalEffects; }
   /* volumes da montagem (null = voltar ao padrão da rota) */
   for (const [k, max] of [['musicVolume', 1], ['sfxVolume', 1.5], ['narrationVolume', 2]] as const) if (k in patch) {
@@ -189,6 +191,14 @@ export function cleanWatermark(v: unknown): Watermark | undefined {
   if (!text && !image) return undefined;
   return { enabled: x['enabled'] !== false, ...(text ? { text } : {}), ...(image ? { image } : {}), position: pick(['tl', 'tr', 'bl', 'br', 'center'], x['position'], 'br'),
     opacity: Math.round(Math.min(1, Math.max(0.05, Number(x['opacity']) || 0.6)) * 100) / 100, size: Math.round(Math.min(60, Math.max(1, Number(x['size']) || 6)) * 10) / 10 };
+}
+/** Pós-processamento do Wan2GP: só valores da lista; nada escolhido = desligado. */
+export function cleanWan2gpPost(v: unknown): Wan2gpPost | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const x = v as Record<string, unknown>;
+  const spatial = WAN2GP_UPSCALE.some(([k]) => k && k === x['spatial']) ? String(x['spatial']) : '';
+  const temporal = WAN2GP_SMOOTH.some(([k]) => k && k === x['temporal']) ? String(x['temporal']) : '';
+  return spatial || temporal ? { ...(spatial ? { spatial } : {}), ...(temporal ? { temporal } : {}) } : undefined;
 }
 export interface ChangeFlags { visual: boolean; audio: boolean }
 

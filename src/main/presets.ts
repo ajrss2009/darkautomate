@@ -89,6 +89,7 @@ const imageChain: Binding[] = [
 const videoChain: Binding[] = [
   { type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v.json' },
   { type: 'comfyui', server: 'local', workflow: 'minimax-h3-t2v.json' },
+  { type: 'wan2gp', template: 'wan2gp-h3-i2v.json' },
   { type: 'wan2gp', template: 'wan2gp-ltx2-i2v.json' },
 ];
 /** Loop perfeito: a mesma imagem entra como primeiro e último frame no MiniMax H3. */
@@ -111,6 +112,7 @@ const castTtsChain: Binding[] = [
 ];
 const musicChain: Binding[] = [
   { type: 'comfyui', server: 'local', workflow: 'yue2-text2music.json' },
+  { type: 'wan2gp', template: 'wan2gp-music-ace.json' },
   { type: 'wan2gp', template: 'wan2gp-music.json' },
   { type: 'builtin', tool: 'library-music' },
   /* última reserva: sintetizada por código (sempre funciona, offline) */
@@ -355,7 +357,7 @@ export const ROUTES: Route[] = [
       step({ id: 'narration', kind: 'narration', label: 'Narração (TTS local)', scope: 'scene', dependsOn: ['scene_plan'], bindings: [{ type: 'comfyui', server: 'local', workflow: 'omnivoice-clone-tts.json' }, { type: 'wan2gp', template: 'wan2gp-tts.json' }] }),
       transcribeStep(),
       step({ id: 'image', kind: 'image', label: 'Imagem', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['image', 'video'], bindings: [{ type: 'comfyui', server: 'local', workflow: 'krea2-turbo-t2i.json' }, { type: 'comfyui', server: 'local', workflow: 'z-image-turbo-t2i.json' }, { type: 'wan2gp', template: 'wan2gp-image.json' }] }),
-      step({ id: 'video', kind: 'video', label: 'Vídeo (I2V)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'], bindings: [{ type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v.json' }, { type: 'comfyui', server: 'local', workflow: 'minimax-h3-t2v.json' }, { type: 'wan2gp', template: 'wan2gp-ltx2-i2v.json' }], onFail: 'skip', timeoutSec: 2400 }),
+      step({ id: 'video', kind: 'video', label: 'Vídeo (I2V)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'], bindings: [{ type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v.json' }, { type: 'comfyui', server: 'local', workflow: 'minimax-h3-t2v.json' }, { type: 'wan2gp', template: 'wan2gp-h3-i2v.json' }, { type: 'wan2gp', template: 'wan2gp-ltx2-i2v.json' }], onFail: 'skip', timeoutSec: 2400 }),
       step({ id: 'code_scene', kind: 'code_scene', label: 'Cena por código (Ollama)', scope: 'scene', dependsOn: ['scene_plan', 'transcribe'], onlySceneKinds: ['code', 'mixed', 'motion'], bindings: [H('ollama')], onFail: 'skip' }),
       step({ id: 'music', kind: 'music', label: 'Trilha sonora', scope: 'project', dependsOn: ['narration', 'image', 'video', 'code_scene'], optional: true, bindings: musicChain.filter((b) => b.type !== 'api') }),
       step({ id: 'subtitles', kind: 'subtitles', label: 'Legendas SRT', scope: 'project', dependsOn: ['narration', 'image', 'video', 'code_scene'], bindings: [{ type: 'builtin', tool: 'subtitles' }] }),
@@ -370,6 +372,26 @@ export const ROUTES: Route[] = [
     videoTypes: ['custom'],
     steps: [
       step({ id: 'free', kind: 'free', label: 'Vídeo livre (harness executa o prompt)', scope: 'project', bindings: [H('auto')], timeoutSec: 3600, retry: { max: 1, backoffMs: 1000 } }),
+    ],
+  },
+  {
+    id: 'wan2gp-showrunner', name: 'Showrunner do Wan2GP (o diretor do Wan2GP faz tudo)',
+    description: 'O Showrunner do Wan2GP (diretor Deepy Prime, LLM local) planeja as tomadas, escala o elenco, filma com os modelos instalados, revisa as tomadas e monta; o FilmForge cria a produção a partir da ideia/roteiro do projeto e traz o vídeo final. Precisa do Wan2GP com o Deepy Prime configurado; acompanhe em http://127.0.0.1:7860/showrunner/.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'showrunner', kind: 'edit', label: 'Showrunner do Wan2GP (plano, elenco, tomadas, revisão e montagem)', scope: 'project', bindings: [{ type: 'builtin', tool: 'wan2gp-showrunner' }],
+        params: { kind: 'auto', maxHours: 8, director: 'qwen38_9b' }, timeoutSec: 8 * 3600 + 600, retry: { max: 0, backoffMs: 1000 } }),
+    ],
+  },
+  {
+    id: 'wan2gp-showrunner-app', name: 'Showrunner do Wan2GP com plano do FilmForge (o app planeja, o Wan2GP filma)',
+    description: 'O FilmForge escreve o roteiro e as cenas (com a IA de texto da rota); cada cena vira uma tomada do Showrunner, com a fala do narrador; o Showrunner filma com os modelos instalados e monta, sem precisar do diretor (LLM) do Wan2GP.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro', scope: 'project', bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas (viram as tomadas)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'showrunner', kind: 'edit', label: 'Showrunner do Wan2GP filma e monta as cenas', scope: 'project', dependsOn: ['scene_plan'], bindings: [{ type: 'builtin', tool: 'wan2gp-showrunner' }],
+        params: { kind: 'auto', mode: 'app', maxHours: 8 }, timeoutSec: 8 * 3600 + 600, retry: { max: 0, backoffMs: 1000 } }),
     ],
   },
   {

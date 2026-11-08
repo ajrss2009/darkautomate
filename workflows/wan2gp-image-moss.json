@@ -1,0 +1,18 @@
+{
+  "_doc": "Wan2GP texto->imagem com Moss Image 5B SFT (instalado e completo). Bom para pôsteres, ilustração e texto na imagem; 50 passos (mais lento que o Z-Image).",
+  "model_type": "moss_image_sft",
+  "maxSide": 1280,
+  "multiple": 16,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "negative_prompt": "{{negative}}",
+    "resolution": "{{resolution}}",
+    "seed": "{{seed}}",
+    "image_mode": 1,
+    "num_inference_steps": 50,
+    "guidance_scale": 3,
+    "batch_size": 1
+  },
+  "label": "Wan2GP · imagem (Moss Image 5B)",
+  "capability": "image"
+}

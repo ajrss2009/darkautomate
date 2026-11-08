@@ -105,7 +105,7 @@ async function main() {
   const cat = buildCatalog(s, path.resolve(__dirname, '../../workflows'));
   assert.ok(cat.workflows.some((w) => w.file === 'krea2-turbo-t2i.json' && w.capability === 'image' && w.label === 'Krea 2 Turbo'));
   assert.ok(cat.workflows.some((w) => w.capability === 'music') && cat.workflows.some((w) => w.capability === 'video') && cat.workflows.some((w) => w.capability === 'voice'));
-  assert.ok(cat.wan2gpTemplates.some((w) => w.file === 'wan2gp-ltx2-i2v.json' && w.modelType === 'ltx2_22B_distilled'));
+  assert.ok(cat.wan2gpTemplates.some((w) => w.file === 'wan2gp-ltx2-i2v.json' && w.modelType === 'ltx2_25_22B_distilled_nvfp4'));
   assert.ok(cat.apis.some((a) => a.provider === 'seedance' && a.categories.includes('video')));
 
   // ───────── servidor falso: bancos de mídia, Gemini, Seedance, Ollama, OpenAI /models

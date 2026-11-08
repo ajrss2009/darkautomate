@@ -44,7 +44,7 @@ export function buildCatalog(s: Settings, workflowsDir: string): Catalog {
     apis: s.providers.map((p) => ({ provider: p.id, kind: p.kind, categories: p.categories ?? ['text', 'image', 'voice'], models: p.models, modelCategories: p.modelCategories, voices: p.voices ?? [], voiceLabels: p.voiceLabels })),
     harnesses: Object.entries(s.harnesses).map(([id, c]) => ({ id, models: c.models, defaultModel: c.defaultModel })),
     stock: ['pexels', 'pixabay', 'wikipedia'],
-    builtinTools: ['silence-trim', 'subtitles', 'assemble', 'library-music', 'whisper', 'estimate-words', 'clip-musical', 'lyric-song', 'lyric-words', 'frame-thumbnail', 'sfx-code', 'music-code', 'youtube-upload'],
+    builtinTools: ['silence-trim', 'subtitles', 'assemble', 'library-music', 'whisper', 'estimate-words', 'clip-musical', 'lyric-song', 'lyric-words', 'frame-thumbnail', 'sfx-code', 'music-code', 'youtube-upload', 'wan2gp-showrunner'],
     comfyServers: s.comfyServers.map((x) => x.id),
     flowAccounts: (s.automations?.accounts ?? []).map((a) => ({ id: a.id, label: a.label, email: a.email })),
   };

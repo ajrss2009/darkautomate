@@ -57,7 +57,18 @@ export interface ComfyBinding {
 }
 /** Wan2GP via API Python (shared.api). template = arquivo em workflows/ com {model_type, settings, output}. */
 export interface Wan2gpBinding { type: 'wan2gp'; template: string; refAudio?: string }
-export interface Wan2gpConfig { root: string; python: string; cliArgs: string[] }
+export interface Wan2gpConfig { root: string; python: string; cliArgs: string[]; /** servidor web do Wan2GP (Showrunner); padrão http://127.0.0.1:7860 */ serverUrl?: string;
+  /** versão do diretor do Showrunner gravada no wgp_config.json (qwen38_9b, qwen38_27b…); vazio = a do Wan2GP */ director?: string;
+  /** perfil de memória (--profile) do servidor que o app abre para o Showrunner; padrão '5' (à prova de falhas); '' = o do Wan2GP */ serverProfile?: string }
+/** Perfis de memória do Wan2GP para o servidor do Showrunner (o 4.5 padrão mantém ~19 GB de modelos na RAM e falta memória com o diretor). */
+export const WAN2GP_PROFILES: Array<[string, string]> = [['5', 'Perfil 5 — à prova de falhas (recomendado com o diretor)'], ['0', 'Perfil 0 — pouca RAM fixa'], ['', 'o configurado no Wan2GP'], ['4', 'Perfil 4 — modelos principais na RAM']];
+/** Pós-processamento do Wan2GP no vídeo final (valores do próprio Wan2GP; vazio = desligado). */
+export interface Wan2gpPost { spatial?: string; temporal?: string }
+export const WAN2GP_UPSCALE: Array<[string, string]> = [['', 'sem upscale'], ['lanczos*2', 'Lanczos ×2 (rápido, simples)'], ['flashvsr*2', 'FlashVSR ×2 (IA, rápido)'], ['seedvr2*2', 'SeedVR2 ×2 (IA, melhor e mais lento)'], ['flashvsr*4', 'FlashVSR ×4']];
+/** Versões do diretor (Deepy) do Showrunner do Wan2GP: a 9B Q4 cabe inteira numa GPU de 12 GB; a 27B fica em parte na RAM (bem mais lenta). */
+export const SHOWRUNNER_DIRECTORS: Array<[string, string]> = [['', 'a configurada no Wan2GP'], ['qwen38_9b', 'Qwen3.8 9B (rápido, cabe em 12 GB)'], ['qwen38_27b', 'Qwen3.8 27B (melhor, lento em 12 GB)'],
+  ['qwen35_9b', 'Qwen3.5 9B'], ['qwen35_4b', 'Qwen3.5 4B (mais leve)']];
+export const WAN2GP_SMOOTH: Array<[string, string]> = [['', 'fps original'], ['rife*2', 'RIFE ×2 (dobra o fps, movimento mais fluido)']];
 export interface ApiBinding { type: 'api'; provider: string; model: string; voice?: string }
 /**
  * Ferramentas internas. Novas:
@@ -65,7 +76,7 @@ export interface ApiBinding { type: 'api'; provider: string; model: string; voic
  * - lyric-words: grava os tempos da letra de cada cena (audio/words.json) para a cena por código;
  * - frame-thumbnail: thumbnail a partir de um quadro real do final.mp4 + texto do SEO.
  */
-export type BuiltinTool = 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload';
+export type BuiltinTool = 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'wan2gp-showrunner';
 export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool }
 export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */
@@ -463,6 +474,8 @@ export interface Project {
   finalEffects?: FinalEffects;
   /** marca d'água opcional (texto/imagem) gravada no vídeo final */
   watermark?: Watermark;
+  /** pós-processamento do vídeo final pelo Wan2GP: upscale (flashvsr*2, seedvr2*2, lanczos*2) e fluidez (rife*2) */
+  wan2gpPost?: Wan2gpPost;
   /** trechos de filtro e vinheta na timeline (arrastáveis) */
   fxSegments?: FxSegment[];
   /** volume da trilha (0 = mudo, 1 = 100%); vazio = o da rota */

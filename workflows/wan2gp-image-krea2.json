@@ -1,0 +1,16 @@
+{
+  "_doc": "Wan2GP texto->imagem com Krea 2 Turbo (pesos principais baixados; o Wan2GP completa o que faltar no 1º uso). Fotorrealista, 8 passos.",
+  "model_type": "krea2_turbo",
+  "maxSide": 1280,
+  "multiple": 16,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "resolution": "{{resolution}}",
+    "seed": "{{seed}}",
+    "num_inference_steps": 8,
+    "guidance_scale": 0,
+    "batch_size": 1
+  },
+  "label": "Wan2GP · imagem (Krea 2 Turbo) — completa downloads no 1º uso",
+  "capability": "image"
+}

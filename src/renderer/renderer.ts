@@ -12,6 +12,7 @@ import { renderChannelsPage, type ChannelsCtx } from './channels-page';
 import { voicePicker, type NarrationVoice } from './voice-picker';
 import { AGENT_TYPES, agentType } from './agents-ui';
 import type { PluginStyle } from '../shared/types';
+import { WAN2GP_SMOOTH, WAN2GP_UPSCALE } from '../shared/types';
 import { helpButton } from './carousel';
 import { CATEGORIES, CATEGORY_INFO, applyExecutorProfile, applyStepBindings } from '../shared/profiles';
 import { checkSkillRoute, routeHasTool } from '../shared/compat';
@@ -2252,7 +2253,26 @@ function exportCard(p: Project): HTMLElement {
     item('davinci', '🎚️', 'DaVinci Resolve', 'Timeline XML + mídia: 1 clipe por cena, narração, efeitos e música em faixas, legendas .srt'),
     item('premiere', '🅿️', 'Adobe Premiere Pro', 'Sequência XML (Arquivo → Importar) + mídia e legendas .srt'),
     item('capcut', '✂️', 'CapCut', 'Pasta pronta: clipes numerados na ordem, faixas de áudio do tamanho do vídeo e legendas .srt'),
-    h('div', { class: 'muted' }, 'A pasta abre no fim, com o arquivo COMO-IMPORTAR.txt. Os clipes saem sem filtros/transições do FilmForge, para editar à vontade.'));
+    h('div', { class: 'muted' }, 'A pasta abre no fim, com o arquivo COMO-IMPORTAR.txt. Os clipes saem sem filtros/transições do FilmForge, para editar à vontade.'),
+    wan2gpPostCard(p));
+}
+
+/** Pós-processamento do vídeo final pelo Wan2GP (upscale e fluidez), aplicado no fim da montagem. */
+function wan2gpPostCard(p: Project): HTMLElement {
+  const cur = p.wan2gpPost ?? {};
+  const save = (patch: Partial<NonNullable<Project['wan2gpPost']>>) => void guard(async () => {
+    current = await forge.updateProject(p.id, { wan2gpPost: { ...cur, ...patch } });
+    toast('Pós-processamento do Wan2GP atualizado. Use "Renderizar final" para aplicar.'); renderEditor(true);
+  });
+  const select = (field: 'spatial' | 'temporal', opts: Array<[string, string]>) => {
+    const s = h('select', { 'data-field': `wan2gp-${field}` }, ...opts.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+    s.value = cur[field] ?? ''; s.addEventListener('change', () => save({ [field]: s.value }));
+    return s;
+  };
+  return h('div', { class: 'wan2gp-post' },
+    h('div', { class: 'row' }, h('span', { class: 'ico' }, '✨'), h('strong', {}, 'Melhorar o vídeo final (Wan2GP)')),
+    h('div', { class: 'row' }, h('label', {}, 'Resolução', select('spatial', WAN2GP_UPSCALE)), h('label', {}, 'Fluidez', select('temporal', WAN2GP_SMOOTH))),
+    h('div', { class: 'muted' }, 'Roda no fim da montagem, com o Wan2GP local (feche o Wan2GP antes). Upscale por IA em vídeo longo demora: teste num vídeo curto primeiro.'));
 }
 
 /** Vídeo final: filtro/vinheta em todo o vídeo (trecho até o fim) + grão de filme e faixas de cinema. */

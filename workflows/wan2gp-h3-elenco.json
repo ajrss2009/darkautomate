@@ -1,0 +1,20 @@
+{
+  "_doc": "Wan2GP vídeo com o ELENCO como referência (MiniMax H3 Ref2VA Pruned PDD, instalado e completo): os retratos/fotos dos personagens da cena entram em image_refs (video_prompt_type I) e o prompt ganha as definições '<Subject N> is the person in <Picture N>'. Sem retrato do elenco na cena, a etapa passa para o próximo provedor da rota.",
+  "model_type": "minimax_h3_ref2va_pruned_pdd",
+  "needsRefs": true,
+  "megapixels": 0.6,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{ref_prompt}}",
+    "resolution": "{{resolution}}",
+    "video_length": "{{seconds_int}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}",
+    "image_prompt_type": "",
+    "video_prompt_type": "I",
+    "image_refs": "{{ref_images}}",
+    "num_inference_steps": 8
+  },
+  "label": "Wan2GP · MiniMax H3 vídeo com o elenco (referências)",
+  "capability": "video"
+}

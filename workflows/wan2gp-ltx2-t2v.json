@@ -1,6 +1,6 @@
 {
-  "_doc": "Wan2GP texto->vídeo com LTX-2 2.3 distilled (model_type e chaves video_length/force_fps/resolution documentados em docs/API.md do Wan2GP).",
-  "model_type": "ltx2_22B_distilled",
+  "_doc": "Wan2GP texto->vídeo com LTX-2 2.5 Distilled NVFP4 22B (o que está baixado; o Wan2GP completa o que faltar no 1º uso), 8 passos.",
+  "model_type": "ltx2_25_22B_distilled_nvfp4",
   "megapixels": 0.7,
   "multiple": 32,
   "settings": {
@@ -11,6 +11,6 @@
     "force_fps": 24,
     "seed": "{{seed}}"
   },
-  "label": "Wan2GP · LTX-2 texto → vídeo",
+  "label": "Wan2GP · LTX-2.5 texto → vídeo — completa downloads no 1º uso",
   "capability": "video"
 }

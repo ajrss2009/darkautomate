@@ -18,7 +18,8 @@ import { generateBrand as generateChannelBrand, type BrandInput } from './channe
 import { bindingLabel } from '../shared/types';
 import { runRoute } from './engine';
 import { createExecutors, uploadProjectToYouTube } from './executors';
-import { Wan2gpClient } from './wan2gp';
+import { Wan2gpClient, wan2gpKind } from './wan2gp';
+import { ensureWanServer, setWanDirector, showrunnerUp, wanServer } from './showrunner';
 import { ensureFirstFrame, recordRun } from './production';
 import * as lib from './library';
 import { buildCatalog } from './catalog';
@@ -1370,6 +1371,17 @@ function registerIpc() {
     return Wan2gpClient.get(settings.wan2gp, path.join(toolsDir(), 'wan2gp_bridge.py'));
   };
   h('wan2gp:models', () => wan().models());
+  /* modelos com pesos no disco, já com a modalidade do app (imagem/vídeo/voz/música) */
+  h('wan2gp:availability', async () => (await wan().availability()).map((m) => ({ ...m, kind: wan2gpKind(m) })));
+  /* Showrunner: abre o servidor do Wan2GP se estiver fechado (soltando a ponte local da GPU) e mostra a página no navegador */
+  h('wan2gp:showrunner-open', async () => {
+    if (!settings.wan2gp?.root) throw new Error('configure a pasta do Wan2GP');
+    const base = wanServer(settings.wan2gp);
+    if (!(await showrunnerUp(base))) { Wan2gpClient.shutdownAll(); setWanDirector(settings.wan2gp.root, settings.wan2gp.director); await ensureWanServer(settings.wan2gp, () => undefined); }
+    await shell.openExternal(`${base}/showrunner/`);
+    return { ok: true, url: `${base}/showrunner/` };
+  });
+  h('wan2gp:showrunner-status', async () => { const base = wanServer(settings.wan2gp ?? { root: '', python: '', cliArgs: [] }); return { up: await showrunnerUp(base), url: `${base}/showrunner/` }; });
   h('wan2gp:defaults', (modelType: string) => wan().defaults(modelType));
 
   // sistema de memória do FilmForge

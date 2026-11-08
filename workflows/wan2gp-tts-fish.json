@@ -1,0 +1,15 @@
+{
+  "_doc": "Wan2GP · Fish Audio Drama 3 INT4 (pesos principais baixados; o Wan2GP completa o que faltar no 1º uso). TTS expressivo e multilíngue; aceita marcações de emoção entre colchetes no texto ([calm], [excited]...). Sem voz no projeto = voz nova; com voz no projeto/elenco o FilmForge ativa a clonagem (audio_prompt_type A + audio_guide).",
+  "model_type": "fish_drama3_int4",
+  "settings": {
+    "prompt": "{{text}}",
+    "audio_prompt_type": "",
+    "duration_seconds": "{{speech_seconds}}",
+    "temperature": 0.8,
+    "top_k": 30,
+    "top_p": 0.95,
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP · narração expressiva (Fish Drama 3) — completa downloads no 1º uso",
+  "capability": "voice"
+}

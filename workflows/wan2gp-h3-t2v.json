@@ -1,0 +1,18 @@
+{
+  "_doc": "Wan2GP texto->vídeo com MiniMax H3 Ref2VA Pruned PDD 8 passos (instalado e completo), sem imagem de partida.",
+  "model_type": "minimax_h3_ref2va_pruned_pdd",
+  "megapixels": 0.6,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "resolution": "{{resolution}}",
+    "video_length": "{{seconds_int}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}",
+    "image_prompt_type": "",
+    "video_prompt_type": "",
+    "num_inference_steps": 8
+  },
+  "label": "Wan2GP · MiniMax H3 texto → vídeo (8 passos)",
+  "capability": "video"
+}

@@ -1,0 +1,14 @@
+{
+  "_doc": "Wan2GP trilha instrumental com Stable Audio 3 Medium (instalado e completo): descreve o som em prompt (estilo, instrumentos, clima), 8 passos. Sem letra/voz.",
+  "model_type": "stable_audio3_medium",
+  "settings": {
+    "prompt": "{{style}}",
+    "negative_prompt": "vocals, singing, poor quality, distorted, noisy",
+    "audio_prompt_type": "",
+    "duration_seconds": "{{music_seconds}}",
+    "num_inference_steps": 8,
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP · trilha instrumental (Stable Audio 3)",
+  "capability": "music"
+}

@@ -1,0 +1,20 @@
+{
+  "_doc": "Wan2GP imagem com o ELENCO como referência (Krea 2 Turbo Identity Edit v2): os retratos/fotos dos personagens da cena entram em image_refs e o rosto se mantém entre as cenas. Sem retrato do elenco na cena, a etapa passa para o próximo provedor da rota.",
+  "model_type": "krea2_turbo_identity_edit_v2",
+  "needsRefs": true,
+  "maxSide": 1280,
+  "multiple": 16,
+  "settings": {
+    "prompt": "{{prompt}}",
+    "resolution": "{{resolution}}",
+    "seed": "{{seed}}",
+    "video_prompt_type": "I",
+    "image_refs": "{{ref_images}}",
+    "model_mode": 0,
+    "num_inference_steps": 8,
+    "guidance_scale": 0,
+    "batch_size": 1
+  },
+  "label": "Wan2GP · imagem com o elenco (Krea 2 Identity) — completa downloads no 1º uso",
+  "capability": "image"
+}

@@ -7,6 +7,39 @@ const TAG = '@@FORGE@@ ';
 type Msg = { id: number | null; ok?: boolean; ready?: boolean; error?: string; errors?: string[]; files?: string[]; unknownKeys?: string[]; models?: unknown; defaults?: unknown; cancelled?: boolean };
 
 export interface GenerateResult { files: string[]; unknownKeys: string[] }
+export interface Wan2gpAvailable { model_type: string; name: string; status: 'available' | 'partial'; main_output: string[]; inputs: string[]; family: string }
+
+/** Idioma do projeto nos formatos dos modelos de voz: nome (OmniVoice), código (Chatterbox) e rótulo (MiniMax H3 TTS). */
+export function wan2gpLanguage(lang: string | undefined): { name: string; code: string; label: string } {
+  const code = (lang ?? 'pt-BR').toLowerCase().split(/[-_]/)[0] || 'pt';
+  const map: Record<string, [string, string]> = {
+    pt: ['portuguese', 'Brazilian Portuguese'], en: ['english', 'English'], es: ['spanish', 'Spanish'], fr: ['french', 'French'], de: ['german', 'German'],
+    it: ['italian', 'Italian'], ja: ['japanese', 'Japanese'], ko: ['korean', 'Korean'], zh: ['chinese', 'Chinese'], ar: ['arabic', 'Arabic'], hi: ['hindi', 'Hindi'], ru: ['russian', 'Russian'],
+  };
+  const m = map[code];
+  return { name: m?.[0] ?? 'auto', code, label: code === 'pt' && !/br/i.test(lang ?? 'br') ? 'Portuguese' : m?.[1] ?? 'native language' };
+}
+
+/** Duração da fala para os TTS que pedem segundos (2,6 palavras/s + respiro), entre 3 e 120 s. */
+export function speechSeconds(text: string): number {
+  const words = (text.match(/\S+/g) ?? []).length;
+  return Math.max(3, Math.min(120, Math.ceil(words / 2.6 + 1.5)));
+}
+
+/** Prompt do MiniMax H3 com referências: "<Subject N> is the person in <Picture N>" para cada retrato, e a cena. */
+export function refPrompt(names: string[], prompt: string): string {
+  if (!names.length) return prompt;
+  return ['subject_definitions:', ...names.map((n, i) => `<Subject ${i + 1}> is ${n}, the person in <Picture ${i + 1}>, preserving their face, hair and outfit.`), '', prompt].join('\n');
+}
+
+/** Modalidade do app para um modelo do Wan2GP (pelas saídas e pelo nome); undefined = não usado pelo app (3D etc.). */
+export function wan2gpKind(m: Pick<Wan2gpAvailable, 'model_type' | 'name' | 'main_output'>): 'image' | 'video' | 'voice' | 'music' | undefined {
+  const out = m.main_output ?? [], id = `${m.model_type} ${m.name}`.toLowerCase();
+  if (out.includes('video')) return 'video';
+  if (out.includes('image')) return 'image';
+  if (out.includes('audio')) return /music|song|yue|ace_step|stable_audio|heartmula/.test(id) ? 'music' : /tts|speech|voice|chatterbox|omnivoice|fish|auk|index_tts|kugel|moss_tts|qwen3_tts/.test(id) ? 'voice' : undefined;
+  return undefined;
+}
 
 /** Cliente da ponte Python (processo persistente: o modelo fica carregado entre cenas). */
 export class Wan2gpClient {
@@ -88,6 +121,17 @@ export class Wan2gpClient {
     if (r.cancelled || signal.aborted) throw new Error('cancelado');
     if (!r.ok || !r.files?.length) throw new Error(`Wan2GP: ${(r.errors?.length ? r.errors : [r.error ?? 'sem arquivos gerados']).join('; ')}`);
     return { files: r.files, unknownKeys: r.unknownKeys ?? [] };
+  }
+  /** Modelos com pesos no disco (status available = completo, partial = baixa o que falta no 1º uso). */
+  async availability(): Promise<Wan2gpAvailable[]> { const r = await this.request({ op: 'availability' }); if (!r.ok) throw new Error((r.errors ?? [r.error]).join('; ')); return (r.models ?? []) as Wan2gpAvailable[]; }
+  /** Upscale (spatial: flashvsr*2, seedvr2*2, lanczos*2) e/ou fluidez (temporal: rife*2) de um vídeo pronto. */
+  async postprocess(source: string, o: { spatial?: string; temporal?: string }, signal: AbortSignal, log: (l: string) => void): Promise<string> {
+    this.log = log;
+    const r = await this.request({ op: 'postprocess', source, spatial: o.spatial ?? '', temporal: o.temporal ?? '' }, signal);
+    if (r.cancelled || signal.aborted) throw new Error('cancelado');
+    const f = r.files?.find((x) => /\.(mp4|mov|mkv|webm)$/i.test(x));
+    if (!r.ok || !f) throw new Error(`Wan2GP pós-processamento: ${(r.errors?.length ? r.errors : [r.error ?? 'sem arquivo gerado']).join('; ')}`);
+    return f;
   }
   async models(): Promise<unknown> { const r = await this.request({ op: 'models' }); if (!r.ok) throw new Error((r.errors ?? [r.error]).join('; ')); return r.models; }
   async defaults(modelType: string): Promise<unknown> { const r = await this.request({ op: 'defaults', model_type: modelType }); if (!r.ok) throw new Error((r.errors ?? [r.error]).join('; ')); return r.defaults; }

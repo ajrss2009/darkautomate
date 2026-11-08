@@ -6,6 +6,7 @@ import { checkSkillRoute } from '../shared/compat';
 import { helpButton } from './carousel';
 import { ANGLE_GROUPS, angleLabel } from '../shared/angles';
 import { STOCK_SOURCES, STOCK_THEMES, stockInfo } from '../shared/stock-sources';
+import { SHOWRUNNER_DIRECTORS, WAN2GP_PROFILES } from '../shared/types';
 import { askConfirm, showMessage } from './dialogs';
 
 /* Abas: Rotas (biblioteca), Skills, Tipos de vídeo e Configurações. Recebe helpers do renderer principal. */
@@ -1282,7 +1283,7 @@ export async function renderSettings(c: Ctx, reload = true) {
     const mt = h('input', { placeholder: 'model_type, ex.: ltx2_22B_distilled' }) as HTMLInputElement;
     s.wan2gpModels = s.wan2gpModels ?? [];
     const wanLists = ([['image', 'Imagens'], ['video', 'Vídeos'], ['voice', 'Voz'], ['music', 'Músicas']] as const).map(([k, l]) => ({
-      l, ml: modelList(c, s.wan2gpModels!.filter((m) => m.kind === k).map((m) => m.model), (n) => {
+      k, l, ml: modelList(c,s.wan2gpModels!.filter((m) => m.kind === k).map((m) => m.model), (n) => {
         s.wan2gpModels = [...s.wan2gpModels!.filter((m) => m.kind !== k), ...n.map((model) => ({ kind: k, model }))];
       }, { field: 'wan-models-' + k, placeholder: 'model_type e Enter' }),
     }));
@@ -1290,11 +1291,32 @@ export async function renderSettings(c: Ctx, reload = true) {
       h('div', { class: 'card' },
         h('div', { class: 'row' }, field('Pasta do Wan2GP', w.root, (v) => { w.root = v; }, { class: 'grow', 'data-field': 'wan-root' }), field('Python', w.python, (v) => { w.python = v; }, { class: 'grow', 'data-field': 'wan-python' })),
         h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Argumentos CLI extras (JSON)', cli)),
+        /* Showrunner: o diretor do próprio Wan2GP (servidor web do Wan2GP) — usado pela rota "Showrunner do Wan2GP" */
+        h('div', { class: 'row' },
+          field('Servidor do Wan2GP (Showrunner)', w.serverUrl ?? '', (v) => { w.serverUrl = v.trim() || undefined; }, { class: 'grow', placeholder: 'http://127.0.0.1:7860', 'data-field': 'wan-server' }),
+          h('button', { 'data-act': 'showrunner-open', title: 'Abre o servidor do Wan2GP se estiver fechado e mostra o Showrunner no navegador', onclick: () => void guard(async () => {
+            await forge['setSettings'](s); toast('Abrindo o Showrunner (o primeiro carregamento do Wan2GP demora alguns minutos)…');
+            const r = await forge['showrunnerOpen'](); wout.textContent = `Showrunner aberto: ${r.url}\nA rota "Showrunner do Wan2GP" cria a produção a partir do projeto, deixa o diretor (Deepy Prime) planejar, filmar e montar, e traz o vídeo final.`;
+          }) }, '🎬 Abrir Showrunner'),
+          h('label', { title: 'Gravado no wgp_config.json do Wan2GP (com backup) antes de o app abrir o servidor. A 9B cabe inteira numa GPU de 12 GB.' }, 'Diretor do Showrunner',
+            sel(c, SHOWRUNNER_DIRECTORS, w.director ?? '', (v) => { w.director = v || undefined; }, { 'data-field': 'wan-director' })),
+          h('label', { title: 'Perfil de memória (--profile) quando o app abre o servidor do Wan2GP. Não muda a configuração do Wan2GP.' }, 'Memória do servidor',
+            sel(c, WAN2GP_PROFILES, w.serverProfile ?? '5', (v) => { w.serverProfile = v; }, { 'data-field': 'wan-profile' }))),
         h('div', { class: 'row' },
           h('button', { 'data-act': 'wan-test', onclick: () => void guard(async () => { await forge['setSettings'](s); const r = await forge['testWan2gp'](); wout.textContent = `ok — ${JSON.stringify(r.models).slice(0, 1500)}`;
             const names = ((r.models ?? []) as Array<{ model_type?: string } | string>).map((m) => (typeof m === 'string' ? m : m.model_type ?? '')).filter(Boolean);
             wanLists.forEach((w) => w.ml.offer(names)); toast(names.length + ' modelo(s) do Wan2GP — carregue nas categorias desejadas');
           }) }, 'Testar / listar modelos'),
+          /* modelos com pesos no disco: os completos entram nas listas; os parciais ficam oferecidos (baixam o resto no 1º uso) */
+          h('button', { class: 'primary', 'data-act': 'wan-detect', onclick: () => void guard(async () => {
+            await forge['setSettings'](s);
+            const av = await forge['wan2gpAvailability']() as Array<{ model_type: string; name: string; status: string; kind?: string }>;
+            const ok = av.filter((m) => m.kind && m.status === 'available'), part = av.filter((m) => m.kind && m.status === 'partial');
+            wanLists.forEach((w) => { w.ml.load(ok.filter((m) => m.kind === w.k).map((m) => m.model_type)); w.ml.offer(part.filter((m) => m.kind === w.k).map((m) => m.model_type)); });
+            wout.textContent = [`${ok.length} modelo(s) completo(s) carregado(s), ${part.length} parcial(is) oferecido(s) (o Wan2GP baixa o que falta no 1º uso):`,
+              ...av.filter((m) => m.kind).map((m) => `${m.status === 'available' ? '✅' : '🟡'} [${m.kind}] ${m.model_type} — ${m.name}`)].join('\n');
+            toast(`${ok.length} modelo(s) do Wan2GP detectado(s) — salve as Configurações`);
+          }) }, '🔎 Detectar modelos instalados'),
           mt, h('button', { onclick: () => void guard(async () => { wout.textContent = JSON.stringify(await forge['wan2gpDefaults'](mt.value.trim()), null, 1).slice(0, 4000); }) }, 'Ver padrões do modelo')),
         wout,
         h('div', {}, h('strong', {}, 'Modelos Wan2GP carregados'), h('span', { class: 'muted' }, ' — por modalidade; as rotas avisam quando um template usa um model_type fora desta lista'),

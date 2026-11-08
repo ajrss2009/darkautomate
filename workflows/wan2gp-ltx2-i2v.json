@@ -1,6 +1,6 @@
 {
-  "_doc": "Wan2GP imagem->vídeo (LTX-2 distilled) usando a imagem da cena. 'image_start'/'image_prompt_type' são as chaves de imagem inicial do Wan2GP; CONFIRA no app: Provedores → Listar modelos Wan2GP (ids) e 'Ver padrões' (chaves). ",
-  "model_type": "ltx2_22B_distilled",
+  "_doc": "Wan2GP imagem->vídeo com LTX-2 2.5 Distilled NVFP4 22B (o que está baixado; o Wan2GP completa o que faltar no 1º uso). Anima a imagem da cena (image_start, image_prompt_type S), 8 passos.",
+  "model_type": "ltx2_25_22B_distilled_nvfp4",
   "megapixels": 0.7,
   "multiple": 32,
   "settings": {
@@ -13,6 +13,6 @@
     "image_prompt_type": "S",
     "image_start": "{{init_image}}"
   },
-  "label": "Wan2GP · LTX-2 imagem → vídeo",
+  "label": "Wan2GP · LTX-2.5 imagem → vídeo — completa downloads no 1º uso",
   "capability": "video"
 }

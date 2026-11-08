@@ -1,12 +1,12 @@
 {
-  "_doc": "Wan2GP · OmniVoice (TTS local). Modo padrão = voice design (audio_prompt_type vazio): NÃO precisa de áudio de referência. alt_prompt aceita apenas tags válidas separadas por vírgula (male/female, child/teenager/young adult/middle-aged/elderly, very low pitch/low pitch/moderate pitch/high pitch/very high pitch, whisper, <idioma> accent). model_mode = idioma (auto, portuguese, english, spanish...). duration_seconds 0 = automático. Se o projeto/elenco tiver uma voz (.wav/.mp3), o FilmForge ativa a clonagem automaticamente: audio_guide = arquivo e audio_prompt_type = A; alt_prompt fica vazio para o Whisper transcrever a referência.",
+  "_doc": "Wan2GP · OmniVoice (TTS local, instalado e completo). Modo padrão = voice design (audio_prompt_type vazio): NÃO precisa de áudio de referência. alt_prompt aceita apenas tags válidas separadas por vírgula (male/female, child/teenager/young adult/middle-aged/elderly, very low pitch/low pitch/moderate pitch/high pitch/very high pitch, whisper, <idioma> accent). model_mode = idioma do projeto ({{language_name}}: portuguese, english, spanish...; 'auto' se o OmniVoice não tiver o idioma). duration_seconds 0 = automático. Se o projeto/elenco tiver uma voz (.wav/.mp3), o FilmForge ativa a clonagem automaticamente: audio_guide = arquivo e audio_prompt_type = A; alt_prompt fica vazio para o Whisper transcrever a referência.",
   "model_type": "omnivoice",
   "refAudio": "",
   "settings": {
     "prompt": "{{text}}",
     "alt_prompt": "male, middle-aged, low pitch",
     "audio_prompt_type": "",
-    "model_mode": "portuguese",
+    "model_mode": "{{language_name}}",
     "duration_seconds": 0,
     "num_inference_steps": 32,
     "seed": "{{seed}}"

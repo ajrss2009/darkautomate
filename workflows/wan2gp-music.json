@@ -1,5 +1,5 @@
 {
-  "_doc": "Wan2GP música (YuE2/ACE-Step). model_type PROVÁVEL ('yue2'); CONFIRA no app: Provedores → Listar modelos Wan2GP (ids) e 'Ver padrões' (chaves). ",
+  "_doc": "Wan2GP música com YuE2 3B (instalado e completo): letra em prompt ([Verse]/[Chorus] ou [Instrumental]) e estilo em alt_prompt. Lento (32 passos autorregressivos); para trilha instrumental rápida prefira ACE-Step ou Stable Audio 3.",
   "model_type": "yue2",
   "settings": {
     "prompt": "{{lyrics}}",
