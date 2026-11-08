@@ -6,7 +6,7 @@ import * as attachments from './attachments';
 /** fetch do Chromium: certificados do Windows + proxy/PAC (ver http.ts) */
 const fetch = httpFetch();
 
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, protocol, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, protocol, safeStorage, session, shell } from 'electron';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -20,8 +20,8 @@ import { analyticsLine, analyzeChannel } from './channel-analytics';
 import { enginesFromRoute, estimateCost, normalizeProducts, productsPrompt, type CostInput } from './clone-business';
 import { dnaSceneSec } from './channel-dna';
 import { planHash, readStoryboard, writeStoryboard } from './project-storyboard';
-import { SOCIAL_SITES, isSocialPlatform, searchSocial, type SocialPlatform } from './social-search';
-import { ensureYtDlp } from './youtube';
+import { SOCIAL_SITES, findSocial, isSocialPlatform, listProfile, netscapeCookies, searchSocial, type SocialPlatform } from './social-search';
+import { cookieArgs, ensureYtDlp, setCookieProvider } from './youtube';
 import { bindingLabel } from '../shared/types';
 import { runRoute } from './engine';
 import { createExecutors, uploadProjectToYouTube } from './executors';
@@ -65,7 +65,7 @@ import * as sfx from './sfx';
 import { STOCK_SOURCES } from '../shared/stock-sources';
 import { auditLibrary } from './audit';
 import { findOutliers, type FinderQuery } from './finder';
-import { cloneChannel, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
+import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
 import { ensureMgAudio, findMgAudio, mgVenvPython, renderCodeMusic, MOODS, MOOD_LABEL } from './codemusic';
@@ -902,13 +902,13 @@ function registerIpc() {
     return next;
   });
   /** IA da pesquisa: lê os resultados (títulos, números, motivos) e aponta tendências, padrões e oportunidades. */
-  h('finder:insights', async (input: { query: string; videoType?: string; videos: Array<{ title: string; channel: string; views: number; subs?: number; ageDays?: number; durationSec?: number; score: number; searchLang: string }> }, ai?: { harness?: string; model?: string }) => {
+  h('finder:insights', async (input: { query: string; videoType?: string; platform?: string; videos: Array<{ title: string; channel: string; views: number; subs?: number; ageDays?: number; durationSec?: number; score: number; searchLang: string }> }, ai?: { harness?: string; model?: string }) => {
     const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 300_000);
     try {
       const list = input.videos.slice(0, 40).map((v, i) => `${i + 1}. [${v.score}] "${v.title}" — ${v.channel} · ${v.views} views · ${v.subs ?? '?'} inscritos · ${v.ageDays ?? '?'} dias · ${v.durationSec ?? '?'} s · ${v.searchLang}`).join('\n');
       const lang = settings.uiLanguage === 'en' ? 'English' : settings.uiLanguage === 'es' ? 'español' : 'português do Brasil';
       const { json, binding } = await llmJson([{ type: 'harness', harness: (ai?.harness || 'auto') as HarnessBinding['harness'], model: ai?.model || undefined }], settings, path.join(settings.workspace, 'tools', 'finder'),
-        `Você é analista de YouTube. Pesquisa: "${input.query || '(sem termo)'}"${input.videoType ? ` · tipo de vídeo: ${input.videoType}` : ''}. Resultados (nota 0–100 = quanto o vídeo superou o tamanho do canal):\n${list}\n\n` +
+        `Você é analista de ${input.platform || 'YouTube'}. Pesquisa: "${input.query || '(sem termo)'}"${input.videoType ? ` · tipo de vídeo: ${input.videoType}` : ''}. Resultados (nota 0–100 = quanto o vídeo superou o tamanho do canal):\n${list}\n\n` +
         `Analise o que os vídeos de nota alta têm em comum e responda em ${lang}, SOMENTE com JSON: {"summary":"2–3 frases","trends":["tema/assunto em alta", "..."],"titlePatterns":["fórmula de título que funciona", "..."],"formats":["duração/formato/estilo que funciona", "..."],"opportunities":["lacuna ou nicho pouco explorado", "..."],"ideas":["5 ideias de vídeo originais (título)"]}`, ac.signal, () => {});
       return { ...(json as Record<string, unknown>), binding };
     } finally { clearTimeout(t); }
@@ -931,6 +931,8 @@ function registerIpc() {
     send({ t: 'clone.progress', ...cloneState } as unknown as EngineEvent);
     try {
       const r = await cloneChannel(settings, input, { toolsDir: toolsDir(), renderHtml, appVersion: app.getVersion(), signal: cloneAbort.signal,
+        /* perfis de TikTok/Instagram/Facebook/Kwai: grade do perfil no navegador da pesquisa + yt-dlp */
+        listProfile: async (url) => { const p = clonePlatform(url).id; if (p === 'youtube') throw new Error('perfil inválido'); return listProfile(p, url, socialDeps(), Math.max(12, (input.deep ?? 4) * 6)); },
         log: (line) => send({ t: 'log', stepId: 'channel', line } as EngineEvent),
         progress: (p) => { cloneState = { ...cloneState!, ...p, name: p.name || cloneState!.name, running: p.stage !== 'done' }; send({ t: 'clone.progress', ...cloneState } as unknown as EngineEvent); } });
       if (r.thumbnailTemplate) { settings.thumbnails = [...(settings.thumbnails ?? []).filter((x) => x.id !== r.thumbnailTemplate!.id), r.thumbnailTemplate]; saveSettings(settings); }
@@ -1198,8 +1200,9 @@ function registerIpc() {
   };
   const socialYtdlp = async (urls: string[]): Promise<unknown[]> => {
     const exe = await ensureYtDlp(settings, (line) => send({ t: 'log', line: `pesquisa: ${line}` } as EngineEvent));
+    const cookies = urls[0] ? await cookieArgs(urls[0]) : [];
     const out = await new Promise<string>((resolve) => {
-      const c = spawn(exe, ['--dump-json', '--skip-download', '--no-warnings', '--ignore-errors', '--', ...urls], { windowsHide: true });
+      const c = spawn(exe, [...cookies, '--dump-json', '--skip-download', '--no-warnings', '--ignore-errors', '--', ...urls], { windowsHide: true });
       let s = ''; c.stdout.on('data', (d: Buffer) => { s += d.toString(); });
       const t = setTimeout(() => c.kill(), 180_000);
       c.on('error', () => { clearTimeout(t); resolve(s); }); c.on('close', () => { clearTimeout(t); resolve(s); });
@@ -1207,9 +1210,24 @@ function registerIpc() {
     return out.split(/\r?\n/).flatMap((l) => { try { return [JSON.parse(l) as unknown]; } catch { return []; } });
   };
   h('social:sites', () => Object.fromEntries(Object.entries(SOCIAL_SITES).map(([k, v]) => [k, { label: v.label, icon: v.icon, needsLogin: v.needsLogin, note: v.note }])));
-  h('social:search', (platform: string, query: string, o?: { max?: number }) => {
+  /* sessão de login da pesquisa → cookies.txt (formato Netscape) para o yt-dlp ler Instagram/Facebook/TikTok/Kwai */
+  setCookieProvider(async (url) => {
+    const p = (['tiktok', 'instagram', 'facebook', 'kwai'] as const).find((x) => url.toLowerCase().includes(`${x}.com`));
+    if (!p) return undefined;
+    const list = await session.fromPartition(socialPartition(p)).cookies.get({});
+    if (!list.length) return undefined;
+    const dir = path.join(app.getPath('userData'), 'social-cookies');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${p}.txt`);
+    fs.writeFileSync(file, netscapeCookies(list), { mode: 0o600 });
+    return file;
+  });
+  const socialDeps = () => ({ browse: socialBrowse, ytdlp: socialYtdlp, log: (line: string) => send({ t: 'log', line: `pesquisa: ${line}` } as EngineEvent) });
+  /** mesma pesquisa da aba YouTube (idiomas, período, formato, até 100 por idioma, views mín., máx. de seguidores) */
+  h('social:search', (platform: string, q: FinderQuery | string, o?: { max?: number }) => {
     if (!isSocialPlatform(platform)) throw new Error(`rede desconhecida: ${platform}`);
-    return searchSocial(platform, query, { browse: socialBrowse, ytdlp: socialYtdlp, log: (line) => send({ t: 'log', line: `pesquisa: ${line}` } as EngineEvent) }, o);
+    if (typeof q === 'string') return searchSocial(platform, q, socialDeps(), o);
+    return findSocial(platform, q, socialDeps(), settings.uiLanguage === 'en' || settings.uiLanguage === 'es' ? settings.uiLanguage : 'pt-BR');
   });
   /** login na rede: janela VISÍVEL com a mesma sessão da pesquisa (o usuário digita; o app nunca vê a senha) */
   h('social:login', (platform: string) => {

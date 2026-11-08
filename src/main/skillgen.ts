@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { HarnessId, ReasoningEffort, Settings, Skill } from '../shared/types';
-import { ensureYtDlp } from './youtube';
+import { cookieArgs, ensureYtDlp } from './youtube';
 import * as ff from './ffmpeg';
 import { transcribe } from './whisper';
 import { ensureWhisper } from './whisper-install';
@@ -51,7 +51,8 @@ export async function download(s: Settings, url: string, dir: string, idx: numbe
   fs.mkdirSync(dir, { recursive: true });
   log(`baixando o vídeo ${idx}: ${url}`);
   const tpl = path.join(dir, `video${idx}.%(ext)s`);
-  const r = await run(exe, ['-f', 'b[height<=480]/bv*[height<=480]+ba/b', '--merge-output-format', 'mp4', '--no-playlist', '--write-info-json', '--no-warnings',
+  /* TikTok/Instagram/Facebook/Kwai: a sessão de login da pesquisa vai como cookies (o YouTube não precisa) */
+  const r = await run(exe, [...await cookieArgs(url), '-f', 'b[height<=480]/bv*[height<=480]+ba/b', '--merge-output-format', 'mp4', '--no-playlist', '--write-info-json', '--no-warnings',
     '--ffmpeg-location', path.dirname(ffmpeg), '--download-sections', `*0-${maxSec}`, '-o', tpl, '--', url], signal);
   if (r.code !== 0) throw new Error(`não consegui baixar ${url}: ${(r.err || r.out).split('\n').filter(Boolean).slice(-1)[0]?.slice(0, 200) ?? 'erro do yt-dlp'}`);
   const file = fs.readdirSync(dir).filter((f) => f.startsWith(`video${idx}.`) && /\.(mp4|webm|mkv|mov)$/i.test(f)).map((f) => path.join(dir, f))[0];

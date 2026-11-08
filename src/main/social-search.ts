@@ -6,6 +6,8 @@
  * Este arquivo é puro (nada de electron): quem abre a página é injetado (main.ts) — testável.
  */
 
+import { rankVideos, type FinderQuery, type FinderResult, type FinderVideo } from './finder';
+
 export type SocialPlatform = 'tiktok' | 'instagram' | 'facebook' | 'kwai';
 
 export interface SocialSite { label: string; icon: string; home: string; search: (q: string) => string; tag?: (q: string) => string; login: string; needsLogin: boolean; note: string }
@@ -31,6 +33,8 @@ export interface RawCard { href: string; text?: string; img?: string; label?: st
 
 export interface SocialVideo {
   platform: SocialPlatform; id: string; url: string; title: string; author?: string; authorUrl?: string; thumb?: string;
+  /** seguidores do perfil (quando o yt-dlp informa) */
+  followers?: number; language?: string;
   views?: number; likes?: number; comments?: number; shares?: number; durationSec?: number; publishedAt?: string; ageDays?: number;
   score: number; reasons: string[];
 }
@@ -183,7 +187,9 @@ export function ytdlpEnrich(v: Omit<SocialVideo, 'score' | 'reasons'>, j: any): 
   const up = typeof j.timestamp === 'number' ? new Date(j.timestamp * 1000).toISOString() : typeof j.upload_date === 'string' ? `${j.upload_date.slice(0, 4)}-${j.upload_date.slice(4, 6)}-${j.upload_date.slice(6, 8)}T00:00:00Z` : undefined;
   return { ...v, title: (j.title || j.description || v.title || '').slice(0, 160), views: n(j.view_count) ?? v.views, likes: n(j.like_count) ?? v.likes, comments: n(j.comment_count) ?? v.comments,
     shares: n(j.repost_count) ?? v.shares, durationSec: n(j.duration) ?? v.durationSec, publishedAt: up ?? v.publishedAt, thumb: v.thumb || j.thumbnail,
-    author: v.author ?? (j.uploader ? `@${String(j.uploader).replace(/^@/, '')}` : undefined) };
+    author: v.author ?? (j.uploader ? `@${String(j.uploader).replace(/^@/, '')}` : undefined),
+    authorUrl: v.authorUrl ?? (typeof j.uploader_url === 'string' ? j.uploader_url : typeof j.channel_url === 'string' ? j.channel_url : undefined),
+    followers: n(j.channel_follower_count) ?? v.followers, language: typeof j.language === 'string' ? j.language : v.language };
 }
 
 export interface SocialDeps {
@@ -196,35 +202,121 @@ export interface SocialDeps {
 
 /** Pesquisa numa rede: página de busca (e, se vier vazia, a página da hashtag), nota e autores. */
 export async function searchSocial(platform: SocialPlatform, query: string, d: SocialDeps, o: { max?: number; enrich?: boolean } = {}): Promise<SocialResult> {
+  const r = await scrapeSocial(platform, query, d, o);
+  const videos = scoreSocial(r.raw);
+  return { platform, query: query.trim(), url: r.url, videos, authors: groupAuthors(videos), warnings: r.warnings, loginWall: r.loginWall };
+}
+
+/** Rolagens necessárias para juntar `max` cartões (≈ 6 novos por tela). */
+export const scrollsFor = (max: number) => Math.max(3, Math.min(40, Math.ceil(max / 5) + 2));
+
+/** Lê a busca (sem nota): cartões → vídeos, reserva pela hashtag e números completados pelo yt-dlp. */
+export async function scrapeSocial(platform: SocialPlatform, query: string, d: SocialDeps, o: { max?: number; enrich?: boolean } = {}): Promise<{ raw: Array<Omit<SocialVideo, 'score' | 'reasons'>>; url: string; warnings: string[]; loginWall?: boolean }> {
   const site = SOCIAL_SITES[platform];
   const q = query.trim();
   if (!q) throw new Error('escreva o termo da pesquisa');
-  const max = Math.max(8, Math.min(60, o.max ?? 30));
+  const max = Math.max(8, Math.min(100, o.max ?? 30));
   const warnings: string[] = [];
   const log = d.log ?? (() => {});
   let url = site.search(q);
   log(`${site.label}: abrindo ${url}`);
-  let page = await d.browse(platform, url, extractScript(platform, max));
+  let page = await d.browse(platform, url, extractScript(platform, max, scrollsFor(max)));
   let raw = cardsToVideos(platform, page.cards);
   if (!raw.length && site.tag) {
     url = site.tag(q);
     log(`${site.label}: sem resultados na busca — tentando a hashtag ${url}`);
-    page = await d.browse(platform, url, extractScript(platform, max));
+    page = await d.browse(platform, url, extractScript(platform, max, scrollsFor(max)));
     raw = cardsToVideos(platform, page.cards);
   }
   const loginWall = !raw.length && (site.needsLogin || looksLikeLoginWall(page.url, page.text));
   if (loginWall) warnings.push(`${site.label} pediu login: clique em "Entrar no ${site.label}", faça o login na janela e pesquise de novo (${site.note}).`);
   else if (!raw.length) warnings.push(`${site.label} não mostrou vídeos para "${q}" (a página pode ter mudado ou exigir login).`);
   raw = raw.slice(0, max);
-  if (raw.length && d.ytdlp && (o.enrich ?? platform === 'tiktok')) {
+  /* views/curtidas/data/seguidores: o yt-dlp lê cada vídeo (TikTok sem login; as outras com os cookies da sessão) */
+  if (raw.length && d.ytdlp && (o.enrich ?? true)) {
     try {
-      const infos = await d.ytdlp(raw.slice(0, 25).map((v) => v.url));
+      const infos = await d.ytdlp(raw.slice(0, 40).map((v) => v.url));
       const byId = new Map(infos.map((j) => [String((j as { id?: unknown })?.id ?? ''), j]));
       raw = raw.map((v) => (byId.has(v.id) ? ytdlpEnrich(v, byId.get(v.id)) : v));
       log(`${site.label}: ${byId.size} vídeo(s) completados pelo yt-dlp (views, curtidas, data)`);
     } catch (e) { warnings.push(`não consegui completar os números pelo yt-dlp (${(e as Error).message.slice(0, 120)})`); }
   }
   if (raw.length && raw.every((v) => v.views === undefined)) warnings.push(`${site.label} não mostra views na busca: a nota usa só o que estava visível.`);
-  const videos = scoreSocial(raw);
-  return { platform, query: q, url, videos, authors: groupAuthors(videos), warnings, loginWall: loginWall || undefined };
+  return { raw, url, warnings, loginWall: loginWall || undefined };
+}
+
+/** Cookies da sessão (Electron) → cookies.txt no formato Netscape que o yt-dlp lê. Função pura. */
+export function netscapeCookies(list: Array<{ name: string; value: string; domain?: string; hostOnly?: boolean; path?: string; secure?: boolean; expirationDate?: number }>): string {
+  const rows = list.filter((c) => c.domain && c.name).map((c) => {
+    const host = !c.hostOnly && !c.domain!.startsWith('.') ? `.${c.domain}` : c.domain!;
+    return [host, host.startsWith('.') ? 'TRUE' : 'FALSE', c.path || '/', c.secure ? 'TRUE' : 'FALSE', String(Math.round(c.expirationDate ?? 0)), c.name, c.value].join('\t');
+  });
+  return ['# Netscape HTTP Cookie File', ...rows, ''].join('\n');
+}
+
+/** Página do perfil que mostra a grade de vídeos (Facebook: /videos). */
+export function profileGridUrl(platform: SocialPlatform, url: string): string {
+  const u = url.trim().replace(/[?#].*$/, '').replace(/\/+$/, '');
+  return platform === 'facebook' && !/\/(videos|reels)$/.test(u) ? `${u}/videos` : u;
+}
+
+/**
+ * Vídeos de um perfil (para CLONAR o canal de TikTok/Instagram/Facebook/Kwai): grade do perfil no navegador
+ * da pesquisa + yt-dlp para views, duração e data. Devolve o formato da listagem do yt-dlp que o clone usa.
+ */
+export async function listProfile(platform: SocialPlatform, url: string, d: SocialDeps, max = 30): Promise<{ title?: string; channel?: string; channel_follower_count?: number; description?: string;
+  entries: Array<{ id: string; title: string; duration?: number | null; view_count?: number | null; url: string; thumbnail?: string }> }> {
+  const site = SOCIAL_SITES[platform];
+  const grid = profileGridUrl(platform, url);
+  d.log?.(`${site.label}: lendo os vídeos do perfil ${grid}`);
+  const page = await d.browse(platform, grid, extractScript(platform, max, scrollsFor(max)));
+  let raw = cardsToVideos(platform, page.cards).slice(0, max);
+  if (raw.length && d.ytdlp) {
+    try {
+      const infos = await d.ytdlp(raw.slice(0, 30).map((v) => v.url));
+      const byId = new Map(infos.map((j) => [String((j as { id?: unknown })?.id ?? ''), j]));
+      raw = raw.map((v) => (byId.has(v.id) ? ytdlpEnrich(v, byId.get(v.id)) : v));
+    } catch { /* fica com o que a página mostrou */ }
+  }
+  const handle = /@[\w.-]+/.exec(url)?.[0] ?? raw.find((v) => v.author)?.author ?? new URL(grid).pathname.split('/').filter(Boolean)[0];
+  return {
+    title: handle, channel: handle, channel_follower_count: raw.find((v) => v.followers !== undefined)?.followers,
+    entries: raw.map((v) => ({ id: v.id, title: v.title, duration: v.durationSec ?? null, view_count: v.views ?? null, url: v.url, thumbnail: v.thumb })),
+  };
+}
+
+/** Vídeo da rede → o formato do YouTube (mesma nota, mesmos filtros, mesmos cartões e ações na interface). */
+export function toFinderVideo(v: Omit<SocialVideo, 'score' | 'reasons'>, searchLang: string, now = Date.now()): Omit<FinderVideo, 'score' | 'parts' | 'reasons'> {
+  const ageDays = v.ageDays ?? (v.publishedAt ? Math.max(0, Math.round((now - Date.parse(v.publishedAt)) / 864e5)) : undefined);
+  return {
+    platform: v.platform, id: v.id, title: v.title, url: v.url, thumb: v.thumb ?? '',
+    channel: v.author ?? SOCIAL_SITES[v.platform].label, channelId: v.author ? `${v.platform}:${v.author}` : undefined, channelUrl: v.authorUrl,
+    subs: v.followers, views: v.views ?? 0, likes: v.likes, comments: v.comments, publishedAt: v.publishedAt, ageDays,
+    durationSec: v.durationSec, language: v.language, searchLang: searchLang || 'any',
+  };
+}
+
+/**
+ * Pesquisa numa rede com os MESMOS critérios da aba YouTube: termo traduzido por idioma, período, formato,
+ * vídeos por idioma (até 100), views mínimas, máximo de seguidores; nota (scoreVideo) e canais/perfis.
+ */
+export async function findSocial(platform: SocialPlatform, q: FinderQuery, d: SocialDeps, ui: 'pt-BR' | 'en' | 'es' = 'pt-BR'): Promise<FinderResult> {
+  const warnings: string[] = [];
+  const raw: Array<Omit<FinderVideo, 'score' | 'parts' | 'reasons'>> = [];
+  let loginWall = false;
+  const langs = q.languages.length ? q.languages : [''];
+  const done = new Set<string>();
+  for (const lang of langs) {
+    const term = (q.queries?.[lang] || q.query).trim();
+    if (!term || done.has(term.toLowerCase())) continue;   // mesma consulta em dois idiomas: uma busca só
+    done.add(term.toLowerCase());
+    const r = await scrapeSocial(platform, term, d, { max: q.perLanguage ?? 30 });
+    loginWall ||= !!r.loginWall;
+    for (const w of r.warnings) if (!warnings.includes(w)) warnings.push(w);
+    raw.push(...r.raw.map((v) => toFinderVideo(v, lang)));
+  }
+  if (!raw.some((v) => v.subs !== undefined) && raw.length) warnings.push(`${SOCIAL_SITES[platform].label}: seguidores dos perfis não informados — o critério "canal pequeno" e o filtro de máximo de seguidores ficam de fora.`);
+  const { videos, channels } = rankVideos(raw, q, ui);
+  d.log?.(`${SOCIAL_SITES[platform].label}: ${videos.length} vídeos pontuados · ${channels.length} perfis`);
+  return { videos, channels, engine: 'browser', warnings, platform, loginWall: loginWall || undefined };
 }

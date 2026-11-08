@@ -25,9 +25,11 @@ export interface FinderVideo {
   subs?: number; views: number; likes?: number; comments?: number; publishedAt?: string; ageDays?: number;
   channelAgeDays?: number; channelVideos?: number; durationSec?: number; language?: string; searchLang: string;
   score: number; parts: FinderParts; reasons: string[];
+  /** rede do vídeo (ausente = YouTube) */
+  platform?: 'youtube' | 'tiktok' | 'instagram' | 'facebook' | 'kwai';
 }
-export interface FinderResult { videos: FinderVideo[]; channels: FinderChannel[]; engine: 'api' | 'yt-dlp'; warnings: string[] }
-export interface FinderChannel { channel: string; channelId?: string; channelUrl?: string; subs?: number; channelAgeDays?: number; best: number; hits: number; languages: string[]; avgRatio: number }
+export interface FinderResult { videos: FinderVideo[]; channels: FinderChannel[]; engine: 'api' | 'yt-dlp' | 'browser'; warnings: string[]; platform?: FinderVideo['platform']; loginWall?: boolean }
+export interface FinderChannel { platform?: FinderVideo['platform']; channel: string; channelId?: string; channelUrl?: string; subs?: number; channelAgeDays?: number; best: number; hits: number; languages: string[]; avgRatio: number }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)} mi` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)} mil` : String(Math.round(n));
@@ -139,14 +141,25 @@ async function searchApi(key: string, q: FinderQuery, signal?: AbortSignal): Pro
   for (const lang of q.languages.length ? q.languages : ['']) {
     const text = q.queries?.[lang] || q.query;
     const dur2 = q.format === 'shorts' ? '&videoDuration=short' : q.format === 'long' ? '&videoDuration=medium' : '';
-    const s = await api<{ items?: Array<{ id: { videoId: string } }> }>(`search?part=id&type=video&maxResults=${clamp(q.perLanguage ?? 15, 5, 50)}&order=viewCount&q=${encodeURIComponent(text)}${lang ? `&relevanceLanguage=${lang}` : ''}${after ? `&publishedAfter=${after}` : ''}${dur2}`, key, signal);
-    const ids = (s.items ?? []).map((x) => x.id.videoId).filter(Boolean);
+    /* até 100 por idioma: a API devolve no máximo 50 por página — pagina com nextPageToken */
+    const want = clamp(q.perLanguage ?? 15, 5, 100);
+    const ids: string[] = [];
+    let page: string | undefined;
+    do {
+      const s = await api<{ items?: Array<{ id: { videoId: string } }>; nextPageToken?: string }>(`search?part=id&type=video&maxResults=${Math.min(50, want - ids.length)}&order=viewCount&q=${encodeURIComponent(text)}${lang ? `&relevanceLanguage=${lang}` : ''}${after ? `&publishedAfter=${after}` : ''}${dur2}${page ? `&pageToken=${page}` : ''}`, key, signal);
+      ids.push(...(s.items ?? []).map((x) => x.id.videoId).filter(Boolean));
+      page = s.nextPageToken;
+    } while (page && ids.length < want);
     if (!ids.length) continue;
-    const v = await api<{ items?: any[] }>(`videos?part=snippet,statistics,contentDetails&id=${ids.join(',')}`, key, signal);
-    const chIds = [...new Set((v.items ?? []).map((x) => x.snippet?.channelId).filter(Boolean))];
-    const ch = chIds.length ? await api<{ items?: any[] }>(`channels?part=snippet,statistics&id=${chIds.join(',')}`, key, signal) : { items: [] };
-    const chMap = new Map((ch.items ?? []).map((c) => [c.id, c]));
-    for (const it of v.items ?? []) {
+    /* videos/channels aceitam até 50 ids por chamada */
+    const chunks = <T,>(a: T[]) => Array.from({ length: Math.ceil(a.length / 50) }, (_, i) => a.slice(i * 50, i * 50 + 50));
+    const vItems: any[] = [];
+    for (const part of chunks(ids)) vItems.push(...((await api<{ items?: any[] }>(`videos?part=snippet,statistics,contentDetails&id=${part.join(',')}`, key, signal)).items ?? []));
+    const chIds = [...new Set(vItems.map((x) => x.snippet?.channelId).filter(Boolean))] as string[];
+    const chItems: any[] = [];
+    for (const part of chunks(chIds)) chItems.push(...((await api<{ items?: any[] }>(`channels?part=snippet,statistics&id=${part.join(',')}`, key, signal)).items ?? []));
+    const chMap = new Map(chItems.map((c) => [c.id, c]));
+    for (const it of vItems) {
       const c = chMap.get(it.snippet?.channelId);
       out.push({
         id: it.id, title: it.snippet?.title ?? '', url: `https://www.youtube.com/watch?v=${it.id}`, thumb: it.snippet?.thumbnails?.high?.url ?? `https://i.ytimg.com/vi/${it.id}/hqdefault.jpg`,
@@ -183,7 +196,7 @@ async function searchYtDlp(s: Settings, q: FinderQuery, log: (l: string) => void
   const out: Array<Omit<FinderVideo, 'score' | 'parts' | 'reasons'>> = [];
   for (const lang of q.languages.length ? q.languages : ['']) {
     const text = q.queries?.[lang] || q.query;
-    const n = clamp(q.perLanguage ?? 12, 5, 30);
+    const n = clamp(q.perLanguage ?? 12, 5, 100);
     log(`buscando "${text}"${lang ? ` (${LANG_NAMES[lang] ?? lang})` : ''}…`);
     const flat = await run(exe, [`https://www.youtube.com/results?search_query=${encodeURIComponent(text)}&sp=${SP[q.period]}`, '--flat-playlist', '--dump-json', '--playlist-end', String(n), '--no-warnings'], signal);
     const ids = flat.out.split(/\r?\n/).flatMap((l) => { try { const j = JSON.parse(l) as { id?: string; ie_key?: string }; return j.id && j.id.length === 11 ? [j.id] : []; } catch { return []; } });
@@ -218,22 +231,36 @@ export async function findOutliers(s: Settings, q: FinderQuery, o: { log?: (l: s
     catch (e) { warnings.push(`API do YouTube falhou (${(e as Error).message}) — usando o yt-dlp`); engine = 'yt-dlp'; }
   }
   if (engine === 'yt-dlp') { raw = await searchYtDlp(s, q, log, o.signal); warnings.push('Sem a chave da YouTube Data API a idade do canal não é conhecida (o critério "canal novo" fica de fora).'); }
+  const { videos, channels } = rankVideos(raw, q, s.uiLanguage === 'en' || s.uiLanguage === 'es' ? s.uiLanguage : 'pt-BR');
+  log(`${videos.length} vídeos pontuados · ${channels.length} canais`);
+  return { videos, channels, engine, warnings };
+}
+
+/** Dias do período da busca (undefined = qualquer data). */
+export const periodDays = (p: FinderQuery['period']): number | undefined => (p === 'week' ? 7 : p === 'month' ? 30 : p === 'year' ? 365 : undefined);
+
+/**
+ * Os MESMOS critérios para todas as plataformas: sem repetidos, views mínimas, máximo de inscritos/seguidores,
+ * formato (Shorts ≤ 60 s / longos), período (quando a data é conhecida), nota e agrupamento por canal/perfil.
+ */
+export function rankVideos(raw: Array<Omit<FinderVideo, 'score' | 'parts' | 'reasons'>>, q: FinderQuery, ui: UiLang = 'pt-BR'): { videos: FinderVideo[]; channels: FinderChannel[] } {
+  const maxAge = periodDays(q.period);
   const seen = new Set<string>();
   const videos = raw.filter((v) => (seen.has(v.id) ? false : (seen.add(v.id), true)))
     .filter((v) => (q.minViews ? v.views >= q.minViews : true) && (q.maxSubs && v.subs !== undefined ? v.subs <= q.maxSubs : true))
     .filter((v) => (q.format === 'shorts' ? (v.durationSec ?? 61) <= 60 : q.format === 'long' ? (v.durationSec ?? 0) > 60 : true))
-    .map((v) => ({ ...v, ...scoreVideo(v, q.languages, s.uiLanguage === 'en' || s.uiLanguage === 'es' ? s.uiLanguage : 'pt-BR') }))
+    .filter((v) => (maxAge === undefined || v.ageDays === undefined ? true : v.ageDays <= maxAge))
+    .map((v) => ({ ...v, ...scoreVideo(v, q.languages, ui) }))
     .sort((a, b) => b.score - a.score);
   const map = new Map<string, FinderChannel>();
   for (const v of videos) {
     const k = v.channelId ?? v.channel;
-    const c = map.get(k) ?? { channel: v.channel, channelId: v.channelId, channelUrl: v.channelUrl, subs: v.subs, channelAgeDays: v.channelAgeDays, best: 0, hits: 0, languages: [], avgRatio: 0 };
+    const c = map.get(k) ?? { platform: v.platform, channel: v.channel, channelId: v.channelId, channelUrl: v.channelUrl, subs: v.subs, channelAgeDays: v.channelAgeDays, best: 0, hits: 0, languages: [], avgRatio: 0 };
     c.best = Math.max(c.best, v.score); c.hits++;
     if (!c.languages.includes(v.searchLang)) c.languages.push(v.searchLang);
     c.avgRatio = (c.avgRatio * (c.hits - 1) + v.views / Math.max(v.subs ?? 500, 500)) / c.hits;
     map.set(k, c);
   }
   const channels = [...map.values()].sort((a, b) => b.best - a.best || b.avgRatio - a.avgRatio);
-  log(`${videos.length} vídeos pontuados · ${channels.length} canais`);
-  return { videos, channels, engine, warnings };
+  return { videos, channels };
 }

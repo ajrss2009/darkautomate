@@ -46,7 +46,7 @@ export interface NicheBend { title: string; angle: string; why: string; audience
   /** melhores idiomas para esta dobra (nota 0–10) */
   languages?: LanguagePick[]; demand?: string; competition?: string; cpm?: string }
 /** Vídeo analisado a fundo: por que foi escolhido, o que se mediu e as folhas de contato. */
-export interface AnalyzedVideo extends PickedVideo { metrics?: VideoMetrics; sheet?: string; /** folhas a 1 quadro/segundo, em ordem */ sheets?: string[]; audio?: AudioProfile; frames?: string[]; transcriptWords?: number }
+export interface AnalyzedVideo extends PickedVideo { /** link do vídeo (YouTube ou a rede do perfil) */ url?: string; metrics?: VideoMetrics; sheet?: string; /** folhas a 1 quadro/segundo, em ordem */ sheets?: string[]; audio?: AudioProfile; frames?: string[]; transcriptWords?: number }
 /** Etapas da clonagem (para a interface mostrar o progresso). */
 export type CloneStage = 'list' | 'thumbs' | 'videos' | 'ai' | 'render' | 'save' | 'done';
 export interface CloneProgress { stage: CloneStage; pct: number; label: string; name?: string }
@@ -103,8 +103,8 @@ function run(cmd: string, args: string[], signal?: AbortSignal): Promise<{ code:
   });
 }
 
-type Entry = { id?: string; title?: string; duration?: number | null; view_count?: number | null; url?: string };
-type Listing = { title?: string; channel?: string; uploader?: string; description?: string; channel_follower_count?: number; channel_url?: string; uploader_url?: string;
+export type Entry = { id?: string; title?: string; duration?: number | null; view_count?: number | null; url?: string; thumbnail?: string };
+export type Listing = { title?: string; channel?: string; uploader?: string; description?: string; channel_follower_count?: number; channel_url?: string; uploader_url?: string;
   thumbnails?: Array<{ id?: string; url?: string; width?: number }>; entries?: Entry[] };
 
 /** URL da aba de vídeos do canal (aceita @handle, /channel/UC…, /c/…, link de vídeo não serve). */
@@ -327,12 +327,28 @@ export function listChannelClones(s: Settings): ChannelCloneResult[] {
   return cloneStore(s).list();
 }
 
-export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { toolsDir: string; renderHtml?: RenderHtml; log: (l: string) => void; signal?: AbortSignal; progress?: (p: CloneProgress) => void; appVersion?: string }): Promise<ChannelCloneResult> {
+/** Rede do link do canal (o clone aceita YouTube, TikTok, Instagram, Facebook e Kwai). */
+export function clonePlatform(url: string): { id: 'youtube' | 'tiktok' | 'instagram' | 'facebook' | 'kwai'; label: string } {
+  const u = url.trim().toLowerCase();
+  if (/tiktok\.com/.test(u)) return { id: 'tiktok', label: 'TikTok' };
+  if (/instagram\.com/.test(u)) return { id: 'instagram', label: 'Instagram' };
+  if (/facebook\.com|fb\.com/.test(u)) return { id: 'facebook', label: 'Facebook' };
+  if (/kwai\.com|kw\.ai/.test(u)) return { id: 'kwai', label: 'Kwai' };
+  return { id: 'youtube', label: 'YouTube' };
+}
+
+export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { toolsDir: string; renderHtml?: RenderHtml; log: (l: string) => void; signal?: AbortSignal; progress?: (p: CloneProgress) => void; appVersion?: string;
+  /** perfis de TikTok/Instagram/Facebook/Kwai: lista os vídeos pela página do perfil (navegador da pesquisa + yt-dlp) */
+  listProfile?: (url: string, log: (l: string) => void, signal?: AbortSignal) => Promise<Listing> }): Promise<ChannelCloneResult> {
   const { log, signal } = o;
   let who = input.channelName ?? '';
   const step = (stage: CloneStage, pct: number, label: string) => { o.progress?.({ stage, pct: Math.round(Math.max(0, Math.min(100, pct))), label, name: who }); };
   step('list', 2, 'listando os vídeos do canal');
-  const list = await listChannel(s, input.channelUrl, log, signal);
+  const plat = clonePlatform(input.channelUrl);
+  if (plat.id !== 'youtube' && !o.listProfile) throw new Error(`clonar perfis do ${plat.label} precisa do navegador da pesquisa`);
+  const list = plat.id === 'youtube' ? await listChannel(s, input.channelUrl, log, signal) : await o.listProfile!(input.channelUrl, log, signal);
+  if (!list.entries?.length) throw new Error(`não consegui listar os vídeos do perfil no ${plat.label} (faça o login em Pesquisar → ${plat.label} → "Entrar")`);
+  const entryUrl = (id: string) => list.entries?.find((e) => e.id === id)?.url ?? `https://www.youtube.com/watch?v=${id}`;
   const srcName = list.channel ?? list.uploader ?? input.channelName ?? 'canal';
   const resume = input.resumeDir && fs.existsSync(path.join(input.resumeDir, 'videos.json')) ? path.resolve(input.resumeDir) : undefined;
   const id = resume ? path.basename(resume) : `${slugify(srcName).slice(0, 40) || 'canal'}-${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}`;
@@ -351,7 +367,7 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
   for (const [i, e] of entries.slice(0, 12).entries()) {
     const rel = `thumbs/${String(i + 1).padStart(2, '0')}.jpg`;
     if (resume && fs.existsSync(path.join(dir, rel))) { thumbs.push(rel); continue; }
-    if (await fetchTo(`https://i.ytimg.com/vi/${e.id}/hqdefault.jpg`, path.join(dir, rel), signal)) thumbs.push(rel);
+    if (await fetchTo(e.thumbnail || `https://i.ytimg.com/vi/${e.id}/hqdefault.jpg`, path.join(dir, rel), signal)) thumbs.push(rel);
   }
   const pick = (re: RegExp) => [...(list.thumbnails ?? [])].filter((t) => re.test(t.id ?? '')).sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url;
   const refs: { banner?: string; avatar?: string } = {};
@@ -370,11 +386,11 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
     const base = 12 + (k / picked.length) * 50;
     step('videos', base, `vídeo ${k + 1}/${picked.length}: baixando, quadros e transcrição`);
     try {
-      const ref: SavedRef = await prepareReference(s, dir, k + 1, { url: `https://www.youtube.com/watch?v=${pv.id}` }, 8, o.toolsDir, log, signal, 300);
+      const ref: SavedRef = await prepareReference(s, dir, k + 1, { url: entryUrl(pv.id) }, 8, o.toolsDir, log, signal, 300);
       /* medido no arquivo baixado (antes de apagar): cortes, ritmo de fala e folha de contato */
       step('videos', base + 25 / picked.length, `vídeo ${k + 1}/${picked.length}: medindo cortes, fala e folha de contato`);
       const file = fs.existsSync(path.join(dir, 'videos')) ? fs.readdirSync(path.join(dir, 'videos')).filter((f) => f.startsWith(`video${k + 1}.`) && /\.(mp4|webm|mkv|mov)$/i.test(f)).map((f) => path.join(dir, 'videos', f))[0] : undefined;
-      const a: AnalyzedVideo = { ...pv, frames: ref.frames, transcriptWords: ref.transcript?.split(/\s+/).length };
+      const a: AnalyzedVideo = { ...pv, url: entryUrl(pv.id), frames: ref.frames, transcriptWords: ref.transcript?.split(/\s+/).length };
       if (file) {
         a.metrics = await measureVideo(s.ffmpeg || 'ffmpeg', s.ffprobe || 'ffprobe', file, ref.transcript, signal);
         /* 1 QUADRO POR SEGUNDO: folhas de 12 s (4×3) em ordem — a IA lê texto/legendas/tipografia e o ritmo real */
@@ -408,7 +424,8 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
   /* provedor com visão escreve tudo */
   step('ai', 64, 'a IA está analisando o DNA do canal (visual, câmeras, roteiro, títulos, thumbnails, idiomas)');
   const { id: hid, cfg, model } = await resolveHarness(s, { type: 'harness', harness: input.harness, model: input.model });
-  const full = buildPrompt(s, input, list, metrics, videos, thumbs, refs, aspect, { analyzed, measured, titles: titleStr, phrases });
+  const full = buildPrompt(s, input, list, metrics, videos, thumbs, refs, aspect, { analyzed, measured, titles: titleStr, phrases }).replace(/canal do YouTube "/, `canal do ${plat.label} "`)
+    .replace('pronta para colar no YouTube', `pronta para colar no ${plat.label}`);
   const http = isHttpHarness(cfg);
   const env = hid === 'antigravity' ? activeAgyEnv(s) : undefined;
   const ac = signal ?? new AbortController().signal;

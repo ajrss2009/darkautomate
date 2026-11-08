@@ -1,5 +1,8 @@
 import * as assert from 'node:assert/strict';
-import { SOCIAL_SITES, cardsToVideos, extractScript, groupAuthors, isSocialPlatform, looksLikeLoginWall, parseCount, parseSocialUrl, scoreSocial, searchSocial, ytdlpEnrich } from '../main/social-search';
+import { SOCIAL_SITES, cardsToVideos, extractScript, findSocial, groupAuthors, isSocialPlatform, listProfile, looksLikeLoginWall, netscapeCookies, parseCount, parseSocialUrl, profileGridUrl,
+  scoreSocial, scrollsFor, searchSocial, toFinderVideo, ytdlpEnrich } from '../main/social-search';
+import { rankVideos } from '../main/finder';
+import { clonePlatform } from '../main/channel-clone';
 import { kindIcon, routeEngines, routeIcon, skillIcon, withIcon } from '../shared/list-icons';
 import { ROUTES } from '../main/presets';
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
@@ -80,6 +83,66 @@ async function main() {
   const kw = await searchSocial('kwai', 'piadas', { browse: async (_p, url) => ({ url, text: '', cards: [{ href: 'https://www.kwai.com/@k/video/1', text: 'piada boa' }] }) });
   assert.ok(kw.warnings.some((w) => /não mostra views/.test(w)), 'sem números visíveis: avisa');
   await assert.rejects(searchSocial('facebook', '  ', { browse: async () => ({ url: '', text: '', cards: [] }) }), /termo/);
+
+  /* ───────── mesmos critérios da aba YouTube (idiomas, período, formato, views, seguidores, até 100) ───────── */
+  const day = 864e5;
+  const iso = (d: number) => new Date(Date.now() - d * day).toISOString();
+  const browsed: string[] = [];
+  const maxes: number[] = [];
+  const deps = {
+    browse: async (_p: string, url: string, script: string) => {
+      browsed.push(url);
+      maxes.push(Number(/seen\.size >= (\d+)/.exec(script)?.[1]));
+      const q = decodeURIComponent(/q=([^&]+)/.exec(url)?.[1] ?? '');
+      const k = q === 'cake' ? 7 : 5;
+      return { url, text: '', cards: [
+        { href: `https://www.tiktok.com/@novo/video/${k}1`, text: `${q} viral` },
+        { href: `https://www.tiktok.com/@grande/video/${k}2`, text: `${q} antigo` },
+        { href: `https://www.tiktok.com/@longo/video/${k}3`, text: `${q} longo` },
+      ] };
+    },
+    ytdlp: async (urls: string[]) => urls.map((u) => {
+      const id = /video\/(\d+)/.exec(u)![1]!;
+      const kind = id.endsWith('1') ? { view_count: 900_000, like_count: 90_000, comment_count: 2000, duration: 30, timestamp: Math.round(Date.parse(iso(3)) / 1000), channel_follower_count: 2000 }
+        : id.endsWith('2') ? { view_count: 5_000_000, like_count: 10_000, duration: 40, timestamp: Math.round(Date.parse(iso(200)) / 1000), channel_follower_count: 3_000_000 }
+        : { view_count: 50_000, duration: 300, timestamp: Math.round(Date.parse(iso(5)) / 1000) };
+      return { id, ...kind };
+    }),
+  };
+  const fr = await findSocial('tiktok', { query: 'bolo', languages: ['pt', 'en'], queries: { pt: 'bolo', en: 'cake' }, period: 'month', perLanguage: 100, format: 'shorts', maxSubs: 100_000 }, deps);
+  assert.equal(fr.engine, 'browser'); assert.equal(fr.platform, 'tiktok');
+  assert.deepEqual(maxes, [100, 100], 'até 100 vídeos por idioma');
+  assert.equal(browsed.length, 2, 'uma busca por idioma (termo traduzido)'); assert.ok(browsed.some((u) => u.includes('q=cake')));
+  assert.deepEqual(fr.videos.map((v) => v.channel), ['@novo', '@novo'], 'período (200 dias fora), formato (300 s fora) e máx. de seguidores (3 mi fora)');
+  assert.ok(fr.videos.every((v) => v.platform === 'tiktok' && v.parts && v.score > 0), 'mesma nota (scoreVideo) do YouTube');
+  assert.ok(fr.videos[0]!.reasons.some((r) => /Furou a bolha|Explodiu/.test(r)), 'motivos do YouTube: views ÷ seguidores');
+  assert.equal(fr.channels[0]!.channel, '@novo'); assert.equal(fr.channels[0]!.platform, 'tiktok');
+  assert.deepEqual(fr.videos.map((v) => v.searchLang).sort(), ['en', 'pt']);
+  browsed.length = 0;
+  await findSocial('tiktok', { query: 'bolo', languages: ['pt', 'es'], period: 'any' }, deps);
+  assert.equal(browsed.length, 1, 'mesma consulta em dois idiomas = uma busca só');
+  const fv = toFinderVideo({ platform: 'kwai', id: '9', url: 'u', title: 't', author: '@k', authorUrl: 'https://www.kwai.com/@k', views: 10 }, 'pt');
+  assert.equal(fv.channelId, 'kwai:@k'); assert.equal(fv.thumb, ''); assert.equal(fv.subs, undefined);
+  const noFollowers = await findSocial('kwai', { query: 'x', languages: [], period: 'any' }, { browse: async (_p, url) => ({ url, text: '', cards: [{ href: 'https://www.kwai.com/@k/video/1', text: '12K' }] }) });
+  assert.ok(noFollowers.warnings.some((w) => /seguidores/.test(w)));
+  assert.equal(scrollsFor(100), 22); assert.equal(scrollsFor(8), 4); assert.equal(scrollsFor(1000), 40);
+
+  /* ───────── clonar perfis de outras redes ───────── */
+  assert.equal(profileGridUrl('facebook', 'https://www.facebook.com/pagina/'), 'https://www.facebook.com/pagina/videos');
+  assert.equal(profileGridUrl('tiktok', 'https://www.tiktok.com/@a?lang=pt'), 'https://www.tiktok.com/@a');
+  const prof = await listProfile('tiktok', 'https://www.tiktok.com/@novo', deps, 12);
+  assert.equal(prof.channel, '@novo'); assert.equal(prof.entries.length, 3); assert.equal(prof.channel_follower_count, 2000);
+  assert.ok(prof.entries.every((e) => e.url.startsWith('https://www.tiktok.com/@')), 'cada vídeo leva o próprio link (para baixar e analisar)');
+  assert.equal(prof.entries.find((e) => e.id.endsWith('2'))!.view_count, 5_000_000);
+  assert.deepEqual([clonePlatform('https://www.tiktok.com/@a').id, clonePlatform('instagram.com/x').id, clonePlatform('https://www.facebook.com/p').id, clonePlatform('https://www.kwai.com/@k').id, clonePlatform('https://www.youtube.com/@y').id, clonePlatform('@y').id],
+    ['tiktok', 'instagram', 'facebook', 'kwai', 'youtube', 'youtube']);
+  /* cookies da sessão de login → yt-dlp */
+  const ck = netscapeCookies([{ name: 'sessionid', value: 'abc', domain: 'instagram.com', path: '/', secure: true, expirationDate: 1800000000.4 }, { name: 'h', value: '1', domain: 'www.tiktok.com', hostOnly: true }, { name: 'x', value: 'y' }]);
+  assert.equal(ck.split('\n')[0], '# Netscape HTTP Cookie File');
+  assert.ok(ck.includes('.instagram.com\tTRUE\t/\tTRUE\t1800000000\tsessionid\tabc'));
+  assert.ok(ck.includes('www.tiktok.com\tFALSE\t/\tFALSE\t0\th\t1'), 'cookie só do host'); assert.ok(!ck.includes('\tx\ty'), 'sem domínio fica de fora');
+  const per = rankVideos([{ id: 'a', title: 'a', url: '', thumb: '', channel: 'c', views: 10, searchLang: 'pt', ageDays: 40 }, { id: 'b', title: 'b', url: '', thumb: '', channel: 'c', views: 10, searchLang: 'pt' }], { query: '', languages: ['pt'], period: 'month' });
+  assert.deepEqual(per.videos.map((v) => v.id), ['b'], 'período: data conhecida fora some; data desconhecida fica');
 
   /* ───────── ícones das listas do Novo projeto ───────── */
   assert.equal(kindIcon('Curta cartoon 3D (2D em mundo 3D)'), '🧸');

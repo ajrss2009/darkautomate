@@ -38,6 +38,17 @@ function run(exe: string, args: string[], signal?: AbortSignal): Promise<{ code:
   });
 }
 
+/**
+ * Cookies para o yt-dlp (TikTok, Instagram, Facebook, Kwai): o processo principal registra quem exporta a sessão
+ * de login da pesquisa (Pesquisar → "Entrar no …") num cookies.txt; sem sessão, nada é passado.
+ */
+let cookieProvider: ((url: string) => Promise<string | undefined>) | undefined;
+export function setCookieProvider(f: ((url: string) => Promise<string | undefined>) | undefined): void { cookieProvider = f; }
+export async function cookieArgs(url: string): Promise<string[]> {
+  if (!cookieProvider || /youtube\.com|youtu\.be/i.test(url)) return [];
+  try { const f = await cookieProvider(url); return f ? ['--cookies', f] : []; } catch { return []; }
+}
+
 /** Baixa o yt-dlp.exe na primeira utilização (GitHub releases). */
 export async function ensureYtDlp(s: Settings, log?: (l: string) => void): Promise<string> {
   const exe = ytDlpPath(s);
