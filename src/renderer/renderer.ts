@@ -9,8 +9,10 @@ import { promptComposer } from './prompt-composer';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 import { routeIcon, skillIcon, withIcon } from '../shared/list-icons';
 import { bigPreview, clampEdLayout } from '../shared/ed-layout';
+import { PRESETS, paletteBox, type Pal } from './palette-editor';
 import { renderVideosPage, type VideosCtx } from './videos-page';
 import { renderChannelsPage, type ChannelsCtx } from './channels-page';
+import { renderCharactersPage, charImage, KIND_LABEL, type CharactersCtx, type CharRow } from './characters-page';
 import { voicePicker, type NarrationVoice } from './voice-picker';
 import { AGENT_TYPES, agentType } from './agents-ui';
 import type { PluginStyle } from '../shared/types';
@@ -67,6 +69,9 @@ interface Forge {
   detach(id: string, file: string): Promise<Project>;
   setAttachment(id: string, file: string, patch: { use?: Attachment['use']; note?: string; character?: string }): Promise<Project>;
   openFolder(id: string): Promise<string>;
+  /* biblioteca de personagens e canais (Novo projeto) */
+  charactersList(): Promise<CharRow[]>;
+  channelsGet(): Promise<unknown>;
   /* storyboard do projeto (plano de cenas) e aprovação da execução pausada */
   projectStoryboard(id: string, regenerate?: boolean): Promise<unknown>;
   projectStoryboardSet(id: string, o: { enabled?: boolean; approval?: boolean }): Promise<unknown>;
@@ -815,6 +820,70 @@ async function renderNew() {
   const storyApproveCb = h('input', { type: 'checkbox', id: 'np-storyboard-approve' }) as HTMLInputElement;
   storyApproveCb.checked = true; storyApproveCb.disabled = true;
   storyCb.addEventListener('change', () => { storyApproveCb.disabled = !storyCb.checked; });
+
+  /* ── 👥 personagens da biblioteca (viram o elenco: folha como referência, aparência fixa e voz) ── */
+  const pickedChars = new Set<string>();
+  const charsBox = h('div', { class: 'card', id: 'np-characters' });
+  void guard(() => forge.charactersList()).then((list) => {
+    const rows = (list ?? []) as CharRow[];
+    const paintChars = () => charsBox.replaceChildren(...([
+      h('div', { class: 'row' }, h('strong', {}, '👥 Personagens da biblioteca'), h('span', { class: 'muted small' }, rows.length ? ` ${pickedChars.size} escolhido(s) — viram o elenco: folha como referência de imagem, aparência fixa e voz em todas as cenas` : ' nenhum ainda — crie na aba Personagens'), h('span', { class: 'sp' }),
+        h('button', { class: 'small', onclick: () => go('characters') }, '＋ Criar personagem')),
+      rows.length ? h('div', { class: 'chr-pick' }, ...rows.map((ch) => {
+        const img = charImage(forge as never, ch);
+        return h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, 'data-pick-char': ch.id, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}`,
+          onclick: () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); paintChars(); } },
+          img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name), h('small', { class: 'muted' }, KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
+      })) : null] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
+    paintChars();
+  });
+
+  /* ── 🧠 misturar skills (percentual de tempo de cada uma) ── */
+  const mixRows: Array<{ skill: HTMLSelectElement; pct: HTMLInputElement }> = [];
+  const mixMode = h('select', { id: 'np-mix-mode' }, h('option', { value: 'blocks' }, 'Em blocos (uma depois da outra)'), h('option', { value: 'interleave' }, 'Intercaladas ao longo do vídeo')) as HTMLSelectElement;
+  const mainPct = h('input', { type: 'number', min: '5', max: '95', step: '5', value: '60', class: 'num', id: 'np-mix-main' }) as HTMLInputElement;
+  const mixList = h('div', { class: 'np-mix-list' });
+  const mixSum = h('span', { class: 'muted small' });
+  const paintMixSum = () => { const t = Number(mainPct.value || 0) + mixRows.reduce((a, r) => a + Number(r.pct.value || 0), 0); mixSum.textContent = mixRows.length ? `soma ${t}% ${t === 100 ? '✓' : '(o app ajusta para 100%)'}` : ''; };
+  mainPct.addEventListener('input', paintMixSum);
+  const addMix = () => {
+    if (mixRows.length >= 3) return;
+    const sel = h('select', {}, ...skills.filter((k) => k.id !== skill.value).map((k) => h('option', { value: k.id }, withIcon(skillIcon(k), k.name)))) as HTMLSelectElement;
+    const pct = h('input', { type: 'number', min: '5', max: '95', step: '5', value: String(Math.max(5, 100 - Number(mainPct.value || 60) - mixRows.reduce((a, r) => a + Number(r.pct.value || 0), 0))), class: 'num' }) as HTMLInputElement;
+    pct.addEventListener('input', paintMixSum);
+    const row = { skill: sel, pct };
+    mixRows.push(row);
+    const el = h('div', { class: 'row' }, sel, pct, h('span', {}, '%'), h('button', { class: 'small', onclick: () => { mixRows.splice(mixRows.indexOf(row), 1); el.remove(); paintMixSum(); } }, '✕'));
+    mixList.append(el); paintMixSum();
+  };
+  const mixBox = h('details', { class: 'card', id: 'np-mix' },
+    h('summary', {}, h('strong', {}, '🧠 Misturar skills'), h('span', { class: 'muted small' }, ' (opcional) — várias skills no mesmo vídeo, com o percentual de tempo de cada uma')),
+    h('div', { class: 'muted small' }, 'A skill escolhida acima é a PRINCIPAL: ela define o roteiro, a voz, a trilha e as legendas. As outras entram em cenas próprias pela cota de tempo — o app confere a divisão depois do plano de cenas e o storyboard mostra a skill de cada cena. A rota precisa produzir os tipos de cena de todas (o app avisa se não).'),
+    h('div', { class: 'row' }, h('label', {}, 'Skill principal (%)', mainPct), h('label', {}, 'Distribuição', mixMode), mixSum),
+    mixList, h('button', { class: 'small', onclick: () => addMix() }, '＋ Adicionar skill'));
+
+  /* ── 🎨 paleta do vídeo e da thumbnail (vence a do canal e a do formato) ── */
+  const palOn = h('input', { type: 'checkbox', id: 'np-palette-on' }) as HTMLInputElement;
+  const palVideo = paletteBox('🎬 Vídeo (cenas, texto, legendas)', PRESETS[0]![1]);
+  const palThumb = paletteBox('🖼 Thumbnail', PRESETS[0]![1]);
+  const palBody = h('div', { class: 'np-pal-body' });
+  const presetRow = h('div', { class: 'row wrap' }, h('span', { class: 'muted small' }, 'Prontas:'), ...PRESETS.map(([n, p]) => {
+    const sw = h('span', { class: 'np-pal-sw' }); sw.style.background = `linear-gradient(90deg, ${p.background} 0 50%, ${p.accent} 50% 75%, ${p.secondary} 75%)`;
+    return h('button', { class: 'small', title: `${p.background} · ${p.text} · ${p.accent}`, onclick: () => { palVideo.set(p); palThumb.set(p); palOn.checked = true; palBody.hidden = false; } }, sw, n);
+  }), h('button', { class: 'small', title: 'Copia as paletas do canal de destino (aba Canais → Identidade visual)', onclick: () => void guard(async () => {
+    if (!chSel.value) { toast('Escolha o canal de destino primeiro', true); return; }
+    const st = (await forge.channelsGet()) as { list: Array<{ id: string; identity?: { palettes?: { video?: Pal; thumbnail?: Pal } } }> };
+    const ident = st.list.find((x) => x.id === chSel.value)?.identity?.palettes;
+    if (!ident?.video && !ident?.thumbnail) { toast('Esse canal ainda não tem paleta (aba Canais → Identidade visual)', true); return; }
+    if (ident.video) palVideo.set(ident.video); if (ident.thumbnail ?? ident.video) palThumb.set((ident.thumbnail ?? ident.video)!);
+    palOn.checked = true; palBody.hidden = false; toast('Paleta do canal copiada');
+  }) }, '📺 Copiar do canal'));
+  palBody.append(presetRow, h('div', { class: 'ch-pals' }, palVideo.el, palThumb.el));
+  palBody.hidden = true;
+  palOn.addEventListener('change', () => { palBody.hidden = !palOn.checked; });
+  const paletteCard = h('div', { class: 'card', id: 'np-palette' },
+    h('label', { class: 'inline chk', title: 'As cores entram nas cenas (imagem, vídeo, código), no texto na tela, nas cores da legenda e na thumbnail — e vencem a paleta do canal e a do formato' }, palOn, h('strong', {}, '🎨 Definir a paleta deste vídeo e da thumbnail')),
+    palBody);
   const defConc = Math.max(1, Math.min(8, Math.round(cfg?.defaults?.sceneConcurrency ?? 3)));
   const conc = h('input', { type: 'number', value: String(defConc), min: '1', max: '8', id: 'np-conc', class: 'num' }) as HTMLInputElement;
   /* reservas de harness deste projeto: começa com as das Configurações; vazio = padrão */
@@ -1130,6 +1199,10 @@ async function renderNew() {
       refScriptFile: refScript, refVideoFile: refVideo, refScriptUse: !!refScript && scriptUse.checked, attachFiles: attachFiles.length ? [...attachFiles] : undefined,
       subtitles: subsSel.value as 'off' | 'srt' | 'burn', audioFirst: audioFirstCb.checked, codeMusic: codeMusicCb.checked || undefined,
       storyboard: storyCb.checked ? { enabled: true, approval: storyApproveCb.checked } : undefined,
+      characterIds: pickedChars.size ? [...pickedChars] : undefined,
+      skillMix: mixRows.length ? [{ skillId: skill.value, pct: Number(mainPct.value) || 50 }, ...mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 10 }))] : undefined,
+      skillMixMode: mixRows.length ? mixMode.value as 'blocks' | 'interleave' : undefined,
+      palette: palOn.checked ? { video: palVideo.value(), thumbnail: palThumb.value() } : undefined,
       maxProductionMin: noLimit.checked ? 0 : Number(maxMin.value) || 0, sceneConcurrency: Math.max(1, Math.min(8, Number(conc.value) || 1)),
       orchestratorId: orch.value || undefined, workerIds: workerBoxes.filter((x) => x.cb.checked).map((x) => x.a.id),
       plugins: pluginBoxes.filter((x) => x.cb.checked).map((x) => x.k.id),
@@ -1178,6 +1251,9 @@ async function renderNew() {
       })),
       h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Skill (tipo de vídeo) *', skill), h('label', { class: 'grow' }, 'Rota *', route)),
       info,
+      mixBox,
+      charsBox,
+      paletteCard,
       foldBox,
       routePlan,
       voiceBox,
@@ -3015,6 +3091,7 @@ async function render() {
   else if (tab === 'skills') await renderSkills(ctx);
   else if (tab === 'providers') await renderProvidersPage(main, { forge: forge as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>, toast }, helpButton('providers'));
   else if (tab === 'channels') await renderChannelsPage({ forge: forge as unknown as ChannelsCtx['forge'], toast, main, guard });
+  else if (tab === 'characters') await renderCharactersPage({ forge: forge as unknown as CharactersCtx['forge'], toast, main, guard });
   else if (tab === 'automations') await renderAutomations({ forge: forge as unknown as AutoCtx['forge'], toast, main });
   else if (tab === 'videos') await renderVideosPage({ forge: forge as unknown as VideosCtx['forge'], toast, main, guard, newProject: (idea, skillId, foldId) => { pendingIdea = idea; pendingSkill = skillId; pendingFold = foldId; go('new'); },
     skillFromVideo: (url, ai) => { go('skills'); setTimeout(() => void openSkillFromVideos(ctx, () => go('skills'), [url], ai), 300); },

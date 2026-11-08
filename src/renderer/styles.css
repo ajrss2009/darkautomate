@@ -1039,3 +1039,24 @@ main.ed.ed-sized .ed-top { flex:none; height:var(--ed-top-h); }
 main.ed.ed-sized .tl { flex:1 1 auto; max-height:none; min-height:80px; }
 body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .ed-layout-btns { display:inline-flex; gap:6px; margin-right:10px; }
+
+/* ── Personagens (biblioteca) ── */
+.chr-cols { display:grid; grid-template-columns:minmax(220px, 300px) 1fr; gap:14px; align-items:start; }
+.chr-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:8px; max-height:72vh; overflow:auto; }
+.chr-card { display:flex; flex-direction:column; gap:4px; padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--panel); cursor:pointer; }
+.chr-card.on { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+.chr-card img, .chr-ph { width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:8px; background:var(--panel2); display:grid; place-items:center; font-size:28px; font-weight:800; color:var(--mut); }
+.chr-badges { display:flex; gap:4px; flex-wrap:wrap; }
+.chr-edit h4 { margin:14px 0 6px; }
+.chr-edit textarea { width:100%; }
+.chr-sheet { display:flex; flex-direction:column; gap:8px; }
+.chr-sheet img { max-width:100%; max-height:360px; object-fit:contain; border-radius:10px; background:var(--panel2); }
+.chr-pick { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.chr-chip { display:flex; align-items:center; gap:6px; padding:4px 10px 4px 4px; border-radius:999px; border:1px solid var(--line2); background:var(--panel2); color:var(--txt); }
+.chr-chip.on { border-color:var(--acc); background:color-mix(in srgb, var(--acc) 18%, var(--panel2)); }
+.chr-chip img, .chr-chip .chr-ph { width:32px; height:32px; aspect-ratio:auto; border-radius:50%; object-fit:cover; font-size:14px; }
+/* Novo projeto: mistura de skills e paleta */
+.np-mix-list { display:flex; flex-direction:column; gap:6px; margin:8px 0; }
+.np-mix-list select { min-width:260px; }
+.np-pal-sw { display:inline-block; width:28px; height:14px; border-radius:4px; margin-right:6px; vertical-align:middle; border:1px solid var(--line2); }
+.np-pal-body { margin-top:8px; }

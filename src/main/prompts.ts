@@ -2,7 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Project, Skill, StepKind } from '../shared/types';
 import { dnaScriptRule, dnaSfxRule, wordsPerSecond } from './channel-dna';
-import { identityPrompt } from './channel-setup';
+import { identityPrompt, paletteEnglish, projectPalettePrompt } from './channel-setup';
+import { charactersPrompt } from './characters';
+import { mixPrompt } from './skill-mix';
 import type { ExecContext } from './engine';
 import { pluginPrompt, pluginsRoot } from './plugins';
 import { smallModelBudget } from './contract';
@@ -280,7 +282,8 @@ export function visualPrompt(c: ExecContext): string {
   const vt = getVideoType(c.project.videoType);
   const s = c.scene;
   if (c.step?.kind === 'video' && isMusicClip(c.project)) return loopVideoPrompt(c);
-  return [s?.visualIntent ?? c.project.idea, s?.notes, characterLock(c.projectDir, s?.visualIntent ?? ''), c.project.videoStyle, vt?.stylePrompt, s?.camera ? `camera: ${s.camera}` : '']
+  const pal = paletteEnglish(c.project.palette?.video);
+  return [s?.visualIntent ?? c.project.idea, s?.notes, characterLock(c.projectDir, s?.visualIntent ?? ''), c.project.videoStyle, pal && `color palette: ${pal}`, vt?.stylePrompt, s?.camera ? `camera: ${s.camera}` : '']
     .filter(Boolean).join('. ');
 }
 
@@ -365,6 +368,8 @@ export function thumbnailPrompt(c: ExecContext): string {
       .replace(/on the left|on the right/gi, 'in the upper half') + ' Keep the title text inside the central safe area.';
   return base.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => ({ title, thumb_text: thumbText, style: vt?.label ?? '', idea: p.idea, aspect: p.aspect })[k] ?? '') +
     (p.skill?.steps?.['thumbnail'] ? `. ${p.skill.steps['thumbnail']}` : '') + (p.videoStyle ? `. ${p.videoStyle}` : '') +
+    /* paleta da thumbnail escolhida no Novo projeto (vence o template e o canal) */
+    (paletteEnglish(p.palette?.thumbnail ?? p.palette?.video) ? `. Color palette: ${paletteEnglish(p.palette?.thumbnail ?? p.palette?.video)}` : '') +
     (visual ? '. BACKGROUND ONLY: absolutely NO text, letters, numbers or logos in the image (the title is added later); one clear focal point, leave clean space for the title, 3-color high-contrast palette'
       : '. One clear focal point (40-60% of frame, rule of thirds), max 3 words of bold text with outline, 3-color high-contrast palette, legible at 168x94 px');
 }
@@ -919,7 +924,8 @@ export function buildPromptMarked(c: ExecContext): string {
   const availableKinds = sceneKinds.size ? `Nesta rota, os únicos tipos com etapa de produção são: ${[...sceneKinds].join(', ')}. Use SOMENTE esses tipos.` : '';
   /* identidade do canal de destino (paleta, tipografia, thumbnail): vence a do formato clonado — do clone, só a estrutura */
   const channel = p.channelId && !NO_IDENTITY_KINDS.has(c.step.kind) ? (c.settings.channels ?? []).find((x) => x.id === p.channelId) : undefined;
-  const skill = [skillText(p, c.step), userStyles(p), identityPrompt(channel, c.step.kind)].filter(Boolean).join('\n');
+  const skill = [skillText(p, c.step), userStyles(p), identityPrompt(channel, c.step.kind), projectPalettePrompt(p.palette, c.step.kind),
+    charactersPrompt(p, c.step.kind), mixPrompt(p, c.step.kind)].filter(Boolean).join('\n');
   const extra = [workerText(p, c.step), briefText(c.projectDir, c.step.kind), referenceText(p, c.step.kind),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });

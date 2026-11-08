@@ -17,6 +17,8 @@ export interface StoryboardPanel {
   from: number; to: number; durationSec: number;
   act?: string;
   narration: string; visual: string; camera?: string; kind: string; sfx?: string[];
+  /** skill da cena quando o vídeo mistura skills */
+  skill?: string;
   /** imagem já gerada para a cena (reexecução), relativa ao projeto */
   image?: string;
 }
@@ -34,7 +36,7 @@ export function planHash(scenes: Scene[]): string {
 const sceneSec = (s: Scene) => s.durationSec && s.durationSec > 0 ? s.durationSec : Math.max(2, Math.round((s.narration.split(/\s+/).filter(Boolean).length / 2.6) * 10) / 10);
 
 /** Monta o storyboard a partir das cenas (função pura). */
-export function buildStoryboard(p: Pick<Project, 'id' | 'name' | 'scenes' | 'targetDurationSec'> & { skill?: Project['skill'] }): Storyboard {
+export function buildStoryboard(p: Pick<Project, 'id' | 'name' | 'scenes' | 'targetDurationSec'> & { skill?: Project['skill']; skillMix?: Project['skillMix'] }): Storyboard {
   let t = 0;
   const total = p.scenes.reduce((a, s) => a + sceneSec(s), 0);
   const acts = actTimeline(p.skill?.formatDna?.acts, total || p.targetDurationSec);
@@ -45,7 +47,8 @@ export function buildStoryboard(p: Pick<Project, 'id' | 'name' | 'scenes' | 'tar
     const act = acts.find((a) => mid >= a.from && mid <= a.to)?.name;
     const image = Object.values(s.artifacts ?? {}).flat().find((f) => IMG.test(f));
     return { id: s.id, index: s.index, title: s.title, from: Math.round(from * 10) / 10, to: Math.round(t * 10) / 10, durationSec: d, act,
-      narration: s.narration, visual: s.visualIntent, camera: s.camera, kind: s.kind, sfx: s.sfx?.length ? s.sfx : undefined, image };
+      narration: s.narration, visual: s.visualIntent, camera: s.camera, kind: s.kind, sfx: s.sfx?.length ? s.sfx : undefined, image,
+      skill: p.skillMix ? (s.skillOverride?.name ?? p.skill?.name) : undefined };
   });
   return { project: p.id, name: p.name, hash: planHash(p.scenes), createdAt: new Date().toISOString(), totalSec: Math.round(t * 10) / 10, panels };
 }
@@ -59,7 +62,7 @@ export function storyboardHtml(b: Storyboard, projectDir: string): string {
     const abs = x.image ? (path.isAbsolute(x.image) ? x.image : path.join(projectDir, x.image)) : '';
     const img = abs ? `<img src="${esc(encodeURI(`file:///${abs.replace(/\\/g, '/').replace(/^\/+/, '')}`))}" alt="">` : `<div class="ph">${esc(x.kind)}</div>`;
     return `<article><div class="frame">${img}<span class="n">${x.index}</span><span class="t">${mmss(x.from)}–${mmss(x.to)}</span></div>
-<h3>${esc(x.title)}</h3>${x.act ? `<div class="act">${esc(x.act)}</div>` : ''}
+<h3>${esc(x.title)}</h3>${x.act ? `<div class="act">${esc(x.act)}</div>` : ''}${x.skill ? `<div class="act">🧠 ${esc(x.skill)}</div>` : ''}
 <p class="v"><b>Visual:</b> ${esc(x.visual)}</p>${x.camera ? `<p class="c"><b>Câmera:</b> ${esc(x.camera)}</p>` : ''}
 <p class="nar">“${esc(x.narration)}”</p>${x.sfx ? `<p class="sfx">🔊 ${x.sfx.map(esc).join(', ')}</p>` : ''}</article>`;
   }).join('\n');

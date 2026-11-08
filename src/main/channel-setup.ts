@@ -236,6 +236,20 @@ export function setupStatus(ch: Channel): { done: SetupStep[]; next?: SetupStep 
   return { done, next: SETUP_ORDER.find((s) => !ok[s]) };
 }
 
+/** Paleta em inglês para prompts de imagem ("background #0b0b10, text #ffffff, accent #ffcc00, dark mode"). */
+export function paletteEnglish(p?: PaletteSpec): string {
+  if (!p) return '';
+  return [p.background && `background ${p.background}`, p.text && `text ${p.text}`, p.accent && `accent ${p.accent}`, p.secondary && `secondary ${p.secondary}`, p.mode && `${p.mode} mode`].filter(Boolean).join(', ');
+}
+
+/** Bloco da PALETA DO PROJETO (Novo projeto) — vence a do canal e a do formato. Função pura. */
+export function projectPalettePrompt(pal: { video?: PaletteSpec; thumbnail?: PaletteSpec } | undefined, step?: string): string {
+  if (!pal || !step || ['narration', 'transcribe', 'music', 'sfx', 'publish', 'edit'].includes(step)) return '';
+  const p = step === 'thumbnail' ? pal.thumbnail ?? pal.video : pal.video;
+  if (!p?.background && !p?.accent) return '';
+  return `PALETA DESTE PROJETO (escolhida pelo usuário — VENCE a do canal, da skill e do formato de referência): fundo ${p.background ?? '—'}, texto ${p.text ?? '—'}, destaque ${p.accent ?? '—'}${p.secondary ? `, apoio ${p.secondary}` : ''}${p.mode ? ` (modo ${p.mode})` : ''}${p.contrast ? `, contraste ${p.contrast}:1` : ''}. Use essas cores em fundos, texto na tela, gráficos e destaques.`;
+}
+
 /**
  * Bloco de IDENTIDADE DO CANAL para os prompts da produção: paleta dos vídeos, tipografia e thumbnail do canal
  * do usuário. Vence a paleta/tipografia do formato clonado (o clone dá só a estrutura).

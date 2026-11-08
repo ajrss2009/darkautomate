@@ -891,7 +891,9 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
     const prompt = k === 'thumbnail' ? thumbnailPrompt(c) : visualPrompt(c);   // proporção, duração e "1 mídia" entram no pedido ao agente (flowPrompt)
     c.log(`Flow (conta "${acc.label}"): gerando ${media === 'image' ? 'imagem' : 'vídeo'}…`);
     const dest = primaryFile(k, c);
-    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30),
+    /* personagens da cena (biblioteca/elenco): folha ou retrato como referência, na ordem em que aparecem */
+    const refs = c.scene && k !== 'thumbnail' ? charactersInScene(c.projectDir, c.scene, 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file)) : [];
+    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
       aspect: c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });
     // formato que a montagem espera: frame.png / thumbnail.png / clip.mp4

@@ -12,6 +12,7 @@ import { autoCast } from './cast';
 import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
 import { pluginsRoot } from './plugins';
 import { needsApproval, writeStoryboard } from './project-storyboard';
+import { applySkillMix } from './skill-mix';
 
 export interface ExecContext {
   project: Project;
@@ -353,6 +354,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
             throw new Error('o plano de cenas ficou vazio (scenes.json sem cenas) — execute de novo para refazer o plano');
           }
           fitKinds();
+          /* várias skills: cada cena recebe a dela pela cota de tempo (blocos ou intercaladas) */
+          const shares = applySkillMix(project);
+          if (shares) emit({ t: 'log', stepId: step.id, line: `skills por cena: ${(project.skillMix?.items ?? []).map((m) => `${m.name} ${shares[m.skillId] ?? 0}% (pedido ${m.pct}%)`).join(' · ')}` });
           emitProgress(true);      // as cenas apareceram: o progresso passa a ser por cenas
         }
         /* história com elenco: a bíblia e as falas definem o elenco (uma voz distinta por personagem) */

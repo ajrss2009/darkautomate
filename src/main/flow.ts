@@ -157,6 +157,14 @@ export interface FlowJob {
   aspect?: string; seconds?: number;
   /** projeto do Flow já usado por esta conta (abre direto nele) e aviso do projeto atual para lembrar */
   projectUrl?: string; onProject?: (url: string) => void;
+  /** folhas/retratos dos personagens da cena (na ordem em que aparecem): enviadas como referência antes do pedido */
+  refs?: Array<{ name: string; file: string }>;
+}
+
+/** Com referências, o pedido diz quem é quem (a ordem dos anexos = a ordem dos personagens). Função pura. */
+export function flowRefsText(refs: Array<{ name: string }> | undefined): string {
+  if (!refs?.length) return '';
+  return ` Use as imagens anexadas como referência de personagem (mesmo rosto, cabelo, corpo e roupa): ${refs.map((r, i) => `imagem ${i + 1} = ${r.name}`).join('; ')}.`;
 }
 /** Proporções que o Flow oferece: imagem 16:9/4:3/1:1/3:4/9:16; vídeo 16:9/9:16. */
 export function flowAspect(media: 'image' | 'video', aspect = '16:9'): string {
@@ -212,6 +220,23 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     const cfgDone = await evaluate<string>(cdp, session, configure(job.media, flowAspect(job.media, job.aspect)), 15_000).catch((e) => `falhou (${(e as Error).message})`);
     job.log(`Flow: configurações → ${cfgDone}`);
     await wait(500);
+    /* personagens: envia as folhas pelo campo de arquivo do Flow (melhor esforço — sem o campo, segue só com o texto) */
+    let refsOk = 0;
+    if (job.refs?.length) {
+      try {
+        await cdp.send('DOM.enable', {}, session);
+        const doc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true }, session) as { root: { nodeId: number } };
+        const q = await cdp.send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: 'input[type=file]' }, session) as { nodeIds: number[] };
+        const nodeId = q.nodeIds?.[0];
+        if (nodeId) {
+          await cdp.send('DOM.setFileInputFiles', { nodeId, files: job.refs.map((r) => path.resolve(r.file)) }, session);
+          refsOk = job.refs.length;
+          job.log(`Flow: ${refsOk} referência(s) de personagem enviada(s) (${job.refs.map((r) => r.name).join(', ')})`);
+          await wait(4000);   // o Flow sobe as imagens antes do pedido
+        } else job.log('Flow: campo de anexo não encontrado — o pedido segue só com a descrição dos personagens');
+      } catch (e) { job.log(`Flow: não consegui anexar os personagens (${(e as Error).message.slice(0, 120)}) — segue só com o texto`); }
+    }
+    if (refsOk) job.prompt = job.prompt + flowRefsText(job.refs);
     const before = new Set((await evaluate<typeof probe>(cdp, session, PROBE, 10_000)).medias);
     // 3) prompt com teclado real e envio
     const pt = await evaluate<{ x: number; y: number } | null>(cdp, session, EDITOR_POINT, 10_000);

@@ -14,6 +14,8 @@ const ICONS: Record<string, Shape[]> = {
   providers: [P('M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0'), ['circle', { cx: '16', cy: '6', r: '2' }], ['circle', { cx: '10', cy: '12', r: '2' }], ['circle', { cx: '18', cy: '18', r: '2' }]],
   automations: [P('M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z')],
   videos: [P('M3 5h18v14H3zM10 9l5 3-5 3z')],
+  /* biblioteca de personagens: duas pessoas */
+  characters: [['circle', { cx: '9', cy: '8', r: '3.2' }], P('M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6'), ['circle', { cx: '17', cy: '9', r: '2.6' }], P('M15.5 14.3c3 .2 5.5 2.3 5.5 5.7')],
   /* canais próprios: TV com antena */
   channels: [['rect', { x: '3', y: '7', width: '18', height: '13', rx: '2' }], P('M8 3l4 4 4-4'), P('M10 11v5l4-2.5z')],
   plugins: [P('M9 3h6v4h2a2 2 0 0 1 2 2v2h-4v2h4v4a2 2 0 0 1-2 2h-4v-3h-2v3H7a2 2 0 0 1-2-2v-4h3v-2H5V9a2 2 0 0 1 2-2h2z')],

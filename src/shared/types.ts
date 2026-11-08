@@ -471,6 +471,13 @@ export interface Project {
   channelId?: string;
   /** storyboard depois do plano de cenas (opcionalmente com aprovação do usuário) */
   storyboard?: StoryboardOptions;
+  /** personagens da biblioteca usados neste projeto (cópia congelada) */
+  characters?: ProjectCharacter[];
+  /** várias skills com percentual de tempo; as cópias das secundárias ficam em skillMixSkills */
+  skillMix?: { items: SkillMixItem[]; mode: 'blocks' | 'interleave'; warnings?: string[] };
+  skillMixSkills?: Skill[];
+  /** paleta escolhida no Novo projeto (vence a do canal e a do formato) */
+  palette?: { video?: PaletteSpec; thumbnail?: PaletteSpec };
   /** voz da narração escolhida NESTE projeto (vence a da rota): arquivo da pasta voices (OmniVoice/Wan2GP) e/ou voz de API */
   narrationVoice?: { refAudio?: string; apiVoice?: string };
   subtitleStyle?: SubtitleStyle;
@@ -753,6 +760,40 @@ export interface FormatDna {
   music?: { bpm?: number; silenceBeforeReveal?: boolean; cutsOnBeat?: boolean; genreByAct?: string[] };
   voiceProcessing?: string;
 }
+
+/**
+ * Personagem da BIBLIOTECA (workspace/library/characters/<id>/): reutilizável em doramas, histórias e vídeos por
+ * código. A folha de personagem (frente/perfil/costas + expressões) é a referência visual; a voz fica fixa.
+ */
+export interface LibraryCharacter {
+  id: string;
+  name: string;
+  /** pessoa (foto-realista), cartoon/animação, desenho por código, animal/criatura, outro */
+  kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro';
+  /** descrição livre do criador (personalidade, história, papel) */
+  description?: string;
+  /** aparência FIXA, uma frase objetiva — vai em todos os prompts de imagem/vídeo */
+  look: string;
+  gender?: 'f' | 'm' | '?';
+  age?: string;
+  /** voz: arquivo da pasta voices (clonagem), voz de API e como ela soa */
+  voice?: { refAudio?: string; apiVoice?: string; description?: string };
+  /** como desenhar o personagem POR CÓDIGO (formas, cores hex, traço, proporções) */
+  code?: string;
+  /** arquivos (relativos à pasta do personagem): folha de personagem, retrato e extras */
+  sheet?: string;
+  portrait?: string;
+  images?: string[];
+  tags?: string[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** Personagem da biblioteca congelado no projeto (a biblioteca pode mudar depois). */
+export interface ProjectCharacter { id: string; name: string; look: string; kind: LibraryCharacter['kind']; voice?: LibraryCharacter['voice']; code?: string; description?: string }
+
+/** Mistura de skills: a principal (1ª) dá roteiro/voz/trilha/legenda; as cenas se dividem pelo percentual de tempo. */
+export interface SkillMixItem { skillId: string; name: string; pct: number }
 
 /** Storyboard do projeto: gerado do plano de cenas; pode exigir aprovação antes de produzir as cenas. */
 export interface StoryboardOptions {

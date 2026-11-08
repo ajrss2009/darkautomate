@@ -9,6 +9,10 @@ import { applyProfile, applyQuality, getVideoType, type Profile } from './preset
 import { allProfiles, applyExecutorProfile, applyStepBindings, profileSkips } from '../shared/profiles';
 import { pluginRecommendations } from './plugins';
 import { dnaSceneSec, dnaSubtitleStyle } from './channel-dna';
+import { normalizePalette } from './channel-setup';
+import { applyCharacters } from './characters';
+import { normalizeMix } from './skill-mix';
+import { routeSceneKinds } from './prompts';
 
 export const DEFAULT_SNAPGEN_PROVIDER: Settings['providers'][number] = {
   id: 'snapgen', kind: 'snapgen', baseUrl: 'https://api.snapgen.ai', apiKey: '',
@@ -142,6 +146,13 @@ export interface NewProjectInput {
   codeMusic?: boolean;
   /** criar storyboard depois do plano de cenas; approval = pausar até o usuário aprovar */
   storyboard?: { enabled?: boolean; approval?: boolean };
+  /** personagens da biblioteca (ids) */
+  characterIds?: string[];
+  /** várias skills com percentual (a 1ª é a principal e deve ser a skillId) */
+  skillMix?: Array<{ skillId: string; pct: number }>;
+  skillMixMode?: 'blocks' | 'interleave';
+  /** paleta do vídeo e da thumbnail escolhida no Novo projeto */
+  palette?: Project['palette'];
 }
 
 /** Coletânea: mínimo/máximo em minutos (1–240) e faixa de 60–300 s; a duração alvo fica no meio. */
@@ -276,10 +287,28 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
   /* DNA do formato (skill de canal clonado) + identidade do canal de destino: legenda e duração de cena saem dos números */
   const fdna = skill?.formatDna;
   const destCh = project.channelId ? (s.channels ?? []).find((c) => c.id === project.channelId) : undefined;
-  if (project.subtitleStyle && (fdna || destCh?.identity)) project.subtitleStyle = dnaSubtitleStyle(project.subtitleStyle, fdna, destCh?.identity);
+  /* paleta do Novo projeto (vence a do canal): cores recalculadas (papéis, contraste) */
+  const pv = normalizePalette(input.palette?.video), pt = normalizePalette(input.palette?.thumbnail);
+  if (pv || pt) project.palette = { video: pv, thumbnail: pt };
+  const ident = pv ? { palettes: { video: pv }, typography: destCh?.identity?.typography } : destCh?.identity;
+  if (project.subtitleStyle && (fdna || ident)) project.subtitleStyle = dnaSubtitleStyle(project.subtitleStyle, fdna, ident);
   if (!project.sceneSec && dnaSceneSec(fdna)) project.sceneSec = dnaSceneSec(fdna);
+  /* várias skills com percentual: a principal é a skill do projeto; as outras ficam congeladas no projeto */
+  if (skill && (input.skillMix?.length ?? 0) >= 2) {
+    const items = normalizeMix(input.skillMix!, skill.id);
+    const others = items.slice(1).map((m) => getSkill(s, m.skillId)).filter((k): k is Skill => !!k);
+    if (others.length) {
+      const all = [skill, ...others];
+      const kinds = routeSceneKinds(project);
+      const warnings = others.map((k) => { const want = getVideoType(k.appearance ?? 'custom')?.sceneKind; return want && kinds.size && !kinds.has(want) ? `a rota "${route.name}" não produz cenas "${want}" (usadas por "${k.name}") — elas viram o tipo que a rota produz` : ''; }).filter(Boolean);
+      project.skillMix = { items: items.filter((m) => all.some((k) => k.id === m.skillId)).map((m) => ({ ...m, name: all.find((k) => k.id === m.skillId)!.name })), mode: input.skillMixMode === 'interleave' ? 'interleave' : 'blocks', warnings: warnings.length ? warnings : undefined };
+      project.skillMixSkills = others.map((k) => JSON.parse(JSON.stringify(k)) as Skill);
+    }
+  }
   const dir = projectDirOf(s, id);
   fs.mkdirSync(dir, { recursive: true });
+  /* personagens da biblioteca: folha como foto de personagem, elenco, bíblia e cópia congelada */
+  if (input.characterIds?.length) applyCharacters(s, project, dir, input.characterIds);
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(project, null, 2));
   return project;
 }

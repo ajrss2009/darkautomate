@@ -20,6 +20,8 @@ import { analyticsLine, analyzeChannel } from './channel-analytics';
 import { enginesFromRoute, estimateCost, normalizeProducts, productsPrompt, type CostInput } from './clone-business';
 import { dnaSceneSec } from './channel-dna';
 import { planHash, readStoryboard, writeStoryboard } from './project-storyboard';
+import * as characters from './characters';
+import type { LibraryCharacter } from '../shared/types';
 import { SOCIAL_SITES, findSocial, isSocialPlatform, listProfile, netscapeCookies, searchSocial, type SocialPlatform } from './social-search';
 import { cookieArgs, ensureYtDlp, setCookieProvider } from './youtube';
 import { bindingLabel } from '../shared/types';
@@ -1720,6 +1722,19 @@ function registerIpc() {
     return out;
   });
   /** Ouvir a voz da narração no idioma do projeto (mesmo executor da etapa; resultado em cache). */
+  /* ── biblioteca de personagens (folha de personagem, aparência fixa, voz, desenho por código) ── */
+  h('characters:list', () => characters.listCharacters(settings).map((c) => ({ ...c, dir: characters.charDir(settings, c.id) })));
+  h('characters:save', (c: Partial<LibraryCharacter>) => characters.saveCharacter(settings, c));
+  h('characters:delete', (id: string) => { characters.deleteCharacter(settings, id); return true; });
+  h('characters:add-image', async (id: string, role: 'sheet' | 'portrait' | 'extra') => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Imagem do personagem', properties: ['openFile'], filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return characters.addCharacterImage(settings, id, r.filePaths[0], role);
+  });
+  h('characters:sheet-prompt', (id: string) => characters.sheetPrompt(characters.getCharacter(settings, id)));
+  h('characters:generate-sheet', (id: string, binding: Binding) => characters.generateCharacterSheet(settings,
+    createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }), id, binding,
+    (line) => send({ t: 'log', line: `personagem: ${line}` } as EngineEvent)));
   h('voice:preview', (i: VoicePreviewInput) => voicePreview(settings, createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }), i,
     (line) => send({ t: 'log', line: `prévia de voz: ${line}` } as EngineEvent)));
   /** Efeitos pedidos (ou escolhidos pela IA) sincronizados com o que acontece no visual; regera a faixa das cenas. */
