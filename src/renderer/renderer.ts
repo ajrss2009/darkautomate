@@ -7,6 +7,7 @@ import { renderPluginsPage, type PluginsCtx } from './plugins-page';
 import { designTemplateCards, openThumbStudio, thumbPreview } from './thumb-studio';
 import { promptComposer } from './prompt-composer';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
+import { routeIcon, skillIcon, withIcon } from '../shared/list-icons';
 import { renderVideosPage, type VideosCtx } from './videos-page';
 import { renderChannelsPage, type ChannelsCtx } from './channels-page';
 import { voicePicker, type NarrationVoice } from './voice-picker';
@@ -65,6 +66,11 @@ interface Forge {
   detach(id: string, file: string): Promise<Project>;
   setAttachment(id: string, file: string, patch: { use?: Attachment['use']; note?: string; character?: string }): Promise<Project>;
   openFolder(id: string): Promise<string>;
+  /* storyboard do projeto (plano de cenas) e aprovação da execução pausada */
+  projectStoryboard(id: string, regenerate?: boolean): Promise<unknown>;
+  projectStoryboardSet(id: string, o: { enabled?: boolean; approval?: boolean }): Promise<unknown>;
+  projectApprove(id: string, ok: boolean): Promise<unknown>;
+  openPath(file: string): Promise<string>;
   projectsRoot(): Promise<string>;
   openProjectsRoot(): Promise<string>;
   setProjectsDir(dir: string, move: boolean): Promise<{ dir: string; moved: number }>;
@@ -274,7 +280,10 @@ forge.onEvent((e) => {
     case 'step.done': pushLog('l-ok', `${where(e)} ✓ ${e.binding}`); for (const f of e.files ?? []) if (MEDIA_RE.test(f)) pushPreview(f); break;
     case 'step.failed': pushLog('l-bad', `${where(e)} ✗ ${e.reason}`); break;
     case 'step.skipped': pushLog('muted', `${where(e)} pulado: ${e.reason}`); break;
-    case 'gate.waiting': pushLog('l-fb', `${where(e)} aguardando aprovação`); break;
+    case 'gate.waiting':
+      pushLog('l-fb', `${where(e)} aguardando aprovação`);
+      if (e.projectId) void openStoryboardModal(e.projectId, true);
+      break;
     case 'log': if (e.line.startsWith('@file:')) pushPreview(e.line.slice(6)); else pushLog(e.line.startsWith('[stderr]') ? 'l-fb' : 'muted', `${where(e)} ${e.line}`); break;
     case 'run.progress':
       runProgress = { mode: e.mode, done: e.done, total: e.total, etaMs: e.etaMs, elapsedMs: e.elapsedMs, label: e.label };
@@ -666,6 +675,46 @@ async function openThumbModelModal(onDone: (tpl: ThumbnailTemplate) => void) {
   document.body.append(bg);
 }
 
+/**
+ * Storyboard do projeto: quadros do plano de cenas (tempo, ato, visual, câmera, narração, efeitos).
+ * waiting = a execução está pausada esperando a resposta (Aprovar segue; Reprovar para a execução).
+ */
+interface BoardPanel { id: string; index: number; title: string; from: number; to: number; act?: string; narration: string; visual: string; camera?: string; kind: string; sfx?: string[]; image?: string }
+let storyboardOpen = '';
+async function openStoryboardModal(projectId: string, waiting = false) {
+  if (storyboardOpen === projectId) return;
+  const r = await guard(() => (forge.projectStoryboard(projectId) as Promise<{ board: { name: string; hash: string; totalSec: number; panels: BoardPanel[] }; html: string; approved: boolean; waiting: boolean; options?: { approval?: boolean } }>));
+  if (!r) return;
+  storyboardOpen = projectId;
+  const close = () => { storyboardOpen = ''; bg.remove(); };
+  const live = waiting || r.waiting;
+  const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+  const dir = (await guard(() => forge.getProject(projectId)) as { dir?: string } | undefined)?.dir;
+  const grid = h('div', { class: 'sb-grid' }, ...r.board.panels.map((p) => h('div', { class: 'sb-card' },
+    p.image ? h('img', { src: forge.mediaUrl(/^[a-z]:|^\//i.test(p.image) || !dir ? p.image : `${dir}/${p.image}`), alt: '' }) : null,
+    h('div', { class: 'sb-head' }, h('span', { class: 'sb-n' }, String(p.index)), h('strong', {}, p.title), h('span', { class: 'sp' }), h('span', { class: 'muted' }, `${mmss(p.from)}–${mmss(p.to)}`)),
+    p.act ? h('span', { class: 'sb-act' }, p.act) : null,
+    h('p', {}, h('b', {}, 'Visual: '), p.visual), p.camera ? h('p', {}, h('b', {}, 'Câmera: '), p.camera) : null,
+    h('p', { class: 'muted' }, `“${p.narration}”`), p.sfx?.length ? h('p', { class: 'muted' }, `🔊 ${p.sfx.join(', ')}`) : null)));
+  const answer = async (ok: boolean) => {
+    const res = await guard(() => (forge.projectApprove(projectId, ok) as Promise<{ live: boolean }>));
+    if (!res) return;
+    toast(ok ? (res.live ? 'Storyboard aprovado — a produção continua' : 'Storyboard aprovado — vale na próxima execução') : 'Storyboard reprovado — a execução parou; ajuste as cenas e execute de novo', !ok);
+    close();
+  };
+  const bg = h('div', { class: 'modal-bg', id: 'storyboard-modal' }, h('div', { class: 'modal pmodal' },
+    h('div', { class: 'row' }, h('h3', {}, `🎞 Storyboard — ${r.board.name}`), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
+    h('div', { class: 'muted' }, `${r.board.panels.length} quadros · ${mmss(r.board.totalSec)}${live ? ' · ⏸ a execução está esperando sua aprovação' : r.approved ? ' · ✓ este plano já foi aprovado' : ''}`),
+    grid,
+    h('div', { class: 'row actions' },
+      h('button', { onclick: () => void guard(() => forge.openPath(r.html)) }, '🌐 Abrir no navegador (imprimir/PDF)'),
+      h('button', { onclick: () => void guard(async () => { close(); await forge.projectStoryboard(projectId, true); void openStoryboardModal(projectId, live); }) }, '↻ Atualizar'),
+      h('span', { class: 'sp' }),
+      live || !r.approved ? h('button', { class: 'tbtn regen', onclick: () => void answer(false) }, live ? '✗ Reprovar (parar)' : '✗ Fechar sem aprovar') : null,
+      live || !r.approved ? h('button', { class: 'primary', onclick: () => void answer(true) }, '✓ Aprovar storyboard') : null)));
+  document.body.append(bg);
+}
+
 async function openThumbModal(currentId: string, onPick: (id: string) => void) {
   const s = await forge.getSettings();
   const list = s.thumbnails ?? [];
@@ -727,9 +776,11 @@ async function renderNew() {
   const ideaLbl = h('span', {}, 'Ideia / prompt simples (o sistema acrescenta a skill, os estilos, o idioma e as referências)');
   const builtin = skills.filter((k) => k.builtin), mine = skills.filter((k) => !k.builtin);
   const skill = h('select', { id: 'np-skill' }, h('option', { value: '' }, '— escolha uma skill (tipo de vídeo) —'),
-    h('optgroup', { label: 'Tipos de vídeo (padrão)' }, ...builtin.map((k) => h('option', { value: k.id }, k.name))),
-    mine.length ? h('optgroup', { label: 'Minhas skills' }, ...mine.map((k) => h('option', { value: k.id }, k.name))) : null) as HTMLSelectElement;
-  const route = h('select', { id: 'np-route' }, h('option', { value: '' }, '— escolha uma rota —'), ...meta.routes.map((r) => h('option', { value: r.id }, r.name))) as HTMLSelectElement;
+    h('optgroup', { label: '🎬 Tipos de vídeo (padrão)' }, ...builtin.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))),
+    mine.length ? h('optgroup', { label: '🧠 Minhas skills' }, ...mine.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))) : null) as HTMLSelectElement;
+  /* ícone da rota = tipo de vídeo + quem executa (🖥️ GPU local, ☁️ API, 🌊 Google Flow) */
+  const route = h('select', { id: 'np-route', title: 'Ícones: 🖥️ GPU local (ComfyUI/Wan2GP) · ☁️ API na nuvem · 🌊 Google Flow' }, h('option', { value: '' }, '— escolha uma rota —'),
+    ...meta.routes.map((r) => h('option', { value: r.id, title: r.description ?? '' }, withIcon(routeIcon(r), r.name)))) as HTMLSelectElement;
   const scriptStyle = h('textarea', { id: 'np-script-style', rows: '3', placeholder: 'Opcional. Ex.: tom bem-humorado, frases curtas, começar com uma pergunta provocativa, falar em 2ª pessoa ("você")…' });
   const videoStyle = h('textarea', { id: 'np-video-style', rows: '3', placeholder: 'Opcional. Ex.: paleta azul e laranja, traço grosso, câmera sempre em movimento lento, sem texto na tela…' });
   const musicStyle = h('textarea', { id: 'np-music-style', rows: '2', placeholder: 'Opcional (clipes musicais). Ex.: lo-fi, chill, vinil, café, noturno, instrumental.' });
@@ -758,6 +809,11 @@ async function renderNew() {
   const subsSel = subtitlesSelect('np-subs', cfg?.defaults?.subtitles ?? 'off');
   const audioFirstCb = h('input', { type: 'checkbox', id: 'np-audio-first' }) as HTMLInputElement; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true;
   const codeMusicCb = h('input', { type: 'checkbox', id: 'np-code-music' }) as HTMLInputElement;
+  /* storyboard depois do plano de cenas; com aprovação, a execução pausa até você aprovar */
+  const storyCb = h('input', { type: 'checkbox', id: 'np-storyboard' }) as HTMLInputElement;
+  const storyApproveCb = h('input', { type: 'checkbox', id: 'np-storyboard-approve' }) as HTMLInputElement;
+  storyApproveCb.checked = true; storyApproveCb.disabled = true;
+  storyCb.addEventListener('change', () => { storyApproveCb.disabled = !storyCb.checked; });
   const defConc = Math.max(1, Math.min(8, Math.round(cfg?.defaults?.sceneConcurrency ?? 3)));
   const conc = h('input', { type: 'number', value: String(defConc), min: '1', max: '8', id: 'np-conc', class: 'num' }) as HTMLInputElement;
   /* reservas de harness deste projeto: começa com as das Configurações; vazio = padrão */
@@ -1072,6 +1128,7 @@ async function renderNew() {
       musicStyle: musicStyle.value.trim() || undefined, musicMode: musicMode.value as 'instrumental' | 'song', musicMinMin: Number(musMin.value) || undefined, musicMaxMin: Number(musMax.value) || undefined, musicTrackSec: Number(musTrack.value) || undefined, waveform: waveform.value as 'line' | 'bar' | 'p2p' | 'cline' | 'dot',
       refScriptFile: refScript, refVideoFile: refVideo, refScriptUse: !!refScript && scriptUse.checked, attachFiles: attachFiles.length ? [...attachFiles] : undefined,
       subtitles: subsSel.value as 'off' | 'srt' | 'burn', audioFirst: audioFirstCb.checked, codeMusic: codeMusicCb.checked || undefined,
+      storyboard: storyCb.checked ? { enabled: true, approval: storyApproveCb.checked } : undefined,
       maxProductionMin: noLimit.checked ? 0 : Number(maxMin.value) || 0, sceneConcurrency: Math.max(1, Math.min(8, Number(conc.value) || 1)),
       orchestratorId: orch.value || undefined, workerIds: workerBoxes.filter((x) => x.cb.checked).map((x) => x.a.id),
       plugins: pluginBoxes.filter((x) => x.cb.checked).map((x) => x.k.id),
@@ -1152,6 +1209,8 @@ async function renderNew() {
         h('label', { title: 'Legendas do que se fala. Dá para mudar depois no editor (cartão "Legendas") e renderizar de novo, sem refazer as cenas.' }, 'Legendas', subsSel),
         h('label', { class: 'inline chk', title: 'Gera a narração e a transcrição de TODAS as cenas primeiro (rápido, em paralelo) e depois os clipes. A duração total sai logo e a GPU local não alterna entre o modelo de voz e o de vídeo a cada cena.' }, audioFirstCb, '🎙 Narrar todas as cenas primeiro'),
         h('label', { class: 'inline chk', title: 'Trilha sintetizada por código, sem IA e offline, com a duração exata do vídeo e o clima da skill. Vale para qualquer rota; a trilha da rota fica de reserva.' }, codeMusicCb, '🎼 Trilha por código'),
+        h('label', { class: 'inline chk', title: 'Depois do plano de cenas, monta o storyboard (um quadro por cena: tempo, ato, visual, câmera, narração e efeitos) em out/storyboard.html.' }, storyCb, '🎞 Criar storyboard'),
+        h('label', { class: 'inline chk', title: 'A execução pausa depois do storyboard até você aprovar (a aprovação vale enquanto o plano não mudar). Desmarcado: só cria o storyboard e segue.' }, storyApproveCb, '⏸ Pedir minha aprovação antes de seguir'),
         h('label', { title: 'standard: normal · depth/polished: +1 tentativa · verified: + revisão com nota · ultra: revisão + refaz cenas fracas automaticamente' }, 'Qualidade', quality),
         h('label', { title: FREE_ENGINE_TIP }, '🎞 Vídeo livre', npFreeEngine),
         h('div', { class: 'grow', title: 'Se o provedor de uma etapa falhar (ex.: Ollama), estes assumem, na ordem dos cliques. Começa com as reservas padrão das Configurações → Provedores.' },
@@ -2810,6 +2869,15 @@ function renderEditor(keepScroll = false) {
       p.route ? h('button', { id: 'btn-bypass', class: p.executorBypass?.enabled ? 'primary' : '', disabled: runningIds.has(p.id),
         title: 'Força um harness/modelo nas etapas de IA deste projeto, sem mexer na rota (liga/desliga)',
         onclick: () => openBypassModal(p) }, p.executorBypass?.enabled ? `⚡ Bypass: ${p.executorBypass.binding.harness}${p.executorBypass.binding.model ? '/' + p.executorBypass.binding.model : ''}` : '⚡ Bypass') : null,
+      p.scenes.length ? h('button', { id: 'btn-storyboard', title: p.storyboard?.enabled ? `Storyboard do plano de cenas${p.storyboard.approval ? ' — com aprovação antes de produzir' : ''}` : 'Gera o storyboard do plano de cenas (quadro por cena) — pode ligar a aprovação antes da produção',
+        onclick: () => void guard(async () => {
+          if (!p.storyboard?.enabled) {
+            const want = await askConfirm('Ligar o storyboard neste projeto? Nas próximas execuções, depois do plano de cenas, a produção pausa até você aprovar o storyboard.');
+            await forge.projectStoryboardSet(p.id, { enabled: true, approval: want });
+            current = await forge.getProject(p.id);
+          }
+          void openStoryboardModal(p.id);
+        }) }, `🎞 Storyboard${p.storyboard?.approvedHash ? ' ✓' : ''}`) : null,
       h('button', { onclick: () => void forge.openFolder(p.id) }, 'Abrir pasta')),
     progressNode(),
     ...(preflight && preflight.projectId === p.id && preflight.steps.some((s) => s.harness)

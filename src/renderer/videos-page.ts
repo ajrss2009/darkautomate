@@ -1,7 +1,8 @@
 import { YT_VIDEO_TYPES, ytTypeKeyword, ytVideoType } from '../shared/yt-video-types';
 import { askConfirm, showMessage } from './dialogs';
+import { modelingCoverage } from '../shared/modeling';
 
-/* Aba PESQUISAR: YouTube (vídeos que arrebentam, com pontuação e motivos), TikTok e Facebook (em breve). */
+/* Aba PESQUISAR: YouTube (vídeos que arrebentam, com pontuação e motivos) e TikTok, Instagram, Facebook e Kwai (sem API, pela página de busca). */
 
 type Child = Node | string | null | undefined | false;
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string | boolean | ((e: Event) => void)> = {}, ...kids: Child[]): HTMLElementTagNameMap[K] {
@@ -44,7 +45,76 @@ const fmt = (n?: number) => n === undefined ? '—' : n >= 1e6 ? `${(n / 1e6).to
 const durTxt = (s?: number) => s === undefined ? '' : s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const tone = (n: number) => (n >= 70 ? 'hot' : n >= 45 ? 'warm' : n >= 25 ? 'ok' : 'cold');
 
-let tab: 'youtube' | 'tiktok' | 'facebook' = 'youtube';
+type SocialTab = 'tiktok' | 'instagram' | 'facebook' | 'kwai';
+let tab: 'youtube' | SocialTab = 'youtube';
+interface SocialVideo { platform: SocialTab; id: string; url: string; title: string; author?: string; authorUrl?: string; thumb?: string; views?: number; likes?: number; comments?: number; shares?: number; durationSec?: number; ageDays?: number; score: number; reasons: string[] }
+interface SocialResult { platform: SocialTab; query: string; url: string; videos: SocialVideo[]; authors: Array<{ author: string; authorUrl?: string; hits: number; best: number; views: number }>; warnings: string[]; loginWall?: boolean }
+const SOCIAL_TABS: Array<[SocialTab, string]> = [['tiktok', '🎵 TikTok'], ['instagram', '📸 Instagram'], ['facebook', '📘 Facebook'], ['kwai', '🎬 Kwai']];
+const socialLast: Partial<Record<SocialTab, SocialResult>> = {};
+const socialQuery: Partial<Record<SocialTab, string>> = {};
+
+/** Pesquisa sem API numa rede social: página de busca no navegador invisível, com nota relativa à busca. */
+async function renderSocial(c: VideosCtx, tabs: HTMLElement, p: SocialTab): Promise<void> {
+  const sites = ((await c.guard(() => c.forge['socialSites']())) ?? {}) as Record<string, { label: string; icon: string; needsLogin: boolean; note: string }>;
+  const site = sites[p] ?? { label: p, icon: '🔎', needsLogin: false, note: '' };
+  const q = h('input', { class: 'vf-q', id: 'vf-social-q', value: socialQuery[p] ?? form.query, placeholder: `Termo ou hashtag no ${site.label}: curiosidades, receitas, finanças…` }) as HTMLInputElement;
+  const per = h('select', { id: 'vf-social-max' }, ...['20', '30', '40', '60'].map((n) => h('option', { value: n }, `${n} vídeos`))) as HTMLSelectElement; per.value = '30';
+  const status = h('div', { class: 'muted', id: 'vf-social-status' });
+  const results = h('div', { id: 'vf-social-results' });
+  const paint = () => {
+    const r = socialLast[p];
+    if (!r) { results.replaceChildren(h('div', { class: 'card vf-empty' }, h('div', { class: 'vf-big' }, site.icon), h('strong', {}, `Vídeos que estão bombando no ${site.label}`),
+      h('p', { class: 'muted' }, `Sem API: o app abre a busca do ${site.label} num navegador invisível, lê os vídeos e dá uma nota de 0 a 100 relativa à busca (views, views por dia, engajamento e se é recente).`))); return; }
+    results.replaceChildren(...([
+      h('div', { class: 'vf-summary' }, h('span', { class: 'tag' }, `${r.videos.length} vídeos`), h('span', { class: 'tag hot' }, `🔥 ${r.videos.filter((v) => v.score >= 45).length} com nota ≥ 45`),
+        h('span', { class: 'tag' }, `👤 ${r.authors.length} perfis`), h('span', { class: 'tag' }, '🧭 navegador (sem API)'), h('span', { class: 'sp' }),
+        h('button', { class: 'small', onclick: () => void c.forge['openUrl'](r.url) }, '🔗 Abrir a busca')),
+      ...r.warnings.map((w) => h('div', { class: 'muted small' }, `ℹ️ ${w}`)),
+      r.videos.length ? h('div', { class: 'vf-grid' }, ...r.videos.map((v) => {
+        const t = tone(v.score);
+        return h('div', { class: `card vf-card ${t}`, 'data-social': v.id },
+          h('button', { class: 'vf-thumb', title: 'Assistir', onclick: () => void c.forge['socialWatch'](v.url) },
+            v.thumb ? h('img', { src: v.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('span', { class: 'vf-big' }, site.icon),
+            h('span', { class: `vf-score ${t}` }, String(v.score)), v.durationSec ? h('span', { class: 'vf-dur' }, durTxt(Math.round(v.durationSec))) : null, h('span', { class: 'vf-play' }, '▶')),
+          h('div', { class: 'vf-title' }, v.title),
+          v.author ? h('div', { class: 'muted small' }, v.author) : null,
+          h('div', { class: 'vf-stats' }, v.views !== undefined ? h('span', { class: 'tag' }, `👁 ${fmt(v.views)}`) : null, v.ageDays !== undefined ? h('span', { class: 'tag' }, `📅 ${v.ageDays} d`) : null,
+            v.likes !== undefined ? h('span', { class: 'tag' }, `👍 ${fmt(v.likes)}`) : null, v.comments !== undefined ? h('span', { class: 'tag' }, `💬 ${fmt(v.comments)}`) : null),
+          v.reasons.length ? h('details', { class: 'vf-why', open: v.score >= 45 }, h('summary', {}, '💡 Por que se destaca'), h('ul', {}, ...v.reasons.map((x) => h('li', {}, x)))) : null,
+          h('div', { class: 'row' },
+            h('button', { class: 'small', onclick: () => void c.forge['openUrl'](v.url) }, `🔗 ${site.label}`),
+            v.authorUrl ? h('button', { class: 'small', onclick: () => void c.forge['openUrl'](v.authorUrl!) }, '👤 Perfil') : null,
+            h('span', { class: 'sp' }),
+            h('button', { class: 'small primary', title: 'Novo projeto com um tema inspirado neste vídeo (sem copiar)', onclick: () => c.newProject(`Vídeo inspirado no sucesso de "${v.title}" (${v.author ?? site.label}, ${site.label}). ${v.reasons.map((x) => x.replace(/^\S+\s/, '')).join('; ')}. Crie uma abordagem original, sem copiar título, roteiro ou imagens.`) }, '💡 Criar vídeo inspirado')));
+      })) : null,
+      r.authors.length ? h('details', { class: 'card' }, h('summary', {}, h('strong', {}, `👤 Perfis na busca (${r.authors.length})`)),
+        ...r.authors.slice(0, 20).map((a) => h('div', { class: 'row' }, h('strong', { class: 'grow' }, a.author), h('span', { class: 'muted small' }, `${a.hits} vídeo(s) · nota ${a.best} · ${fmt(a.views)} views`),
+          a.authorUrl ? h('button', { class: 'small', onclick: () => void c.forge['openUrl'](a.authorUrl!) }, '🔗') : null))) : null,
+    ] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
+  };
+  const go = h('button', { class: 'primary', id: 'vf-social-go' }, '🔍 Pesquisar') as HTMLButtonElement;
+  const run = async () => {
+    const term = q.value.trim();
+    if (!term) { c.toast('Escreva o termo da pesquisa', true); return; }
+    socialQuery[p] = term;
+    go.disabled = true; status.textContent = `⏳ abrindo a busca do ${site.label} e lendo os vídeos… (30–90 s)`;
+    try {
+      const r = (await c.guard(() => c.forge['socialSearch'](p, term, { max: Number(per.value) }))) as SocialResult | undefined;
+      if (r) { socialLast[p] = r; status.textContent = ''; paint(); if (r.loginWall) c.toast(`${site.label} pediu login — use "Entrar no ${site.label}"`, true); }
+      else status.textContent = '';
+    } finally { go.disabled = false; }
+  };
+  go.addEventListener('click', () => void run());
+  q.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') void run(); });
+  c.main.replaceChildren(h('h2', {}, '🔎 Pesquisar'), tabs,
+    h('div', { class: 'card vf-form' },
+      h('div', { class: 'row' }, q, h('label', {}, 'Quantidade', per), go),
+      h('div', { class: 'row' }, h('span', { class: 'muted small grow' }, `${site.icon} ${site.label} sem API: ${site.note}. O login é feito por você, numa janela do próprio app (sessão separada só para a pesquisa).`),
+        h('button', { class: 'small', id: 'vf-social-login', onclick: () => void c.guard(async () => { await c.forge['socialLogin'](p); c.toast(`Faça o login no ${site.label} na janela que abriu e depois pesquise de novo`); }) }, `🔐 Entrar no ${site.label}`)),
+      status),
+    results);
+  paint();
+}
 let last: Result | undefined;
 let form = { query: '', videoType: '', languages: ['pt', 'en', 'es'], period: 'month' as 'week' | 'month' | 'year' | 'any', perLanguage: 12, minViews: 0, maxSubs: 0, format: 'any' as 'any' | 'shorts' | 'long', translate: true };
 let view: 'videos' | 'channels' | 'favorites' | 'clones' = 'videos';
@@ -65,13 +135,9 @@ const isFav = (id: string) => favs.some((f) => f.id === id);
 
 export async function renderVideosPage(c: VideosCtx): Promise<void> {
   const { main } = c;
-  const tabs = h('div', { class: 'vf-tabs' }, ...([['youtube', '▶️ YouTube', true], ['tiktok', '🎵 TikTok', false], ['facebook', '📘 Facebook', false]] as const).map(([id, label, ready]) =>
-    h('button', { class: `vf-tab${tab === id ? ' on' : ''}`, 'data-tab-v': id, onclick: () => { tab = id; void renderVideosPage(c); } }, label, ready ? null : h('span', { class: 'tag' }, 'em breve'))));
-  if (tab !== 'youtube') {
-    main.replaceChildren(h('h2', {}, '🔎 Pesquisar'), tabs, h('div', { class: 'card vf-soon' }, h('div', { class: 'vf-big' }, tab === 'tiktok' ? '🎵' : '📘'),
-      h('h3', {}, `${tab === 'tiktok' ? 'TikTok' : 'Facebook'} — em breve`), h('p', { class: 'muted' }, 'A mesma análise do YouTube (vídeos que furam a bolha, com pontuação e motivos) chega aqui numa próxima versão.')));
-    return;
-  }
+  const tabs = h('div', { class: 'vf-tabs' }, ...([['youtube', '▶️ YouTube'], ...SOCIAL_TABS] as Array<[typeof tab, string]>).map(([id, label]) =>
+    h('button', { class: `vf-tab${tab === id ? ' on' : ''}`, 'data-tab-v': id, onclick: () => { tab = id; void renderVideosPage(c); } }, label)));
+  if (tab !== 'youtube') { await renderSocial(c, tabs, tab); return; }
   favs = ((await c.guard(() => c.forge['finderFavorites']())) as Video[] | undefined) ?? [];
   const s = (await c.guard(() => c.forge['getSettings']())) as { stock?: { youtube?: { apiKey?: string } } } | undefined;
   const hasKey = !!s?.stock?.youtube?.apiKey;
@@ -278,9 +344,13 @@ function videoCard(c: VideosCtx, v: Video, repaint: () => void, inFavs = false):
 interface LangPick { code: string; score: number; why?: string; audience?: string; competition?: string; cpm?: string }
 interface Bend { title: string; angle: string; why: string; audience?: string; exampleTitles?: string[]; languages?: LangPick[]; demand?: string; competition?: string; cpm?: string }
 interface VMetrics { durationSec?: number; shots?: number; avgShotSec?: number; cutsPerMin?: number; words?: number; wpm?: number; wordsPerSentence?: number; questions?: number; secondPerson?: number; hook?: string;
+  secPerFact?: number; jumpCutShare?: number; shotStdSec?: number;
   audio?: { lufs?: number; peakDb?: number; meanDb?: number; silenceRatio?: number; pauses?: number; avgPauseSec?: number; bassRatio?: number; musicLikely?: boolean } }
 interface AnalyzedVideo { id: string; title: string; views?: number; durationSec?: number; reason: string; ratio?: number; metrics?: VMetrics; sheet?: string; sheets?: string[]; audio?: VMetrics['audio']; frames?: string[] }
-type DnaSection = Record<string, string | string[] | undefined>;
+type DnaSection = Record<string, unknown>;
+interface ProductIdea { kind: 'info' | 'physical'; name: string; category?: string; platform?: string; priceRange?: string; commission?: string; why?: string; placement?: string; fit: number; links?: Array<{ label: string; url: string }> }
+interface CostEstimate { currency: string; perVideo: number; perMonth: number; total: number; videos: number; lines: Array<{ item: string; qty: string; cost: number }>; fixedPerMonth: number; assumptions: string[] }
+interface CostInput { durationSec: number; wpm?: number; sceneSec?: number; videosPerMonth: number; months: number; engines?: Record<string, string>; laborMinPerVideo?: number; rates?: Record<string, number | string> }
 interface Dna { visual?: DnaSection; artDirection?: DnaSection; camera?: DnaSection; editing?: DnaSection; script?: DnaSection; titles?: DnaSection; thumbnail?: DnaSection; narration?: DnaSection; music?: string;
   text?: DnaSection; audio?: DnaSection; soundtrack?: DnaSection }
 interface CloneResult {
@@ -294,11 +364,13 @@ interface CloneResult {
   brand: { names?: string[]; handle?: string; tagline?: string; description?: string; keywords?: string[]; colors?: string[]; fonts?: string; logoIdea?: string; bannerPrompt?: string; avatarPrompt?: string; tone?: string };
   thumbnail?: { name?: string; prompt?: string; layout?: string; rules?: string };
   demoIdea?: string;
-  skill: { id: string; name: string; description: string; appearance?: string; aspect?: string; durationSec?: number; language?: string };
+  skill: { id: string; name: string; description: string; appearance?: string; aspect?: string; durationSec?: number; language?: string; formatDna?: Record<string, unknown> };
   route: { id: string; name: string };
   thumbnailTemplate?: { id: string; name: string };
   files: { banner?: string; thumb?: string; demo?: string };
   warnings: string[];
+  linked?: { channelId: string; platform: string; name: string; at: string };
+  business?: { products?: { info: ProductIdea[]; physical: ProductIdea[]; notes?: string; at: string; by?: string }; cost?: CostEstimate; costInput?: CostInput };
   videos?: AnalyzedVideo[]; measured?: VMetrics; titleStructure?: { summary: string; examples: string[] }; dna?: Dna; languages?: LangPick[];
   meta?: { schemaVersion: number; updatedAt: string; sync?: { rev: number; dirty: boolean; remoteId?: string } };
 }
@@ -394,7 +466,8 @@ function dnaSections(c: VideosCtx, r: CloneResult, sw: (cols: string[]) => HTMLE
   if (m && (m.avgShotSec || m.wpm)) out.push(h('h4', {}, '📏 Medido nos vídeos (sem IA)'), h('div', { class: 'cl-tiles' },
     m.avgShotSec ? tile('🎞', 'plano médio', `${m.avgShotSec} s`) : null, m.cutsPerMin !== undefined ? tile('✂️', 'cortes por minuto', String(m.cutsPerMin)) : null,
     m.wpm ? tile('🗣', 'palavras por minuto', String(m.wpm)) : null, m.wordsPerSentence ? tile('📝', 'palavras por frase', String(m.wordsPerSentence)) : null,
-    m.secondPerson !== undefined ? tile('👉', 'fala com "você"', `${m.secondPerson}%`) : null, m.durationSec ? tile('⏱', 'duração analisada', durTxt(m.durationSec)) : null));
+    m.secondPerson !== undefined ? tile('👉', 'fala com "você"', `${m.secondPerson}%`) : null, m.durationSec ? tile('⏱', 'duração analisada', durTxt(m.durationSec)) : null,
+    m.secPerFact ? tile('🧠', 'segundos por fato novo', `${m.secPerFact} s`) : null, m.jumpCutShare !== undefined ? tile('⚡', 'takes < 1,5 s (jump cuts)', `${Math.round(m.jumpCutShare * 100)}%`) : null));
   if (r.videos?.length) out.push(h('h4', {}, `🎯 ${r.videos.length} vídeos analisados a fundo`), h('div', { class: 'dna-videos' }, ...r.videos.map((v) => {
     const au = v.audio ?? v.metrics?.audio;
     return h('div', { class: 'card dna-video' },
@@ -413,29 +486,136 @@ function dnaSections(c: VideosCtx, r: CloneResult, sw: (cols: string[]) => HTMLE
   })));
   const d = r.dna;
   if (d) {
-    const txt = (x: unknown) => (Array.isArray(x) ? x.join(' · ') : typeof x === 'string' ? x : '');
+    const one = (x: unknown): string => {
+      if (x && typeof x === 'object' && !Array.isArray(x)) {
+        const o = x as Record<string, unknown>;
+        if (typeof o['name'] === 'string' && typeof o['pct'] === 'number') return `${o['name']} ${o['pct']}%${o['goal'] ? ` (${o['goal']})` : ''}`;
+        return Object.entries(o).filter(([, v]) => v !== undefined && v !== '' && !Array.isArray(v)).map(([k, v]) => `${k}: ${String(v)}`).join(', ');
+      }
+      return typeof x === 'boolean' ? (x ? 'sim' : 'não') : x === undefined || x === null ? '' : String(x);
+    };
+    const txt = (x: unknown) => (Array.isArray(x) ? x.map(one).filter(Boolean).join(' · ') : one(x));
     const card = (title: string, rows: Array<[string, unknown]>, extra?: HTMLElement | null) => {
       const ok = rows.filter(([, v]) => txt(v));
       return ok.length || extra ? h('div', { class: 'dna-card' }, h('h5', {}, title), extra ?? null, ...ok.map(([k, v]) => h('div', { class: 'small' }, h('strong', {}, `${k}: `), h('span', { class: 'muted' }, txt(v))))) : null;
     };
     const pal = (x: unknown) => (Array.isArray(x) && x.length ? sw(x as string[]) : null);
     out.push(h('h4', {}, '🧬 DNA do formato'), h('div', { class: 'dna-grid' }, ...[
-      card('🎨 Visual', [['Estilo', d.visual?.style], ['Luz', d.visual?.lighting], ['Cor', d.visual?.colorGrade], ['Composição', d.visual?.composition], ['Textura', d.visual?.texture]], pal(d.visual?.palette)),
+      card('🎨 Visual', [['Estilo', d.visual?.style], ['Papéis da paleta', d.visual?.['paletteRoles']], ['Estilo gráfico / B-roll', d.visual?.['graphicStyle']], ['Prompt base (IA)', d.visual?.['aiStylePrompt']],
+        ['Luz', d.visual?.lighting], ['Cor', d.visual?.colorGrade], ['Composição', d.visual?.composition], ['Textura', d.visual?.texture]], pal(d.visual?.palette)),
       card('🖌 Direção de arte', [['Universo', d.artDirection?.world], ['Personagens', d.artDirection?.characters], ['Objetos', d.artDirection?.props], ['Tipografia', d.artDirection?.typography], ['Grafismos', d.artDirection?.graphics], ['Motivos', d.artDirection?.motifs], ['Faça', d.artDirection?.dos], ['Evite', d.artDirection?.donts]]),
-      card('🎥 Câmeras', [['Planos', d.camera?.shots], ['Movimento', d.camera?.movement], ['Ângulos', d.camera?.angles], ['Lentes', d.camera?.lenses], ['Transições', d.camera?.transitions]]),
+      card('🎥 Câmeras', [['Planos', d.camera?.shots], ['Movimento', d.camera?.movement], ['Movimentos usados', d.camera?.['moves']], ['Snap zoom com SFX', d.camera?.['snapZoomSfx']], ['Lente simulada', d.camera?.['lens']], ['Profundidade de campo', d.camera?.['depthOfField']],
+        ['Jump cuts', d.camera?.['jumpCuts']], ['Ângulos', d.camera?.angles], ['Lentes', d.camera?.lenses], ['Transições', d.camera?.transitions]]),
       card('✂️ Edição', [['Ritmo', d.editing?.pace], ['Quebras de padrão', d.editing?.patternInterrupts], ['B-roll', d.editing?.broll], ['Efeitos', d.editing?.sfx]]),
-      card('📝 Roteiro', [['Gancho', d.script?.hook], ['Estrutura', d.script?.structure], ['Voz', d.script?.voice], ['Frases', d.script?.sentences], ['Retenção', d.script?.retention], ['CTA', d.script?.cta], ['Final', d.script?.ending], ['Exemplo de gancho', d.script?.sampleHook]]),
+      card('📝 Roteiro', [['Gancho', d.script?.hook], ['Anatomia do gancho (15 s)', d.script?.['hookAnatomy']], ['1ª recompensa (s)', d.script?.['timeToRewardSec']], ['Modelo de atos', d.script?.['actModel']], ['Atos', d.script?.['acts']],
+        ['Estrutura', d.script?.structure], ['Voz', d.script?.voice], ['Frases', d.script?.sentences], ['Linguagem / PNL', d.script?.['nlp']], ['Transições (função)', d.script?.['transitions']], ['Segundos por fato', d.script?.['secPerFact']],
+        ['Retenção', d.script?.retention], ['CTA', d.script?.cta], ['Final', d.script?.ending], ['Exemplo de gancho', d.script?.sampleHook]]),
       card('🏷 Títulos', [['Fórmula', d.titles?.formula], ['Padrões', d.titles?.patterns], ['Medido', r.titleStructure?.summary], ['Faça', d.titles?.do], ['Evite', d.titles?.avoid]]),
       card('🖼 Thumbnail', [['Ponto focal', d.thumbnail?.focal], ['Texto', d.thumbnail?.text], ['Composição', d.thumbnail?.composition], ['Emoção', d.thumbnail?.emotion], ['Celular', d.thumbnail?.mobile], ['Evite', d.thumbnail?.avoid]], pal(d.thumbnail?.palette)),
-      card('🔤 Texto na tela (1 quadro/s)', [['O que aparece', d.text?.onScreen], ['Tipografia', d.text?.typography], ['Legendas', d.text?.captions], ['Destaque', d.text?.emphasis], ['Ritmo do texto', d.text?.pacing]]),
-      card('🎧 Áudio', [['Voz', d.audio?.narration ?? d.narration?.voice], ['Loudness', d.audio?.loudness], ['Mix', d.audio?.mix], ['SFX', d.audio?.sfx], ['Ritmo da fala', d.narration?.pace]]),
-      card('🎵 Trilha sonora', [['Gênero', d.soundtrack?.genre], ['Clima', d.soundtrack?.mood], ['Andamento', d.soundtrack?.tempo], ['Instrumentos', d.soundtrack?.instruments], ['Entrada/saída', d.soundtrack?.entry], ['Resumo', d.music]]),
+      card('🔤 Texto na tela (1 quadro/s)', [['O que aparece', d.text?.onScreen], ['Tipografia', d.text?.typography], ['Família', d.text?.['family']], ['Contorno', d.text?.['outline']], ['Sombra', d.text?.['shadow']], ['Caixa', d.text?.['case']], ['Animação', d.text?.['animation']],
+        ['Legendas', d.text?.captions], ['Destaque', d.text?.emphasis], ['Ritmo do texto', d.text?.pacing]]),
+      card('🎧 Áudio', [['Voz', d.audio?.narration ?? d.narration?.voice], ['Processamento da voz', d.audio?.['voiceProcessing']], ['Loudness', d.audio?.loudness], ['Mix', d.audio?.mix], ['SFX', d.audio?.sfx], ['SFX por minuto', d.audio?.['sfxPerMin']], ['Tipo de SFX', d.audio?.['sfxKind']], ['Ritmo da fala', d.narration?.pace]]),
+      card('🎵 Trilha sonora', [['Gênero', d.soundtrack?.genre], ['Clima', d.soundtrack?.mood], ['Andamento', d.soundtrack?.tempo], ['BPM', d.soundtrack?.['bpm']], ['Silêncio antes de revelações', d.soundtrack?.['silenceBeforeReveal']], ['Cortes no tempo', d.soundtrack?.['cutsOnBeat']],
+        ['Por ato', d.soundtrack?.['genreByAct']], ['Instrumentos', d.soundtrack?.instruments], ['Entrada/saída', d.soundtrack?.entry], ['Resumo', d.music]]),
     ].filter((x): x is HTMLDivElement => !!x)));
+    out.push(...modelingChecklist(r));
   }
   if (r.languages?.length) out.push(h('h4', {}, '🌐 Melhores idiomas para o canal novo'), h('div', { class: 'card' }, ...r.languages.map((l) => h('div', {},
     h('div', { class: 'dna-lang' }, h('strong', {}, langName(l.code)), h('div', { class: 'bar' }, h('span', { style: `width:${l.score * 10}%` })), h('span', {}, `${l.score}/10`)),
     h('div', { class: 'muted small' }, [l.why, l.audience && `público: ${l.audience}`, l.competition && `concorrência: ${l.competition}`, l.cpm && `CPM: ${l.cpm}`].filter(Boolean).join(' · '))))));
   return out;
+}
+
+/** Checklist da modelagem: o que foi medido, o que a IA descreveu, o que faltou — e onde entra na produção. */
+function modelingChecklist(r: CloneResult): HTMLElement[] {
+  const f = r.skill.formatDna as { transitions?: string[] } | undefined;
+  const items = modelingCoverage(r.dna, r.measured as Record<string, unknown> | undefined, { phrases: f?.transitions });
+  const missing = items.filter((x) => x.source === 'faltou').length;
+  const groups = [...new Set(items.map((x) => x.group))];
+  return [h('details', { class: 'card', open: missing > 0 },
+    h('summary', {}, h('strong', {}, `✅ Checklist da modelagem: ${items.length - missing}/${items.length} itens`), missing ? h('span', { class: 'muted small' }, ` · ${missing} faltaram (clone de novo com um modelo com visão para completar)`) : null),
+    h('div', { class: 'muted small' }, 'Só a ESTRUTURA do canal de referência vai para a produção; a identidade (marca, paleta, fontes, bordões) vem do seu canal.'),
+    ...groups.map((g) => h('div', {}, h('h5', {}, g), ...items.filter((x) => x.group === g).map((x) => h('div', { class: 'small' },
+      h('span', { class: `tag${x.source === 'faltou' ? ' running' : ' done'}` }, x.source === 'medido' ? '📏 medido' : x.source === 'IA' ? '🧠 IA' : '— faltou'), ' ',
+      h('strong', {}, x.item), x.value ? h('span', { class: 'muted' }, `: ${x.value}`) : null, h('span', { class: 'muted small' }, ` → ${x.usedIn}`))))))];
+}
+
+/** Canal associado, produtos para vender e custo de criação dos vídeos. */
+function businessSection(c: VideosCtx, r: CloneResult, reopen: (next: CloneResult) => void): HTMLElement {
+  const box = h('div', { class: 'card' });
+  /* canal do usuário (aba Canais): YouTube, TikTok, Facebook, Kwai ou Instagram */
+  const linkSel = h('select', {}, h('option', { value: '' }, '— nenhum canal associado —')) as HTMLSelectElement;
+  void (c.forge['channelsGet']() as Promise<{ list: Array<{ id: string; name: string; platform: string }>; platforms: Record<string, { icon: string; label: string }> }>).then((st) => {
+    for (const ch of st.list) linkSel.append(h('option', { value: ch.id, ...(ch.id === r.linked?.channelId ? { selected: true } : {}) }, `${st.platforms[ch.platform]?.icon ?? ''} ${ch.name} (${st.platforms[ch.platform]?.label ?? ch.platform})`));
+    if (!st.list.length) linkSel.append(h('option', { value: '', disabled: true }, 'cadastre um canal na aba Canais'));
+  }).catch(() => {});
+  linkSel.addEventListener('change', () => void c.guard(async () => {
+    const next = (await c.forge['channelLink'](r.id, linkSel.value || null)) as CloneResult;
+    c.toast(linkSel.value ? `Clone associado a "${next.linked?.name}" — a identidade desse canal vence a do formato` : 'Associação removida');
+    reopen(next);
+  }));
+  /* produtos */
+  const prods = r.business?.products;
+  const prodCard = (p: ProductIdea) => h('div', { class: 'cl-prod' },
+    h('span', { class: 'fit', title: 'aderência ao canal' }, `${p.fit}/10`), h('strong', {}, p.name),
+    h('div', { class: 'muted small' }, [p.category, p.platform, p.priceRange, p.commission && `comissão ${p.commission}`].filter(Boolean).join(' · ')),
+    p.why ? h('div', { class: 'small' }, p.why) : null, p.placement ? h('div', { class: 'muted small' }, `🎬 ${p.placement}`) : null,
+    h('div', { class: 'row' }, ...(p.links ?? []).map((l) => h('button', { class: 'small', onclick: () => void c.forge['openUrl'](l.url) }, `🔎 ${l.label}`))));
+  const prodBtn = h('button', { class: 'small primary' }, prods ? '↻ Pesquisar produtos de novo' : '🛒 Pesquisar produtos para vender') as HTMLButtonElement;
+  prodBtn.addEventListener('click', () => void c.guard(async () => {
+    prodBtn.disabled = true; prodBtn.textContent = '⏳ pesquisando (a IA busca produtos do nicho)…';
+    try { reopen((await c.forge['channelProducts'](r.id, { harness: ai.harness, model: ai.model })) as CloneResult); }
+    finally { prodBtn.disabled = false; prodBtn.textContent = '🛒 Pesquisar produtos para vender'; }
+  }));
+  /* custo */
+  const ci = r.business?.costInput;
+  const num = (v: number | undefined, step = '1') => h('input', { type: 'number', min: '0', step, value: v !== undefined ? String(v) : '' }) as HTMLInputElement;
+  const dur = num(ci?.durationSec ?? (r.metrics.avgDurationSec || r.skill.durationSec || 60));
+  const vpm = num(ci?.videosPerMonth ?? Math.max(1, Math.round((r.metrics.uploadsPerWeek ?? 2) * 4.3)));
+  const months = num(ci?.months ?? 3);
+  const labor = num(ci?.laborMinPerVideo ?? 0);
+  const rates = ci?.rates ?? {};
+  const cur = h('input', { value: String(rates['currency'] ?? 'USD'), class: 'num' }) as HTMLInputElement;
+  const rate = (k: string, def: number) => num(typeof rates[k] === 'number' ? rates[k] as number : def, '0.001');
+  const rText = rate('textPer1kTokens', 0.005), rTts = rate('ttsPer1kChars', 0.15), rImg = rate('imagePerUnit', 0.02), rVid = rate('videoPerSec', 0.05), rGpu = rate('gpuPerHour', 0.12), rLabor = rate('laborPerHour', 0), rFixed = rate('fixedPerMonth', 0);
+  const engSel = (k: string, def: string) => { const s = h('select', {}, ...[['api', 'API paga'], ['local', 'GPU local'], ['free', 'assinatura/grátis'], ...(k === 'music' ? [['code', 'por código']] : [])].map(([v, l]) => h('option', { value: v!, ...(v === (ci?.engines?.[k] ?? def) ? { selected: true } : {}) }, l!))) as HTMLSelectElement; return s; };
+  const eText = engSel('text', 'free'), eVoice = engSel('voice', 'local'), eImg = engSel('image', 'local'), eVid = engSel('video', 'local'), eMus = engSel('music', 'code');
+  const est = r.business?.cost;
+  const money = (n: number, cy: string) => `${cy} ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const calc = h('button', { class: 'small primary' }, '🧮 Calcular custo') as HTMLButtonElement;
+  calc.addEventListener('click', () => void c.guard(async () => {
+    const input: CostInput = { durationSec: Number(dur.value) || 60, videosPerMonth: Number(vpm.value) || 0, months: Number(months.value) || 1, laborMinPerVideo: Number(labor.value) || 0,
+      engines: { text: eText.value, voice: eVoice.value, image: eImg.value, video: eVid.value, music: eMus.value },
+      rates: { currency: cur.value.trim() || 'USD', textPer1kTokens: Number(rText.value), ttsPer1kChars: Number(rTts.value), imagePerUnit: Number(rImg.value), videoPerSec: Number(rVid.value), gpuPerHour: Number(rGpu.value), laborPerHour: Number(rLabor.value), fixedPerMonth: Number(rFixed.value) } };
+    reopen((await c.forge['channelCost'](r.id, input)) as CloneResult);
+  }));
+  const lbl = (t: string, el: HTMLElement) => h('label', {}, t, el);
+  box.append(...([
+    h('h4', {}, '📺 Canal associado'),
+    h('div', { class: 'muted small' }, 'Associe este clone a um canal seu (YouTube, TikTok, Facebook, Kwai ou Instagram). A marca, a paleta e a tipografia desse canal entram nos projetos; do clone vem só a estrutura.'),
+    h('div', { class: 'row' }, linkSel, r.linked ? h('span', { class: 'tag done' }, `🔗 ${r.linked.name}`) : null),
+    h('h4', {}, '🛒 Produtos para vender no canal'),
+    h('div', { class: 'row' }, prodBtn, prods ? h('span', { class: 'muted small' }, `pesquisado em ${new Date(prods.at).toLocaleString()}${prods.by ? ` por ${prods.by}` : ''}`) : null),
+    prods?.notes ? h('div', { class: 'small' }, `💡 ${prods.notes}`) : null,
+    prods?.info.length ? h('div', {}, h('h5', {}, '📚 Infoprodutos'), h('div', { class: 'cl-biz' }, ...prods.info.map(prodCard))) : null,
+    prods?.physical.length ? h('div', {}, h('h5', {}, '📦 Produtos físicos'), h('div', { class: 'cl-biz' }, ...prods.physical.map(prodCard))) : null,
+    prods ? h('div', { class: 'muted small' }, 'Os links abrem a BUSCA na loja (o app não inventa URL de produto). Confira as regras de afiliado de cada plataforma.') : null,
+    h('h4', {}, '💰 Custo de criação dos vídeos'),
+    h('div', { class: 'cl-cost' },
+      h('div', { class: 'row' }, lbl('Duração (s)', dur), lbl('Vídeos/mês', vpm), lbl('Meses', months), lbl('Trabalho/vídeo (min)', labor), lbl('Moeda', cur)),
+      h('div', { class: 'row' }, lbl('Texto', eText), lbl('Voz', eVoice), lbl('Imagem', eImg), lbl('Vídeo', eVid), lbl('Trilha', eMus)),
+      h('details', {}, h('summary', { class: 'muted small' }, 'preços (por unidade)'),
+        h('div', { class: 'row' }, lbl('Texto /1k tokens', rText), lbl('Voz /1k caracteres', rTts), lbl('Imagem', rImg), lbl('Vídeo IA /s', rVid), lbl('GPU /hora', rGpu), lbl('Trabalho /hora', rLabor), lbl('Fixo /mês', rFixed))),
+      h('div', { class: 'row' }, calc),
+      est ? h('div', {},
+        h('div', { class: 'cl-tiles' },
+          h('div', { class: 'cl-tile' }, h('span', { class: 'cl-ti' }, '🎬'), h('strong', {}, money(est.perVideo, est.currency)), h('span', { class: 'muted small' }, 'por vídeo')),
+          h('div', { class: 'cl-tile' }, h('span', { class: 'cl-ti' }, '📅'), h('strong', {}, money(est.perMonth, est.currency)), h('span', { class: 'muted small' }, 'por mês')),
+          h('div', { class: 'cl-tile' }, h('span', { class: 'cl-ti' }, '💰'), h('strong', {}, money(est.total, est.currency)), h('span', { class: 'muted small' }, `total (${est.videos} vídeos)`))),
+        h('table', {}, ...est.lines.map((l) => h('tr', {}, h('td', {}, l.item), h('td', { class: 'muted' }, l.qty), h('td', {}, money(l.cost, est.currency))))),
+        ...est.assumptions.map((a) => h('div', { class: 'muted small' }, `• ${a}`))) : h('div', { class: 'muted small' }, 'Os padrões saem da rota do clone (quem gera texto, voz, imagem e vídeo) e do DNA (duração, palavras por minuto, take médio). Ajuste e calcule.')),
+  ] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
+  return box;
 }
 
 async function openCloneReport(c: VideosCtx, r: CloneResult): Promise<void> {
@@ -506,6 +686,8 @@ async function openCloneReport(c: VideosCtx, r: CloneResult): Promise<void> {
           f ? h('button', { class: 'small', title: 'Marca esta dobra como a ativa do canal e grava o bloco dela nas diretrizes da skill', onclick: () => void c.guard(async () => { await useFold(f); close(); void openCloneReport(c, r); }) }, '⭐ Usar esta dobra') : null,
           h('button', { class: 'small primary', title: 'Ativa a dobra, aplica na skill e abre o Novo projeto já ligado a ela', onclick: () => void c.guard(async () => { if (f) await useFold(f); close(); c.newProject(bendIdea(b), r.skill.id, f?.id); }) }, '＋ Novo projeto com esta dobra')));
     })),
+    h('h4', {}, '💼 Canal, produtos e custo'),
+    businessSection(c, r, (next) => { close(); void openCloneReport(c, next); }),
     h('h4', {}, '🏷 Marca do canal novo'),
     h('div', { class: 'cl-brand' },
       h('div', {}, h('strong', {}, 'Nomes: '), ...(r.brand.names ?? []).map((n) => h('span', { class: 'tag' }, n)), r.brand.handle ? h('span', { class: 'tag' }, r.brand.handle) : null),

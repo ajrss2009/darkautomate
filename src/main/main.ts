@@ -14,7 +14,14 @@ import { pathToFileURL } from 'node:url';
 import type { Binding, ChannelPlatform, EngineEvent, HarnessId, Project, Route, Settings, HarnessBinding } from '../shared/types';
 import * as myChannels from './channels';
 import * as myChannelPub from './channel-publish';
-import { generateBrand as generateChannelBrand, type BrandInput } from './channel-brand';
+import { generateBrand as generateChannelBrand, renderBrandFiles, type BrandInput } from './channel-brand';
+import { CHANNEL_TYPES, THUMB_STYLES, channelType, parseChannelLink, recreateNote } from './channel-setup';
+import { analyticsLine, analyzeChannel } from './channel-analytics';
+import { enginesFromRoute, estimateCost, normalizeProducts, productsPrompt, type CostInput } from './clone-business';
+import { dnaSceneSec } from './channel-dna';
+import { planHash, readStoryboard, writeStoryboard } from './project-storyboard';
+import { SOCIAL_SITES, isSocialPlatform, searchSocial, type SocialPlatform } from './social-search';
+import { ensureYtDlp } from './youtube';
 import { bindingLabel } from '../shared/types';
 import { runRoute } from './engine';
 import { createExecutors, uploadProjectToYouTube } from './executors';
@@ -241,6 +248,7 @@ function loadSettings(): Settings {
       thumbnails: raw.thumbnails?.length ? raw.thumbnails : def.thumbnails,
       stock: Object.fromEntries(STOCK_SOURCES.map((x) => x.id).map((k) => [k, { ...(def.stock?.[k] ?? {}), ...(raw.stock?.[k] ?? {}), apiKey: dec(raw.stock?.[k]?.apiKey ?? '') }])),
       providers: (raw.providers ?? def.providers).map((p) => ({ ...p, apiKey: dec(p.apiKey) })),
+      channelApis: mapChannelApis(raw.channelApis, dec),
     };
     /* chaves antigas (cifradas pelo Windows, presas a este PC) passam a usar a chave portátil */
     const legacyKeys = JSON.stringify(rawFile).includes('"enc:');
@@ -362,9 +370,15 @@ function migrateSettings(s: Settings): boolean {
   }
   return changed;
 }
+/** Tokens das APIs das plataformas (Canais): passam pela mesma cifra das chaves de API. */
+function mapChannelApis(c: Settings['channelApis'], f: (v: string) => string): Settings['channelApis'] {
+  if (!c) return c;
+  return Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v ? { ...v, ...(typeof v.token === 'string' ? { token: f(v.token) } : {}) } : v])) as Settings['channelApis'];
+}
 function saveSettings(s: Settings) {
   fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
-  const out = { ...s, providers: s.providers.map((p) => ({ ...p, apiKey: enc(p.apiKey) })), stock: Object.fromEntries(Object.entries(s.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: enc(v?.apiKey ?? '') }])) };
+  const out = { ...s, providers: s.providers.map((p) => ({ ...p, apiKey: enc(p.apiKey) })), stock: Object.fromEntries(Object.entries(s.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: enc(v?.apiKey ?? '') }])),
+    channelApis: mapChannelApis(s.channelApis, enc) };
   /* gravação atômica (arquivo temporário + troca): uma queda no meio não apaga as configurações */
   const tmp = settingsFile() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(dataRoot ? tokenize(out, dataRoot.root) : out, null, 2));
@@ -386,7 +400,8 @@ function exportPortableProfile(destParent: string): { root: string; copied: stri
   relocate([path.join(ws, 'library'), path.join(ws, 'channels')], settings.workspace, ws);
   const out: Settings = { ...settings, workspace: ws, pluginsDir: '', projectsDir: '',
     providers: settings.providers.map((p) => ({ ...p, apiKey: sealPortable(appData, p.apiKey) })),
-    stock: Object.fromEntries(Object.entries(settings.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: sealPortable(appData, v?.apiKey ?? '') }])) };
+    stock: Object.fromEntries(Object.entries(settings.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: sealPortable(appData, v?.apiKey ?? '') }])),
+    channelApis: mapChannelApis(settings.channelApis, (v) => sealPortable(appData, v)) };
   fs.writeFileSync(path.join(appData, 'settings.json'), JSON.stringify(tokenize(out, root), null, 2));
   fs.writeFileSync(path.join(appData, 'anchor.json'), JSON.stringify({ workspace: ws, projectsDir: path.join(ws, 'projects') }, null, 2));
   return { root, copied };
@@ -409,7 +424,8 @@ function importPortableProfile(src: string): { from: string; copied: string[] } 
   };
   settings = { ...settings, ...raw, workspace: settings.workspace, projectsDir: settings.projectsDir, pluginsDir: settings.pluginsDir,
     providers: (raw.providers ?? settings.providers).map((p) => ({ ...p, apiKey: open(p.apiKey) })),
-    stock: Object.fromEntries(Object.entries(raw.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: open(v?.apiKey ?? '') }])) } as Settings;
+    stock: Object.fromEntries(Object.entries(raw.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: open(v?.apiKey ?? '') }])),
+    channelApis: mapChannelApis(raw.channelApis, open) } as Settings;
   saveSettings(settings);
   return { from: root, copied };
 }
@@ -543,6 +559,9 @@ async function projectRow(id: string) {
 /** folga após o tempo máximo de produção: cenas em andamento terminam (e entram no cache) antes do corte */
 const DEADLINE_GRACE_MIN = 10;
 
+/** execuções pausadas esperando o usuário (storyboard): projeto → resposta */
+const approvals = new Map<string, (ok: boolean) => void>();
+
 async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok: boolean; error?: string }> {
   if (running.has(id)) return { ok: false, error: 'projeto já em execução' };
   const project: Project = ops.readProject(settings, id);
@@ -610,7 +629,16 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
   const t0 = Date.now();
   let res: { ok: boolean; error?: string } = { ok: false };
   try {
-    const deps = { settings, emit: emitEvent, executors: createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }) };
+    /* aprovação na tela (storyboard): a execução espera a resposta; cancelar a execução conta como "não" */
+    const approve = (stepId: string) => new Promise<boolean>((resolve) => {
+      approvals.get(id)?.(false);
+      const done = (ok: boolean) => { ac.signal.removeEventListener('abort', onAbort); approvals.delete(id); resolve(ok); };
+      const onAbort = () => done(false);
+      ac.signal.addEventListener('abort', onAbort, { once: true });
+      approvals.set(id, done);
+      emitEvent({ t: 'log', line: `⏸ aguardando sua aprovação (${stepId}) — abra o storyboard e aprove para continuar` });
+    });
+    const deps = { settings, emit: emitEvent, approve, executors: createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }) };
     /* skill de link: abre a página da ideia no navegador invisível, lê o conteúdo e grava a rolagem (anexos web/) */
     if (project.skill?.linkCapture) {
       try {
@@ -951,9 +979,63 @@ function registerIpc() {
   /* ── Canais (os SEUS: identidade de publicação) — namespace 'channels:' para não colidir com os clones ── */
   const channelsState = () => ({ list: myChannels.listChannels(settings), platforms: myChannels.PLATFORM_INFO, ready: myChannelPub.readyPlatforms(),
     max: myChannels.MAX_CHANNELS, accounts: auto.listAccounts(settings).map((a) => ({ id: a.id, label: a.label, email: a.email, hasProfile: a.hasProfile })) });
-  h('channels:get', () => channelsState());
-  h('channels:add', (input: { name: string; platform: ChannelPlatform; accountId?: string }) => {
+  h('channels:get', () => ({ ...channelsState(), types: CHANNEL_TYPES, thumbStyles: THUMB_STYLES,
+    apis: { youtube: !!settings.stock?.youtube?.apiKey?.trim(), tiktok: !!settings.channelApis?.tiktok?.token, facebook: !!settings.channelApis?.facebook?.token,
+      instagram: !!settings.channelApis?.instagram?.token, kwai: !!settings.channelApis?.kwai?.token } }));
+  h('channels:add', (input: { name?: string; platform?: ChannelPlatform; accountId?: string; link?: string; type?: string; language?: string }) => {
     const c = myChannels.addChannel(settings, input); saveSettings(settings); return { channel: c, state: channelsState() };
+  });
+  /** confere o link antes de cadastrar (plataforma, @handle, URL normalizada) */
+  h('channels:parse-link', (link: string) => parseChannelLink(link));
+  /** tokens das APIs de análise (TikTok, Facebook, Instagram, Kwai); a chave do YouTube fica nos bancos de mídia */
+  h('channels:apis-set', (patch: Settings['channelApis'] & { youtube?: { apiKey?: string } }) => {
+    const cur = settings.channelApis ?? {};
+    const next: NonNullable<Settings['channelApis']> = { ...cur };
+    for (const k of ['tiktok', 'facebook', 'instagram', 'kwai'] as const) {
+      const v = patch?.[k] as { token?: string; userId?: string } | undefined;
+      if (!v) continue;
+      next[k] = { ...(cur[k] ?? {}), ...(typeof v.token === 'string' ? { token: v.token.trim() } : {}), ...(k === 'instagram' && typeof v.userId === 'string' ? { userId: v.userId.trim() } : {}) } as never;
+    }
+    settings.channelApis = next;
+    if (typeof patch?.youtube?.apiKey === 'string') settings.stock = { ...(settings.stock ?? {}), youtube: { ...(settings.stock?.youtube ?? {}), apiKey: patch.youtube.apiKey.trim() } } as Settings['stock'];
+    saveSettings(settings);
+    return { ok: true };
+  });
+  let analyzeAbort: AbortController | undefined;
+  h('channels:analyze', async (id: string, o?: { ai?: boolean; harness?: string; model?: string }) => {
+    analyzeAbort?.abort(); const ac = new AbortController(); analyzeAbort = ac;
+    const ch = myChannels.getChannel(settings, id);
+    const log = (line: string) => send({ t: 'log', stepId: 'channel', line } as EngineEvent);
+    const a = await analyzeChannel(settings, ch, { log, signal: ac.signal });
+    /* recomendações por IA (opcional): em cima das métricas, para o tipo e a marca do canal */
+    if (o?.ai) {
+      try {
+        const t = setTimeout(() => ac.abort(), 180_000);
+        const { json } = await llmJson([{ type: 'harness', harness: (o.harness || 'auto') as HarnessBinding['harness'], model: o.model || undefined }], settings, path.join(settings.workspace, 'tools', 'finder'),
+          `Você é analista de canais. Canal "${ch.name}" (${myChannels.PLATFORM_INFO[ch.platform].label}${ch.type ? `, tipo ${channelType(ch.type)?.label ?? ch.type}` : ''}). Métricas: ${analyticsLine(a)}.\n` +
+          `Mais vistos: ${(a.top ?? []).map((x) => `"${x.title}" (${x.views ?? '?'} views)`).join('; ')}.\nResponda SOMENTE com JSON: {"insights":["5 recomendações práticas e específicas, em português do Brasil"]}`, ac.signal, () => {});
+        clearTimeout(t);
+        const extra = Array.isArray((json as { insights?: unknown })?.insights) ? ((json as { insights: unknown[] }).insights).map(String).slice(0, 6) : [];
+        if (extra.length) a.insights = [...extra.map((x) => `🤖 ${x}`), ...(a.insights ?? [])];
+      } catch (e) { a.warnings = [...(a.warnings ?? []), `recomendações por IA indisponíveis (${(e as Error).message.slice(0, 120)})`]; }
+    }
+    myChannels.saveAnalytics(settings, id, a); saveSettings(settings);
+    return { analytics: a, state: channelsState() };
+  });
+  h('channels:analyze-cancel', () => { analyzeAbort?.abort(); return true; });
+  h('channels:brand-restore', (id: string, index: number) => {
+    const c = myChannels.restoreChannelBrand(settings, id, index); saveSettings(settings); return { channel: c, state: channelsState() };
+  });
+  /** redesenha banner, avatar e thumbnail modelo com a marca e a identidade atuais (sem chamar a IA) */
+  h('channels:render-assets', async (id: string) => {
+    const c = myChannels.getChannel(settings, id);
+    if (!c.brand) throw new Error('o canal ainda não tem marca');
+    const files = await renderBrandFiles(settings, id, { ...c.brand, identity: c.identity ?? c.brand.identity }, { renderHtml, log: (line) => send({ t: 'log', stepId: 'channel', line } as EngineEvent) });
+    if (files.banner) myChannels.setAsset(settings, id, 'banner', files.banner);
+    if (files.avatar) myChannels.setAsset(settings, id, 'avatar', files.avatar);
+    if (files.thumb) myChannels.setAsset(settings, id, 'thumb', files.thumb);
+    saveSettings(settings);
+    return { files, state: channelsState() };
   });
   h('channels:update', (id: string, patch: Parameters<typeof myChannels.updateChannel>[2]) => {
     const c = myChannels.updateChannel(settings, id, patch); saveSettings(settings); return { channel: c, state: channelsState() };
@@ -964,24 +1046,41 @@ function registerIpc() {
     const acc = c.accountId || settings.automations?.youtubeAccount || auto.listAccounts(settings)[0]?.id;
     if (!acc) throw new Error('adicione uma conta em Automações primeiro (é ela que guarda o login)');
     const info = myChannels.PLATFORM_INFO[c.platform];
-    auto.openBrowser(settings, acc, 'url', info.loginUrl); saveSettings(settings);
-    return { account: acc, url: info.loginUrl };
+    /* abre o PRÓPRIO canal quando há link (o usuário confere que a conta logada é a dona do canal) */
+    const target = c.url && c.platform !== 'youtube' ? c.url : info.loginUrl;
+    if (!c.accountId) myChannels.updateChannel(settings, id, { accountId: acc });
+    auto.openBrowser(settings, acc, 'url', target);
+    myChannels.markAuthOpened(settings, id);
+    saveSettings(settings);
+    return { account: acc, url: target };
   });
   h('channels:approve-account', (id: string, accountId: string) => {
     myChannels.updateChannel(settings, id, { accountId }); saveSettings(settings);
     return { accountHasSession: auto.listAccounts(settings).find((a) => a.id === accountId)?.hasProfile ?? false };
   });
-  h('channels:brand', async (id: string, input: Omit<BrandInput, 'harness'> & { harness?: HarnessId }) => {
+  h('channels:brand', async (id: string, input: Omit<BrandInput, 'harness' | 'recreate'> & { harness?: HarnessId; recreate?: boolean }) => {
     const ac = new AbortController(); brandAbort = ac;
+    const ch = myChannels.getChannel(settings, id);
+    const hadIdentity = !!ch.identity;
+    /* tipo, link e métricas do canal entram no pedido; "recriar" evita repetir nomes/conceitos anteriores */
+    const full: BrandInput = { ...input, harness: input.harness ?? 'auto', type: input.type ?? ch.type, link: ch.url, language: input.language ?? ch.language,
+      analytics: ch.analytics ? analyticsLine(ch.analytics) : undefined, recreate: input.recreate ? recreateNote(ch) : undefined };
+    if (input.type && input.type !== ch.type) myChannels.updateChannel(settings, id, { type: input.type });
     try {
-      const r = await generateChannelBrand(settings, id, { ...input, harness: input.harness ?? 'auto' }, {
+      const r = await generateChannelBrand(settings, id, full, {
         renderHtml, signal: ac.signal,
         log: (line) => send({ t: 'log', stepId: 'channel', line } as EngineEvent),
         progress: (p) => send({ t: 'channel.brand-progress', id, ...p } as unknown as EngineEvent),
       });
-      myChannels.saveBrand(settings, id, r.brand);
+      const saved = myChannels.saveBrand(settings, id, r.brand);
+      /* o canal já tinha identidade (do usuário): banner e thumb seguem a paleta dele, não a sugerida agora */
+      if (hadIdentity && saved.identity) {
+        const again = await renderBrandFiles(settings, id, { ...r.brand, identity: saved.identity }, { renderHtml, log: (line) => send({ t: 'log', stepId: 'channel', line } as EngineEvent) });
+        Object.assign(r.files, Object.fromEntries(Object.entries(again).filter(([, v]) => v)));
+      }
       if (r.files.banner) myChannels.setAsset(settings, id, 'banner', r.files.banner);
       if (r.files.avatar) myChannels.setAsset(settings, id, 'avatar', r.files.avatar);
+      if (r.files.thumb) myChannels.setAsset(settings, id, 'thumb', r.files.thumb);
       saveSettings(settings);
       return { ...r, state: channelsState() };
     } finally { brandAbort = undefined; }
@@ -999,6 +1098,135 @@ function registerIpc() {
       saveSettings(settings);
       return { record: rec, state: channelsState() };
     } finally { running.delete(projectId); }
+  });
+
+  /* ── clone ↔ canal do usuário, produtos para vender e custo de produção ── */
+  h('channel:link', (cloneId: string, channelId: string | null) => {
+    const store = cloneStore(settings, app.getVersion());
+    const c = store.get(cloneId);
+    if (!c) throw new Error('clone não encontrado');
+    if (c.linked?.channelId && c.linked.channelId !== channelId) { try { myChannels.linkClone(settings, c.linked.channelId, cloneId, false); } catch { /* canal removido */ } }
+    if (channelId) {
+      const ch = myChannels.linkClone(settings, channelId, cloneId, true);
+      c.linked = { channelId, platform: ch.platform, name: ch.name, at: new Date().toISOString() };
+      /* projetos novos com a skill do clone já saem para este canal: a identidade dele vence a do formato */
+    } else delete c.linked;
+    saveSettings(settings);
+    return store.save(c);
+  });
+  h('channel:products', async (cloneId: string, ai?: { harness?: string; model?: string }) => {
+    const store = cloneStore(settings, app.getVersion());
+    const c = store.get(cloneId);
+    if (!c) throw new Error('clone não encontrado');
+    const bend = c.bends[c.chosenBend];
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 600_000);
+    try {
+      const { json, binding } = await llmJson([{ type: 'harness', harness: (ai?.harness || 'auto') as HarnessBinding['harness'], model: ai?.model || undefined }], settings, path.join(settings.workspace, 'tools', 'finder'),
+        productsPrompt({ niche: `${c.brand.names?.[0] ?? c.skill.name} — ${bend ? `${bend.title}: ${bend.angle}` : String(c.analysis['format'] ?? '')}`, audience: bend?.audience ?? String(c.analysis['audience'] ?? ''),
+          format: String(c.analysis['videoType'] ?? c.analysis['format'] ?? ''), language: c.language?.code, titles: bend?.exampleTitles,
+          linkedPlatform: c.linked ? myChannels.PLATFORM_INFO[c.linked.platform]?.label : undefined }),
+        ac.signal, (line) => send({ t: 'log', stepId: 'channel', line } as EngineEvent));
+      const products = normalizeProducts(json, (binding as { harness?: string } | undefined)?.harness);
+      if (!products.info.length && !products.physical.length) throw new Error('a IA não devolveu produtos');
+      c.business = { ...(c.business ?? {}), products };
+      return store.save(c);
+    } finally { clearTimeout(t); }
+  });
+  h('channel:cost', (cloneId: string, input?: Partial<CostInput>) => {
+    const store = cloneStore(settings, app.getVersion());
+    const c = store.get(cloneId);
+    if (!c) throw new Error('clone não encontrado');
+    const route = lib.getAnyRoute(settings, c.route.id) ?? c.route;
+    const fromRoute = enginesFromRoute(route);
+    const f = c.skill.formatDna;
+    const base: CostInput = {
+      durationSec: c.metrics.avgDurationSec || c.skill.durationSec || 60,
+      wpm: f?.wpm ?? c.measured?.wpm, sceneSec: dnaSceneSec(f),
+      videosPerMonth: Math.max(1, Math.round((c.metrics.uploadsPerWeek ?? 2) * 4.3)), months: 3,
+      mix: fromRoute.mix, engines: fromRoute.engines,
+    };
+    const costInput: CostInput = { ...base, ...(input ?? {}), rates: { ...(c.business?.costInput?.rates ?? {}), ...(input?.rates ?? {}) } };
+    const cost = estimateCost(costInput);
+    c.business = { ...(c.business ?? {}), cost, costInput };
+    return store.save(c);
+  });
+
+  /* ── aprovação do storyboard (pausa da execução) ── */
+  h('project:approve', (id: string, ok: boolean) => {
+    const w = approvals.get(id);
+    if (w) { approvals.delete(id); w(!!ok); return { live: true }; }
+    /* sem execução esperando: grava a aprovação do plano atual (vale na próxima execução) */
+    if (!ok) return { live: false };
+    const p = ops.readProject(settings, id);
+    if (!p.storyboard?.enabled) throw new Error('o projeto não usa storyboard');
+    p.storyboard = { ...p.storyboard, approvedHash: planHash(p.scenes), approvedAt: new Date().toISOString() };
+    ops.saveProjectFile(settings, p, { scenes: false });
+    return { live: false, approvedHash: p.storyboard.approvedHash };
+  });
+  h('project:storyboard', (id: string, regenerate?: boolean) => {
+    const dir = projectDirOf(settings, id);
+    const p = ops.readProject(settings, id);
+    const sb = regenerate || !readStoryboard(dir) ? writeStoryboard(p, dir).board : readStoryboard(dir)!;
+    return { board: sb, html: path.join(dir, 'out', 'storyboard.html'), approved: !!p.storyboard?.approvedHash && p.storyboard.approvedHash === planHash(p.scenes), waiting: approvals.has(id), options: p.storyboard };
+  });
+  h('project:storyboard-set', (id: string, o: { enabled?: boolean; approval?: boolean }) => {
+    const p = ops.readProject(settings, id);
+    p.storyboard = o.enabled ? { ...(p.storyboard ?? {}), enabled: true, approval: !!o.approval } : undefined;
+    ops.saveProjectFile(settings, p, { scenes: false });
+    return p.storyboard ?? null;
+  });
+  h('shell:open-path', (file: string) => {
+    const f = path.resolve(String(file));
+    const ws = path.resolve(settings.workspace), pd = path.resolve(projectsDir(settings));
+    if (!(f.startsWith(ws) || f.startsWith(pd)) || !fs.existsSync(f)) throw new Error('arquivo fora da pasta de trabalho');
+    return shell.openPath(f);
+  });
+
+  /* ── Pesquisar em TikTok, Instagram, Facebook e Kwai sem API: página de busca num navegador invisível ── */
+  const SOCIAL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+  const socialPartition = (p: SocialPlatform) => `persist:social-${p}`;
+  const socialBrowse = async (p: SocialPlatform, url: string, script: string) => {
+    const w = new BrowserWindow({ show: false, width: 1280, height: 1600, webPreferences: { partition: socialPartition(p), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+    try {
+      w.webContents.setUserAgent(SOCIAL_UA);
+      w.webContents.setAudioMuted(true);
+      await Promise.race([w.loadURL(url).catch(() => {}), new Promise((r) => setTimeout(r, 45_000))]);
+      await new Promise((r) => setTimeout(r, 3500));   // a busca carrega depois do HTML (SPA)
+      const res = await Promise.race([w.webContents.executeJavaScript(script, true), new Promise((_, rej) => setTimeout(() => rej(new Error('a página de busca não respondeu')), 90_000))]);
+      return res as { url: string; text: string; cards: Array<{ href: string; text?: string; img?: string; label?: string }> };
+    } finally { if (!w.isDestroyed()) w.destroy(); }
+  };
+  const socialYtdlp = async (urls: string[]): Promise<unknown[]> => {
+    const exe = await ensureYtDlp(settings, (line) => send({ t: 'log', line: `pesquisa: ${line}` } as EngineEvent));
+    const out = await new Promise<string>((resolve) => {
+      const c = spawn(exe, ['--dump-json', '--skip-download', '--no-warnings', '--ignore-errors', '--', ...urls], { windowsHide: true });
+      let s = ''; c.stdout.on('data', (d: Buffer) => { s += d.toString(); });
+      const t = setTimeout(() => c.kill(), 180_000);
+      c.on('error', () => { clearTimeout(t); resolve(s); }); c.on('close', () => { clearTimeout(t); resolve(s); });
+    });
+    return out.split(/\r?\n/).flatMap((l) => { try { return [JSON.parse(l) as unknown]; } catch { return []; } });
+  };
+  h('social:sites', () => Object.fromEntries(Object.entries(SOCIAL_SITES).map(([k, v]) => [k, { label: v.label, icon: v.icon, needsLogin: v.needsLogin, note: v.note }])));
+  h('social:search', (platform: string, query: string, o?: { max?: number }) => {
+    if (!isSocialPlatform(platform)) throw new Error(`rede desconhecida: ${platform}`);
+    return searchSocial(platform, query, { browse: socialBrowse, ytdlp: socialYtdlp, log: (line) => send({ t: 'log', line: `pesquisa: ${line}` } as EngineEvent) }, o);
+  });
+  /** login na rede: janela VISÍVEL com a mesma sessão da pesquisa (o usuário digita; o app nunca vê a senha) */
+  h('social:login', (platform: string) => {
+    if (!isSocialPlatform(platform)) throw new Error(`rede desconhecida: ${platform}`);
+    const site = SOCIAL_SITES[platform];
+    const w = new BrowserWindow({ width: 1100, height: 820, title: `Entrar no ${site.label} (sessão da pesquisa)`, autoHideMenuBar: true, webPreferences: { partition: socialPartition(platform), sandbox: true, contextIsolation: true } });
+    w.webContents.setUserAgent(SOCIAL_UA);
+    void w.loadURL(site.login);
+    return true;
+  });
+  h('social:watch', (url: string) => {
+    if (!/^https:\/\/(www\.)?(tiktok|instagram|facebook|kwai)\.com\//i.test(String(url))) throw new Error('link inválido');
+    const host = /tiktok/.test(url) ? 'tiktok' : /instagram/.test(url) ? 'instagram' : /facebook/.test(url) ? 'facebook' : 'kwai';
+    const w = new BrowserWindow({ width: 1100, height: 820, title: '▶', autoHideMenuBar: true, webPreferences: { partition: socialPartition(host as SocialPlatform), sandbox: true, contextIsolation: true } });
+    w.webContents.setUserAgent(SOCIAL_UA);
+    void w.loadURL(url);
+    return true;
   });
 
   h('finder:search', (q: FinderQuery) => findOutliers(settings, q, { log: (line) => send({ t: 'log', line: `vídeos: ${line}` } as EngineEvent) }));

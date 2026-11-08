@@ -8,6 +8,7 @@ import { DEFAULT_HARNESSES } from './harness';
 import { applyProfile, applyQuality, getVideoType, type Profile } from './presets';
 import { allProfiles, applyExecutorProfile, applyStepBindings, profileSkips } from '../shared/profiles';
 import { pluginRecommendations } from './plugins';
+import { dnaSceneSec, dnaSubtitleStyle } from './channel-dna';
 
 export const DEFAULT_SNAPGEN_PROVIDER: Settings['providers'][number] = {
   id: 'snapgen', kind: 'snapgen', baseUrl: 'https://api.snapgen.ai', apiKey: '',
@@ -139,6 +140,8 @@ export interface NewProjectInput {
   audioFirst?: boolean;
   /** trilha sonora por código (vence a da rota) */
   codeMusic?: boolean;
+  /** criar storyboard depois do plano de cenas; approval = pausar até o usuário aprovar */
+  storyboard?: { enabled?: boolean; approval?: boolean };
 }
 
 /** Coletânea: mínimo/máximo em minutos (1–240) e faixa de 60–300 s; a duração alvo fica no meio. */
@@ -248,6 +251,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
     cast: cast.length ? cast : undefined,
     executorProfile: prof?.id,
     channelId: input.channelId?.trim() || undefined,
+    storyboard: input.storyboard?.enabled ? { enabled: true, approval: !!input.storyboard.approval } : undefined,
     maxProductionMin: input.maxProductionMin && input.maxProductionMin > 0 ? Math.round(input.maxProductionMin) : undefined,
     sceneConcurrency: input.sceneConcurrency && input.sceneConcurrency > 0 ? Math.min(8, Math.round(input.sceneConcurrency)) : undefined,
     agents: orch || workers.length ? JSON.parse(JSON.stringify({ orchestrator: orch, workers })) : undefined,
@@ -269,6 +273,11 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
     production: { totalMs: 0, runs: [] },
   };
   if (project.musicMinMin && project.musicMaxMin) project.targetDurationSec = Math.round(((project.musicMinMin + project.musicMaxMin) / 2) * 60);
+  /* DNA do formato (skill de canal clonado) + identidade do canal de destino: legenda e duração de cena saem dos números */
+  const fdna = skill?.formatDna;
+  const destCh = project.channelId ? (s.channels ?? []).find((c) => c.id === project.channelId) : undefined;
+  if (project.subtitleStyle && (fdna || destCh?.identity)) project.subtitleStyle = dnaSubtitleStyle(project.subtitleStyle, fdna, destCh?.identity);
+  if (!project.sceneSec && dnaSceneSec(fdna)) project.sceneSec = dnaSceneSec(fdna);
   const dir = projectDirOf(s, id);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(project, null, 2));

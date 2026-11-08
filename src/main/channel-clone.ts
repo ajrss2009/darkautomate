@@ -5,7 +5,8 @@ const fetch = httpFetch();
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { ChannelBrand, HarnessId, Route, Settings, Skill, ThumbnailTemplate } from '../shared/types';
+import type { ChannelBrand, ChannelPlatform, HarnessId, Route, Settings, Skill, ThumbnailTemplate } from '../shared/types';
+import type { CostEstimate, CostInput, ProductPlan } from './clone-business';
 import { ensureYtDlp } from './youtube';
 import * as ff from './ffmpeg';
 import { isHttpHarness, resolveHarness, runHarness } from './harness';
@@ -13,7 +14,7 @@ import { activeAgyEnv } from './automations';
 import { ensureFolds, getAnyRoute, saveRoute, saveSkill, slugify } from './library';
 import { finalizeSkillMd, prepareReference, skillRules, type VideoRef } from './skillgen';
 import type { RenderHtml } from './executors';
-import { applyDnaToSkill, audioSummary, averageMetrics, channelTitleStructure, frameSheets, measureVideo, normalizeDna, normalizeLanguages, pickVideos,
+import { applyDnaToSkill, audioSummary, averageMetrics, catchphrases, channelTitleStructure, frameSheets, measureVideo, normalizeDna, normalizeLanguages, pickVideos,
   type AudioProfile, type ChannelDna, type LanguagePick, type PickedVideo, type VideoMetrics } from './channel-dna';
 import type { TitleStructure } from './youtube-rules';
 import { LocalCloneStore } from './clone-store';
@@ -84,6 +85,10 @@ export interface ChannelCloneResult {
   dna?: ChannelDna;
   /** idiomas recomendados para o canal novo, do melhor para o pior */
   languages?: LanguagePick[];
+  /** canal do usuário (aba Canais) associado a este clone — YouTube, TikTok, Facebook, Kwai ou Instagram */
+  linked?: { channelId: string; platform: ChannelPlatform; name: string; at: string };
+  /** monetização e custo: produtos sugeridos e estimativa de custo de produção */
+  business?: { products?: ProductPlan; cost?: CostEstimate; costInput?: CostInput };
 }
 
 function run(cmd: string, args: string[], signal?: AbortSignal): Promise<{ code: number | null; out: string; err: string }> {
@@ -185,7 +190,7 @@ export function extractFile(name: string, out: string): string | undefined {
 const fmtN = (n?: number) => (n === undefined ? '?' : n >= 1e6 ? `${(n / 1e6).toFixed(1)} mi` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} mil` : String(n));
 
 function buildPrompt(s: Settings, input: ChannelCloneInput, list: Listing, m: ChannelMetrics, videos: VideoRef[], thumbs: string[], refs: { banner?: string; avatar?: string }, aspect: string,
-  dna: { analyzed: AnalyzedVideo[]; measured: Partial<VideoMetrics>; titles: TitleStructure }): string {
+  dna: { analyzed: AnalyzedVideo[]; measured: Partial<VideoMetrics>; titles: TitleStructure; phrases?: string[] }): string {
   const name = list.channel ?? list.uploader ?? list.title ?? input.channelName ?? 'canal';
   const recent = (list.entries ?? []).slice(0, 30).map((e, i) => `${i + 1}. ${e.title ?? '—'} · ${fmtN(e.view_count ?? undefined)} views · ${e.duration ? `${Math.round(e.duration)} s` : '?'}`).join('\n');
   const vids = videos.map((v) => {
@@ -211,7 +216,8 @@ function buildPrompt(s: Settings, input: ChannelCloneInput, list: Listing, m: Ch
 - link: ${input.channelUrl}
 - inscritos: ${fmtN(list.channel_follower_count)} · descrição: ${(list.description ?? '').slice(0, 600).replace(/\n+/g, ' ')}
 - métricas dos últimos ${m.listed} vídeos: média ${fmtN(m.avgViews)} views, mediana ${fmtN(m.medianViews)}, recorde ${fmtN(m.maxViews)} ("${m.topTitle ?? ''}"), duração média ${m.avgDurationSec} s, ${Math.round(m.shortsShare * 100)}% Shorts${m.viewsPerSub !== undefined ? `, ${m.viewsPerSub}× views por inscrito` : ''}${m.uploadsPerWeek !== undefined ? `, ≈${m.uploadsPerWeek} vídeos/semana` : ''}
-- RITMO MEDIDO nos ${dna.analyzed.length} vídeos analisados: plano médio ${me.avgShotSec ?? '?'} s, ${me.cutsPerMin ?? '?'} cortes/min${me.wpm ? `, narração a ${me.wpm} palavras/min, ${me.wordsPerSentence} palavras por frase, ${me.secondPerson}% de "você"` : ''}
+- RITMO MEDIDO nos ${dna.analyzed.length} vídeos analisados: plano médio ${me.avgShotSec ?? '?'} s, ${me.cutsPerMin ?? '?'} cortes/min${me.jumpCutShare !== undefined ? `, ${Math.round(me.jumpCutShare * 100)}% dos takes < 1,5 s (jump cuts)` : ''}${me.shotStdSec !== undefined ? `, desvio dos takes ${me.shotStdSec} s` : ''}${me.wpm ? `, narração a ${me.wpm} palavras/min, ${me.wordsPerSentence} palavras por frase, ${me.secondPerson}% de "você"` : ''}${me.secPerFact ? `, um fato novo a cada ≈ ${me.secPerFact} s` : ''}
+${dna.phrases?.length ? `- ABERTURAS DE FRASE RECORRENTES (bordões/conectivos medidos nas transcrições — descreva a FUNÇÃO deles em script.transitions, não copie): ${dna.phrases.map((x) => `"${x}"`).join(', ')}` : ''}
 - ESTRUTURA MEDIDA DOS TÍTULOS: ${dna.titles.summary}
 - últimos vídeos (título · views · duração):
 ${recent}
@@ -228,18 +234,31 @@ ${input.note?.trim() ? `\n## Pedido do usuário\n${input.note.trim()}\n` : ''}
     "visualStyle": "...", "palette": ["#hex", ...], "typography": "...", "camera": "...", "editing": "ritmo de cortes, transições, efeitos", "narration": "voz, tom, velocidade",
     "music": "...", "titlePatterns": "fórmulas de título", "thumbnailStyle": "composição, texto, cores, rosto/objeto, contraste", "audience": "...", "successFactors": ["...", "..."] },
   "dna": {
-    "visual": { "style": "estilo visual preciso (2D/3D/foto/colagem…, nível de detalhe)", "palette": ["#hex", "#hex", "#hex", "#hex"], "lighting": "...", "texture": "grão, traço, ruído…", "composition": "...", "colorGrade": "..." },
+    "visual": { "style": "estilo visual preciso (2D/3D/foto/colagem…, nível de detalhe)", "palette": ["#hex", "#hex", "#hex", "#hex"],
+      "paletteRoles": { "background": "#hex fundo", "text": "#hex texto", "accent": "#hex cor de destaque", "secondary": "#hex" },
+      "graphicStyle": ["recortes 2D|mockups de UI|vetores flat|3D isométrico|stock footage|foto real|whiteboard|colagem|pixel art — os que aparecem"],
+      "aiStylePrompt": "prompt BASE de estilo para IA de imagem/vídeo (só o estilo, sem assunto — ex.: 'flat vector, thick outlines, muted teal and orange, soft grain')",
+      "lighting": "...", "texture": "grão, traço, ruído…", "composition": "...", "colorGrade": "..." },
     "artDirection": { "world": "universo/ambientação", "characters": "como são personagens/apresentador (sem copiar ninguém real)", "props": "...", "typography": "fontes, tamanho, animação de texto", "graphics": "setas, mapas, gráficos, ícones", "motifs": "elementos recorrentes", "dos": ["..."], "donts": ["..."] },
-    "camera": { "shots": "tipos de plano e proporção (ex.: 50% close, 30% médio, 20% aberto)", "movement": "push-in, pan, estático, handheld…", "angles": "...", "lenses": "profundidade de campo, grande-angular…", "transitions": "corte seco, whip, match cut…" },
+    "camera": { "shots": "tipos de plano e proporção (ex.: 50% close, 30% médio, 20% aberto)", "movement": "push-in, pan, estático, handheld…", "angles": "...", "lenses": "profundidade de campo, grande-angular…", "transitions": "corte seco, whip, match cut…",
+      "moves": ["estatica|handheld-shake|push-in-lento|pull-out|pan|snap-zoom|drone|orbita — os usados"], "snapZoomSfx": true, "lens": "grande-angular|normal|teleobjetiva", "depthOfField": "rasa (fundo desfocado)|profunda", "jumpCuts": "quando e quanto: só na fala, a cada frase, nunca…" },
     "editing": { "pace": "como o ritmo muda ao longo do vídeo", "patternInterrupts": "a cada quanto e como", "broll": "...", "sfx": "..." },
-    "script": { "hook": "fórmula do gancho (0–15 s)", "structure": ["bloco 1", "bloco 2", "..."], "voice": "pessoa, tom, vocabulário", "sentences": "tamanho e ritmo das frases", "retention": "técnicas de retenção", "cta": "...", "ending": "...", "sampleHook": "um gancho NOVO, no estilo, para a dobra escolhida" },
+    "script": { "hook": "fórmula do gancho (0–15 s)", "hookAnatomy": ["0–3 s: ...", "3–8 s: ...", "8–15 s: ..."], "timeToRewardSec": <segundos até a 1ª recompensa>,
+      "actModel": "3-atos|retencao", "acts": [ { "name": "Gancho", "pct": 5, "goal": "..." }, { "name": "...", "pct": 30 }, "... (somam 100)" ],
+      "structure": ["bloco 1", "bloco 2", "..."], "voice": "pessoa, tom, vocabulário", "sentences": "tamanho e ritmo das frases",
+      "nlp": "padrões de linguagem/PNL (loops abertos, pressuposições, contraste, futuro, 'imagine…')", "transitions": ["FUNÇÃO dos bordões/conectivos de transição (ex.: 'virada: só que…', 'escalada: e piora')"], "secPerFact": <segundos por fato novo>,
+      "retention": "técnicas de retenção", "cta": "...", "ending": "...", "sampleHook": "um gancho NOVO, no estilo, para a dobra escolhida" },
     "titles": { "formula": "esqueleto dos títulos", "patterns": ["..."], "do": ["..."], "avoid": ["..."] },
     "thumbnail": { "focal": "ponto focal, posição e % do quadro", "text": "palavras, fonte, cor, contorno", "palette": ["#hex", "#hex", "#hex"], "composition": "...", "emotion": "...", "mobile": "o que sobrevive a 168×94 px", "avoid": ["..."] },
     "narration": { "voice": "...", "pace": "...", "energy": "..." },
     "music": "gênero, andamento, quando entra/sai",
-    "text": { "onScreen": "o que aparece ESCRITO na tela (título, palavra-chave, legenda, contador, CTA)", "typography": "fonte, peso, caixa, contorno, sombra, animação", "captions": "legendas: posição, tamanho, cor, palavra por palavra ou frase inteira", "emphasis": "como as palavras-chave são destacadas (cor, zoom, caixa alta, karaokê)", "pacing": "a cada quanto entra texto novo; quanto tempo fica na tela" },
-    "audio": { "narration": "voz: timbre, idade, sotaque, energia, processamento (reverb, compressão)", "loudness": "LUFS/pico medidos e como o volume se comporta", "mix": "voz vs trilha vs SFX: quem domina; ducking; silêncios", "sfx": "quais efeitos, quando e com que intensidade" },
-    "soundtrack": { "genre": "gênero musical", "mood": "clima (tenso, épico, divertido, lo-fi…)", "tempo": "BPM aproximado e se muda no vídeo", "instruments": "instrumentos/texturas", "entry": "quando entra, se para em pausas e como fecha" }
+    "text": { "onScreen": "o que aparece ESCRITO na tela (título, palavra-chave, legenda, contador, CTA)", "typography": "fonte, peso, caixa, contorno, sombra, animação",
+      "family": "família tipográfica (ex.: Montserrat ExtraBold)", "outline": "contorno (ex.: 6 px preto)", "shadow": "sombra (ex.: dura 4 px)", "case": "ALTA|título|frase", "animation": "pop/spring|fade|typewriter|slide|karaoke|palavra por palavra",
+      "captions": "legendas: posição, tamanho, cor, palavra por palavra ou frase inteira", "emphasis": "como as palavras-chave são destacadas (cor, zoom, caixa alta, karaokê)", "pacing": "a cada quanto entra texto novo; quanto tempo fica na tela" },
+    "audio": { "narration": "voz: timbre, idade, sotaque, energia", "voiceProcessing": "limpa|podcast (compressão, grave)|rádio (banda estreita)|fita/vintage|reverb", "loudness": "LUFS/pico medidos e como o volume se comporta", "mix": "voz vs trilha vs SFX: quem domina; ducking; silêncios",
+      "sfx": "quais efeitos, quando e com que intensidade", "sfxPerMin": <efeitos por minuto>, "sfxKind": "organico|digital|misto" },
+    "soundtrack": { "genre": "gênero musical", "mood": "clima (tenso, épico, divertido, lo-fi…)", "tempo": "BPM aproximado e se muda no vídeo", "bpm": <número>, "instruments": "instrumentos/texturas", "entry": "quando entra, se para em pausas e como fecha",
+      "silenceBeforeReveal": true, "cutsOnBeat": false, "genreByAct": ["clima do ato 1", "ato 2", "..."] }
   },
   "bends": [ 10 itens { "title": "nome do SUBNICHO dobrado", "angle": "o que muda no assunto mantendo o formato (vizinho, não cópia)", "why": "por que funciona (demanda, concorrência, público)", "audience": "...", "exampleTitles": ["3 títulos NOVOS seguindo a estrutura medida dos títulos"],
     "demand": "baixa|média|alta", "competition": "baixa|média|alta", "cpm": "baixo|médio|alto", "languages": [ 3 itens { "code": "pt-BR|en|es|hi|…", "score": 0-10, "why": "..." } ] } ],
@@ -251,7 +270,8 @@ ${input.note?.trim() ? `\n## Pedido do usuário\n${input.note.trim()}\n` : ''}
   "thumbnail": { "name": "nome curto do estilo", "prompt": "prompt de imagem que reproduz o ESTILO das thumbnails do canal (sem marcas/rostos reais)", "layout": "impacto|explicativo|documentario|minimal|split", "rules": "regras de texto, cor e composição" },
   "demoIdea": "ideia do vídeo de 10 s que mostra o estilo do canal novo"
 }
-Tudo baseado no que você VIU (folhas a 1 quadro por segundo, quadros e thumbnails) e no que foi MEDIDO — seja específico (hex, segundos, % de planos, palavras por frase, LUFS). As dobras precisam ser SUBNICHOS diferentes entre si e diferentes do canal de origem; nada de copiar nome, marca, personagens ou assuntos específicos.
+Tudo baseado no que você VIU (folhas a 1 quadro por segundo, quadros e thumbnails) e no que foi MEDIDO — seja específico (hex, segundos, % de planos, palavras por frase, LUFS, BPM, SFX por minuto, % de cada ato).
+PRINCÍPIO: do canal de origem extraia a ESTRUTURA (ritmo, gancho, atos, densidade, takes, câmera, SFX, dinâmica da trilha); a identidade do canal novo (nome, marca, paleta, fontes, bordões, assuntos) é PRÓPRIA — nunca copie frases, marca ou conteúdo. As dobras precisam ser SUBNICHOS diferentes entre si e diferentes do canal de origem; nada de copiar nome, marca, personagens ou assuntos específicos.
 
 ## Como analisar (obrigatório)
 1) **TEXTO NA TELA (1 quadro/segundo)**: percorra as folhas em ordem e descreva o estilo do texto — tipografia, caixa, contorno, posição, legendas (palavra a palavra ou frase), palavras de destaque, quanto tempo cada texto fica e a cada quantos segundos entra um novo. Isso entra em dna.text e na skill (etapas code_scene/motion_graphics/subtitles).
@@ -382,11 +402,13 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
   const analyzed: AnalyzedVideo[] = videos.map((v) => v.dna).filter((x): x is AnalyzedVideo => !!x);
   const measured = averageMetrics(analyzed.map((a) => a.metrics).filter((x): x is VideoMetrics => !!x));
   const titleStr = channelTitleStructure(entries.filter((e) => e.title).map((e) => ({ title: e.title!, views: e.view_count ?? undefined })));
+  /* bordões/conectivos recorrentes nas transcrições (medido, sem IA) */
+  const phrases = catchphrases(videos.map((v) => v.transcript ?? '').filter(Boolean));
 
   /* provedor com visão escreve tudo */
   step('ai', 64, 'a IA está analisando o DNA do canal (visual, câmeras, roteiro, títulos, thumbnails, idiomas)');
   const { id: hid, cfg, model } = await resolveHarness(s, { type: 'harness', harness: input.harness, model: input.model });
-  const full = buildPrompt(s, input, list, metrics, videos, thumbs, refs, aspect, { analyzed, measured, titles: titleStr });
+  const full = buildPrompt(s, input, list, metrics, videos, thumbs, refs, aspect, { analyzed, measured, titles: titleStr, phrases });
   const http = isHttpHarness(cfg);
   const env = hid === 'antigravity' ? activeAgyEnv(s) : undefined;
   const ac = signal ?? new AbortController().signal;
@@ -491,7 +513,7 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
     prompt: [thumbnail.prompt, thumbnail.rules, brief].filter(Boolean).join('\n'), layout: LAYOUTS.includes(String(thumbnail.layout)) ? thumbnail.layout : undefined, preview: tplPreview,
   } : undefined;
   /* o DNA (medido + descrito) entra garantido nas diretrizes e nas etapas da skill */
-  let skill = saveSkill(s, applyDnaToSkill(fin.skill, dna, measured, titleStr, srcName));
+  let skill = saveSkill(s, applyDnaToSkill(fin.skill, dna, measured, titleStr, srcName, phrases));
   if (skill.routeId !== route.id || thumbnailTemplate) skill = saveSkill(s, { ...skill, routeId: route.id, thumbnailTemplate: thumbnailTemplate?.id ?? skill.thumbnailTemplate });
   if (files.demo && !skill.previewMedia?.endsWith('.mp4')) {
     const dest = path.join(s.workspace, 'library', 'skill-media', `${skill.id}.mp4`);

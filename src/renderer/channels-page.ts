@@ -25,13 +25,24 @@ export interface ChannelsCtx {
   guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>;
 }
 
-interface ChannelBrand { names?: string[]; handle?: string; tagline?: string; description?: string; keywords?: string[];
-  colors?: string[]; fonts?: string; logoIdea?: string; bannerPrompt?: string; avatarPrompt?: string; tone?: string }
+interface Palette { background?: string; text?: string; accent?: string; secondary?: string; extra?: string[]; mode?: 'dark' | 'light'; contrast?: number }
+interface Identity { palettes?: { channel?: Palette; video?: Palette; thumbnail?: Palette }; thumbStyle?: string; thumbRules?: string;
+  typography?: { family?: string; weight?: string; case?: 'upper' | 'title' | 'sentence'; outline?: string; shadow?: string; animation?: string } }
+interface ChannelBrand { names?: string[]; handle?: string; tagline?: string; description?: string; keywords?: string[]; tags?: string[];
+  colors?: string[]; fonts?: string; logoIdea?: string; bannerPrompt?: string; avatarPrompt?: string; tone?: string; identity?: Identity; createdAt?: string }
+interface Analytics {
+  platform: string; source: string; at: string; title?: string; handle?: string; followers?: number; totalViews?: number; mediaCount?: number; sample: number;
+  avgViews?: number; medianViews?: number; maxViews?: number; engagementRate?: number; uploadsPerWeek?: number; avgDurationSec?: number; shortsShare?: number;
+  bestWeekday?: number; bestHourUtc?: number; top?: Array<{ id: string; title: string; views?: number; url?: string }>; insights?: string[]; warnings?: string[];
+}
+type SetupStep = 'link' | 'auth' | 'type' | 'brand' | 'banner' | 'identity' | 'analytics';
 interface ChannelView {
   id: string; name: string; platform: string; accountId?: string; handle?: string; url?: string;
-  brand?: ChannelBrand; assets?: { banner?: string; avatar?: string; thumb?: string };
+  brand?: ChannelBrand; brandHistory?: ChannelBrand[]; assets?: { banner?: string; avatar?: string; thumb?: string };
+  type?: string; language?: string; auth?: { status: 'pending' | 'opened' | 'confirmed'; at?: string }; identity?: Identity; analytics?: Analytics; cloneIds?: string[];
   createdAt: string; lastPublishAt?: string;
   dir: string; hasBrand: boolean; hasAssets: { banner: boolean; avatar: boolean; thumb: boolean }; projects: number;
+  setup?: { done: SetupStep[]; next?: SetupStep };
 }
 interface AccountRow { id: string; label: string; email?: string; hasProfile: boolean }
 interface State {
@@ -40,7 +51,22 @@ interface State {
   ready: string[];
   max: number;
   accounts: AccountRow[];
+  types?: Array<{ id: string; label: string; hint: string; thumbStyle: string; mode: 'dark' | 'light' }>;
+  thumbStyles?: Array<{ id: string; label: string; hint: string }>;
+  apis?: Record<string, boolean>;
 }
+
+const SETUP_LABEL: Record<SetupStep, string> = { link: '🔗 Link', auth: '🔐 Autenticação', type: '🏷 Tipo', brand: '🎨 Marca', banner: '🖼 Banner', identity: '🎯 Identidade', analytics: '📊 Análise' };
+const WEEKDAYS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const fmtN = (n?: number) => (n === undefined ? '—' : n >= 1e6 ? `${(n / 1e6).toFixed(1)} mi` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} mil` : String(n));
+
+/* contraste WCAG (mesma conta do processo principal) — mostrado ao editar a paleta */
+const lum = (hex: string) => {
+  let x = hex.replace('#', ''); if (x.length === 3) x = x.split('').map((c) => c + c).join('');
+  const [r, g, b] = [0, 2, 4].map((i) => { const c = parseInt(x.slice(i, i + 2), 16) / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+export const contrastOf = (a: string, b: string) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number]; return Math.round(((l1 + 0.05) / (l2 + 0.05)) * 10) / 10; };
 interface ProjectRow { id: string; name: string; createdAt: string; hasVideo: boolean; published: Array<{ platform: string; url?: string | null; at: string }> }
 
 let selected: string | undefined;
@@ -59,6 +85,7 @@ export function profileUrl(platform: string, handle?: string, url?: string): str
   if (platform === 'tiktok') return `https://www.tiktok.com/@${hnd}`;
   if (platform === 'instagram') return `https://www.instagram.com/${hnd}/`;
   if (platform === 'facebook') return `https://www.facebook.com/${hnd}`;
+  if (platform === 'kwai') return `https://www.kwai.com/@${hnd}`;
   return undefined;
 }
 
@@ -131,8 +158,9 @@ function channelCard(c: ChannelsCtx, ch: ChannelView, st: State, onPick: () => v
       ),
     ),
     h('div', { class: 'ch-badges' },
+      ch.setup ? h('span', { class: `ch-badge${ch.setup.next ? '' : ' ok'}`, title: ch.setup.next ? `Próximo passo: ${SETUP_LABEL[ch.setup.next]}` : 'Cadastro completo' }, `cadastro ${ch.setup.done.length}/7`) : null,
       ch.hasBrand ? h('span', { class: 'ch-badge ok' }, 'marca ✓') : h('span', { class: 'ch-badge' }, 'sem marca'),
-      ch.accountId ? h('span', { class: 'ch-badge' }, 'conta ✓') : h('span', { class: 'ch-badge warn' }, 'sem conta'),
+      ch.auth?.status === 'confirmed' ? h('span', { class: 'ch-badge ok' }, 'login ✓') : ch.accountId ? h('span', { class: 'ch-badge' }, 'conta ✓') : h('span', { class: 'ch-badge warn' }, 'sem conta'),
       ready ? null : h('span', { class: 'ch-badge' }, 'em breve'),
       ch.projects ? h('span', { class: 'ch-badge' }, `${ch.projects} projeto${ch.projects > 1 ? 's' : ''}`) : null,
     ),
@@ -172,10 +200,35 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
       `${a.label}${a.email ? ` (${a.email})` : ''}${a.hasProfile ? ' · com login' : ' · sem login'}`)),
   ) as HTMLSelectElement;
 
+  const typeSel = h('select', {}, h('option', { value: '' }, '— tipo do canal —'),
+    ...(st.types ?? []).map((t) => h('option', { value: t.id, title: t.hint, ...(t.id === ch.type ? { selected: true } : {}) }, t.label))) as HTMLSelectElement;
   const saveMeta = async () => {
-    const r = await guard(() => forge['channelsUpdate'](ch.id, { name: nameIn.value, handle: handleIn.value, url: urlIn.value }));
+    const r = await guard(() => forge['channelsUpdate'](ch.id, { name: nameIn.value, handle: handleIn.value, url: urlIn.value, type: typeSel.value, accountId: accSel.value }));
     if (r) { toast('Canal atualizado'); again(); }
   };
+
+  /* ── checklist do cadastro guiado ── */
+  const setup = ch.setup ?? { done: [] as SetupStep[] };
+  const setupBar = h('div', { class: 'ch-setup' }, ...(Object.keys(SETUP_LABEL) as SetupStep[]).map((k) =>
+    h('span', { class: `ch-step${setup.done.includes(k) ? ' ok' : setup.next === k ? ' now' : ''}`, title: setup.done.includes(k) ? 'feito' : setup.next === k ? 'próximo passo' : 'pendente' },
+      `${setup.done.includes(k) ? '✓' : setup.next === k ? '▸' : '○'} ${SETUP_LABEL[k]}`)),
+    setup.next ? h('span', { class: 'muted small' }, `Próximo: ${SETUP_LABEL[setup.next]}`) : h('span', { class: 'ch-badge ok' }, 'cadastro completo'));
+
+  /* ── autenticação: login feito pelo usuário no navegador da conta, depois confirmado aqui ── */
+  const authLbl = ch.auth?.status === 'confirmed' ? `✓ login confirmado${ch.auth.at ? ` em ${new Date(ch.auth.at).toLocaleDateString()}` : ''}`
+    : ch.auth?.status === 'opened' ? '… navegador aberto — faça o login e confirme' : 'login ainda não feito';
+  const authSec = h('div', { class: 'ch-sec' }, h('h4', {}, '🔐 Autenticação'),
+    h('p', { class: 'muted' }, `O login é feito por você no navegador da conta escolhida (o app nunca digita senha). Depois de entrar no ${info.label}${ch.url ? ' e conferir que é o seu ' + noun(ch.platform) : ''}, confirme aqui.`),
+    h('div', { class: 'row' },
+      h('span', { class: `ch-badge${ch.auth?.status === 'confirmed' ? ' ok' : ch.auth?.status === 'opened' ? '' : ' warn'}` }, authLbl), h('span', { class: 'sp' }),
+      h('button', { class: 'small', onclick: async () => {
+        if (accSel.value && accSel.value !== ch.accountId) await guard(() => forge['channelsUpdate'](ch.id, { accountId: accSel.value }));
+        const r = await guard(() => forge['channelsOpenLogin'](ch.id));
+        if (r) { toast('Navegador da conta aberto — faça o login e depois clique em "Já fiz o login"'); again(); }
+      } }, '🔐 Abrir login'),
+      ch.auth?.status === 'confirmed'
+        ? h('button', { class: 'small', onclick: async () => { if (await guard(() => forge['channelsUpdate'](ch.id, { authConfirmed: false }))) again(); } }, 'Desfazer')
+        : h('button', { class: 'small primary', onclick: async () => { if (await guard(() => forge['channelsUpdate'](ch.id, { authConfirmed: true }))) { toast('Login confirmado'); again(); } } }, '✓ Já fiz o login')));
 
   /* ── marca ── */
   const brandBox = h('div', { class: 'ch-brand' });
@@ -186,24 +239,34 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
   const prog = h('div', { class: 'ch-prog' });
   const logPre = h('pre', { class: 'ch-log' }) as HTMLPreElement;
 
-  const genBtn = h('button', { class: 'primary' }, '✨ Gerar marca com IA') as HTMLButtonElement;
-  genBtn.addEventListener('click', async () => {
-    if (!ideaIn.value.trim()) { toast('Descreva a ideia do canal primeiro', true); return; }
-    genBtn.disabled = true; prog.textContent = 'iniciando…'; logPre.textContent = '';
-    (genBtn as HTMLElement).textContent = 'Gerando…';
+  /* a ideia fica lembrada por canal (para "recriar" sem redigitar) */
+  try { ideaIn.value = localStorage.getItem(`ch-idea-${ch.id}`) ?? ''; } catch { /* sem armazenamento */ }
+  const genBtn = h('button', { class: 'primary' }, ch.brand ? '✨ Gerar marca de novo' : '✨ Criar marca e configurar') as HTMLButtonElement;
+  const recBtn = h('button', { title: 'Pede à IA um conceito DIFERENTE (outros nomes, paleta e logo). A marca atual vai para o histórico.' }, '♻ Recriar marca') as HTMLButtonElement;
+  const runBrand = async (recreate: boolean) => {
+    const idea = ideaIn.value.trim() || (st.types ?? []).find((t) => t.id === typeSel.value)?.hint || '';
+    if (!idea) { toast('Descreva a ideia do canal (ou escolha o tipo)', true); return; }
+    try { localStorage.setItem(`ch-idea-${ch.id}`, ideaIn.value); } catch { /* sem armazenamento */ }
+    genBtn.disabled = recBtn.disabled = true; prog.textContent = 'iniciando…'; logPre.textContent = '';
     const off = (forge as unknown as { onEvent?: (cb: (e: { t: string; pct?: number; label?: string; line?: string; id?: string }) => void) => () => void }).onEvent?.((e) => {
       if (e.t === 'channel.brand-progress' && e.id === ch.id) { prog.textContent = `${e.label ?? ''} ${e.pct ?? 0}%`; }
       if (e.t === 'log' && e.line) { logPre.textContent += e.line + '\n'; logPre.scrollTop = logPre.scrollHeight; }
     });
     try {
-      const r = await guard(() => forge['channelsBrand'](ch.id, { idea: ideaIn.value, name: nameIn.value || undefined, note: noteIn.value || undefined, platform: ch.platform }));
+      const r = await guard(() => forge['channelsBrand'](ch.id, { idea, name: recreate ? undefined : nameIn.value || undefined, note: noteIn.value || undefined, platform: ch.platform, type: typeSel.value || undefined, recreate }));
       if (r) {
         const warns = (r as { warnings?: string[] }).warnings ?? [];
-        toast(warns.length ? `Marca criada com ${warns.length} aviso(s)` : 'Marca criada', warns.length > 0);
+        toast(warns.length ? `Marca criada com ${warns.length} aviso(s)` : recreate ? 'Marca recriada (a anterior ficou no histórico)' : 'Marca criada', warns.length > 0);
         off?.(); again();
       }
-    } finally { off?.(); genBtn.disabled = false; (genBtn as HTMLElement).textContent = '✨ Gerar marca com IA'; }
-  });
+    } finally { off?.(); genBtn.disabled = recBtn.disabled = false; }
+  };
+  genBtn.addEventListener('click', () => void runBrand(false));
+  recBtn.addEventListener('click', () => void runBrand(true));
+  const history = (ch.brandHistory ?? []).length ? h('details', { class: 'ch-hist' }, h('summary', { class: 'muted small' }, `🕘 ${ch.brandHistory!.length} versão(ões) anterior(es) da marca`),
+    ...ch.brandHistory!.map((b, i) => h('div', { class: 'row' },
+      h('b', {}, b.names?.[0] ?? '—'), h('span', { class: 'muted small' }, `${b.tagline ?? ''}${b.createdAt ? ` · ${new Date(b.createdAt).toLocaleDateString()}` : ''}`), h('span', { class: 'sp' }),
+      h('button', { class: 'small', onclick: async () => { if (await guard(() => forge['channelsBrandRestore'](ch.id, i))) { toast('Marca restaurada'); again(); } } }, '↩ Restaurar')))) : null;
 
   /* ── publicar ── */
   const projBox = h('div', { class: 'ch-projects' }, h('p', { class: 'muted' }, 'Carregando projetos…'));
@@ -219,19 +282,18 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
 
   body.append(
     hero,
+    setupBar,
     h('div', { class: 'ch-sec' }, h('h4', {}, `${info.icon} Dados do ${noun(ch.platform)}`),
       h('div', { class: 'ch-grid' },
+        h('label', {}, `Link do ${noun(ch.platform)} *`, urlIn),
+        h('label', {}, 'Tipo do canal', typeSel),
         h('label', {}, 'Nome', nameIn),
         h('label', {}, 'Handle', handleIn),
-        h('label', {}, `URL do ${noun(ch.platform)}`, urlIn),
         h('label', {}, 'Conta (sessão)', accSel),
       ),
       h('div', { class: 'row' },
         h('button', { class: 'small', onclick: saveMeta }, 'Salvar'),
-        h('button', { class: 'small', onclick: async () => {
-          const r = await guard(() => forge['channelsOpenLogin'](ch.id));
-          if (r) toast('Abrindo o navegador da conta — faça o login e feche quando terminar');
-        } }, '🔐 Abrir login'),
+        h('span', { class: 'sp' }),
         h('button', { class: 'small', onclick: async () => {
           const ok = await askConfirm(`Remover o canal "${ch.name}" da lista? A pasta com a marca e as imagens fica no disco.`);
           if (!ok) return;
@@ -240,18 +302,128 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
         } }, '🗑 Remover'),
       ),
     ),
-    h('div', { class: 'ch-sec' }, h('h4', {}, '🎨 Marca'),
+    authSec,
+    h('div', { class: 'ch-sec' }, h('h4', {}, '🎨 Marca e configuração'),
+      h('p', { class: 'muted small' }, 'A IA sugere nome, descrição, tags, cores, fontes e a identidade (paletas e thumbnail) a partir do tipo e da ideia; depois desenha banner, avatar e uma thumbnail modelo por código.'),
       brandBox,
       h('div', { class: 'ch-grid' }, h('label', { class: 'ch-wide' }, 'Ideia do canal', ideaIn), h('label', { class: 'ch-wide' }, 'Observações', noteIn)),
-      h('div', { class: 'row' }, genBtn, prog),
-      logPre.childNodes.length ? logPre : null,
+      h('div', { class: 'row' }, genBtn, ch.brand ? recBtn : null, prog),
+      history,
+      h('details', {}, h('summary', { class: 'muted small' }, 'registro detalhado'), logPre),
     ),
+    identitySection(c, ch, st, again),
+    analyticsSection(c, ch, st, again),
     h('div', { class: 'ch-sec' }, h('h4', {}, '📤 Publicar'),
       ready ? null : h('p', { class: 'muted' }, `${info.label}: a publicação ainda não está implementada nesta versão. O cadastro, a marca e o vínculo com projetos já funcionam.`),
       projBox,
     ),
   );
   return h('div', { class: 'ch-detail' }, body);
+}
+
+/** Identidade: estilo de thumbnail, paletas (canal, vídeos, thumbnail) com contraste e tipografia do texto na tela. */
+function identitySection(c: ChannelsCtx, ch: ChannelView, st: State, again: () => void): HTMLElement {
+  const { forge, guard, toast } = c;
+  const id = ch.identity ?? {};
+  const ROLES: Array<[keyof Palette, string]> = [['background', 'Fundo'], ['text', 'Texto'], ['accent', 'Destaque'], ['secondary', 'Apoio']];
+  const editors: Record<string, Record<string, HTMLInputElement>> = {};
+  const palBox = (key: 'channel' | 'video' | 'thumbnail', title: string) => {
+    const p = id.palettes?.[key] ?? {};
+    const ins: Record<string, HTMLInputElement> = {};
+    const ratio = h('span', { class: 'ch-ratio' });
+    const paint = () => {
+      const bg = ins['background']!.value, tx = ins['text']!.value;
+      const r = contrastOf(tx, bg);
+      ratio.textContent = `contraste ${r}:1 ${r >= 7 ? '✓✓' : r >= 4.5 ? '✓' : '⚠ baixo'}`;
+      ratio.className = `ch-ratio${r < 4.5 ? ' warn' : ''}`;
+      prev.style.background = bg; prev.style.color = tx; acc.style.color = ins['accent']!.value;
+    };
+    const prev = h('div', { class: 'ch-palprev' }); const acc = h('b', {}, 'DESTAQUE');
+    prev.append(h('span', {}, 'Texto '), acc);
+    const row = h('div', { class: 'ch-palrow' }, ...ROLES.map(([k, lbl]) => {
+      const def = k === 'background' ? '#0b0b10' : k === 'text' ? '#ffffff' : k === 'accent' ? '#ffcc00' : '#7c5cff';
+      const v = typeof p[k] === 'string' && /^#[0-9a-f]{6}$/i.test(p[k] as string) ? p[k] as string : def;
+      const inp = h('input', { type: 'color', value: v, title: lbl }) as HTMLInputElement;
+      inp.addEventListener('input', paint);
+      ins[k] = inp;
+      return h('label', { class: 'ch-color' }, lbl, inp);
+    }));
+    editors[key] = ins;
+    paint();
+    return h('div', { class: 'ch-pal' }, h('b', {}, title), row, prev, ratio);
+  };
+  const styleSel = h('select', {}, ...(st.thumbStyles ?? []).map((t) => h('option', { value: t.id, title: t.hint, ...(t.id === id.thumbStyle ? { selected: true } : {}) }, `${t.label} — ${t.hint}`))) as HTMLSelectElement;
+  const rules = h('input', { value: id.thumbRules ?? '', placeholder: 'Regras da thumbnail: 2–3 palavras, contorno preto, rosto à direita…' }) as HTMLInputElement;
+  const ty = id.typography ?? {};
+  const fam = h('input', { value: ty.family ?? '', placeholder: 'Família (ex.: Montserrat)' }) as HTMLInputElement;
+  const caseSel = h('select', {}, ...[['', '— caixa —'], ['upper', 'CAIXA ALTA'], ['title', 'Título'], ['sentence', 'Frase']].map(([v, l]) => h('option', { value: v!, ...(v === (ty.case ?? '') ? { selected: true } : {}) }, l!))) as HTMLSelectElement;
+  const outline = h('input', { value: ty.outline ?? '', placeholder: 'Contorno (ex.: 6 px preto)' }) as HTMLInputElement;
+  const shadow = h('input', { value: ty.shadow ?? '', placeholder: 'Sombra (ex.: dura 4 px)' }) as HTMLInputElement;
+  const anim = h('select', {}, ...[['', '— animação do texto —'], ['pop', 'Pop / spring'], ['fade', 'Fade'], ['typewriter', 'Máquina de escrever'], ['slide', 'Slide'], ['karaoke', 'Karaokê'], ['word', 'Palavra por palavra']]
+    .map(([v, l]) => h('option', { value: v!, ...(v === (ty.animation ?? '') ? { selected: true } : {}) }, l!))) as HTMLSelectElement;
+  const collect = (): Identity => {
+    const pal = (k: string): Palette => Object.fromEntries(ROLES.map(([r]) => [r, editors[k]![r]!.value])) as Palette;
+    return { palettes: { channel: pal('channel'), video: pal('video'), thumbnail: pal('thumbnail') }, thumbStyle: styleSel.value, thumbRules: rules.value,
+      typography: { family: fam.value, case: (caseSel.value || undefined) as 'upper' | 'title' | 'sentence' | undefined, outline: outline.value, shadow: shadow.value, animation: anim.value } };
+  };
+  const save = async (render: boolean) => {
+    const r = await guard(() => forge['channelsUpdate'](ch.id, { identity: collect() }));
+    if (!r) return;
+    if (render && ch.brand) { toast('Identidade salva — redesenhando banner, avatar e thumbnail…'); await guard(() => forge['channelsRenderAssets'](ch.id)); }
+    toast('Identidade do canal salva'); again();
+  };
+  return h('div', { class: 'ch-sec' }, h('h4', {}, '🎯 Identidade visual (thumbnail e paletas)'),
+    h('p', { class: 'muted small' }, 'Vale em todos os projetos deste canal: a paleta dos vídeos e a tipografia entram nas cenas e nas legendas, a da thumbnail na thumbnail. Num projeto com skill de canal clonado, ESTA identidade vence a do canal de referência (do clone só vem a estrutura).'),
+    h('div', { class: 'ch-grid' }, h('label', { class: 'ch-wide' }, 'Tipo de thumbnail', styleSel), h('label', { class: 'ch-wide' }, 'Regras da thumbnail', rules)),
+    h('div', { class: 'ch-pals' }, palBox('channel', '📺 Canal (banner, avatar)'), palBox('video', '🎬 Vídeos'), palBox('thumbnail', '🖼 Thumbnail')),
+    h('div', { class: 'ch-grid' }, h('label', {}, 'Fonte do texto na tela', fam), h('label', {}, 'Caixa', caseSel), h('label', {}, 'Contorno', outline), h('label', {}, 'Sombra', shadow), h('label', {}, 'Animação', anim)),
+    h('div', { class: 'row' }, h('button', { class: 'small primary', onclick: () => void save(false) }, 'Salvar identidade'),
+      ch.brand ? h('button', { class: 'small', onclick: () => void save(true) }, '🖼 Salvar e redesenhar banner/thumb') : null));
+}
+
+/** Análise do canal: API oficial (com chave/token) ou yt-dlp; métricas, mais vistos e recomendações. */
+function analyticsSection(c: ChannelsCtx, ch: ChannelView, st: State, again: () => void): HTMLElement {
+  const { forge, guard, toast } = c;
+  const a = ch.analytics;
+  const apiOk = st.apis?.[ch.platform];
+  const aiCb = h('input', { type: 'checkbox' }) as HTMLInputElement;
+  const btn = h('button', { class: 'small primary' }, a ? '↻ Analisar de novo' : '📊 Analisar canal') as HTMLButtonElement;
+  btn.addEventListener('click', async () => {
+    if (!ch.url) { toast('Informe o link do canal primeiro', true); return; }
+    btn.disabled = true; btn.textContent = 'Analisando…';
+    try { const r = await guard(() => forge['channelsAnalyze'](ch.id, { ai: aiCb.checked })); if (r) { toast('Análise concluída'); again(); } }
+    finally { btn.disabled = false; btn.textContent = a ? '↻ Analisar de novo' : '📊 Analisar canal'; }
+  });
+  const tile = (icon: string, label: string, value: string) => h('div', { class: 'cl-tile' }, h('span', { class: 'cl-ti' }, icon), h('strong', {}, value), h('span', { class: 'muted small' }, label));
+  const report = a ? h('div', {},
+    h('div', { class: 'muted small' }, `${a.source === 'api' ? 'API oficial' : 'lista pública (yt-dlp)'} · ${a.sample} itens · ${new Date(a.at).toLocaleString()}`),
+    h('div', { class: 'cl-tiles' },
+      tile('👥', 'seguidores', fmtN(a.followers)), tile('👁', 'média de views', fmtN(a.avgViews)), tile('📈', 'mediana', fmtN(a.medianViews)), tile('🏆', 'recorde', fmtN(a.maxViews)),
+      a.engagementRate !== undefined ? tile('💬', 'engajamento', `${a.engagementRate}%`) : null, a.uploadsPerWeek !== undefined ? tile('📅', 'posts/semana', String(a.uploadsPerWeek)) : null,
+      a.avgDurationSec !== undefined ? tile('⏱', 'duração média', `${a.avgDurationSec} s`) : null, a.bestWeekday !== undefined ? tile('🗓', 'melhor dia', WEEKDAYS[a.bestWeekday] ?? '?') : null),
+    a.top?.length ? h('ol', { class: 'ch-top' }, ...a.top.map((t) => h('li', {}, t.url ? h('a', { href: '#', onclick: (e: Event) => { e.preventDefault(); void forge['openUrl']?.(t.url!); } }, t.title || t.id) : t.title, h('span', { class: 'muted small' }, ` · ${fmtN(t.views)} views`)))) : null,
+    a.insights?.length ? h('ul', { class: 'cl-success' }, ...a.insights.map((x) => h('li', {}, x))) : null,
+    ...(a.warnings ?? []).map((w) => h('div', { class: 'tag running' }, '⚠ ' + w))) : h('p', { class: 'muted' }, 'Ainda sem análise.');
+  /* credenciais das APIs (só leitura de métricas) */
+  const keyIn = h('input', { type: 'password', placeholder: ch.platform === 'youtube' ? 'chave da YouTube Data API v3' : 'token de acesso', autocomplete: 'off' }) as HTMLInputElement;
+  const igUser = h('input', { placeholder: 'id da conta profissional (Instagram)' }) as HTMLInputElement;
+  const HELP: Record<string, string> = {
+    youtube: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com', tiktok: 'https://developers.tiktok.com/doc/display-api-overview',
+    facebook: 'https://developers.facebook.com/tools/explorer/', instagram: 'https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/business_discovery', kwai: 'https://www.kwai.com/',
+  };
+  const saveKey = async () => {
+    if (!keyIn.value.trim() && !(ch.platform === 'instagram' && igUser.value.trim())) { toast('Cole a chave ou o token', true); return; }
+    const patch = ch.platform === 'youtube' ? { youtube: { apiKey: keyIn.value } } : { [ch.platform]: { ...(keyIn.value.trim() ? { token: keyIn.value } : {}), ...(ch.platform === 'instagram' && igUser.value.trim() ? { userId: igUser.value } : {}) } };
+    if (await guard(() => forge['channelsApisSet'](patch))) { toast('Credencial salva (cifrada)'); again(); }
+  };
+  const creds = h('details', { class: 'ch-creds' }, h('summary', { class: 'muted small' }, `🔑 API do ${st.platforms[ch.platform]?.label ?? ch.platform}: ${apiOk ? 'configurada ✓' : 'não configurada (usa o yt-dlp)'}`),
+    ch.platform === 'kwai' ? h('p', { class: 'muted small' }, 'O Kwai não tem API pública de métricas: a análise usa a lista pública do perfil (melhor esforço). O token fica guardado para a API de parceiros.') : null,
+    h('div', { class: 'row' }, keyIn, ch.platform === 'instagram' ? igUser : null, h('button', { class: 'small', onclick: () => void saveKey() }, 'Salvar'),
+      h('button', { class: 'small', onclick: () => void forge['openUrl']?.(HELP[ch.platform] ?? HELP['youtube']!) }, '❔ Como obter')));
+  return h('div', { class: 'ch-sec' }, h('h4', {}, '📊 Análise do canal'),
+    h('div', { class: 'row' }, btn, h('label', { class: 'inline chk', title: 'Depois das métricas, a IA de texto escreve recomendações para este canal' }, aiCb, '🤖 com recomendações por IA')),
+    report, creds,
+    ch.cloneIds?.length ? h('div', { class: 'muted small' }, `🧬 ${ch.cloneIds.length} clone(s) de Pesquisar associado(s) a este canal`) : null);
 }
 
 function brandView(ch: ChannelView, c: ChannelsCtx, again: () => void): HTMLElement {
@@ -268,6 +440,7 @@ function brandView(ch: ChannelView, c: ChannelsCtx, again: () => void): HTMLElem
   const assets = h('div', { class: 'ch-assets' });
   if (ch.hasAssets.banner && ch.assets?.banner) assets.append(h('figure', {}, h('img', { src: forge.mediaUrl(`${ch.dir}/${ch.assets.banner}`), alt: 'banner' }), h('figcaption', {}, 'Banner 2560×1440')));
   if (ch.hasAssets.avatar && ch.assets?.avatar) assets.append(h('figure', {}, h('img', { src: forge.mediaUrl(`${ch.dir}/${ch.assets.avatar}`), alt: 'avatar' }), h('figcaption', {}, 'Avatar')));
+  if (ch.hasAssets.thumb && ch.assets?.thumb) assets.append(h('figure', {}, h('img', { src: forge.mediaUrl(`${ch.dir}/${ch.assets.thumb}`), alt: 'thumbnail modelo' }), h('figcaption', {}, 'Thumbnail modelo')));
   if (!assets.childNodes.length) assets.append(h('p', { class: 'muted' }, 'Banner e avatar são desenhados por código a partir das cores e do nome.'));
 
   return h('div', { class: 'ch-brand-body' },
@@ -278,6 +451,7 @@ function brandView(ch: ChannelView, c: ChannelsCtx, again: () => void): HTMLElem
     colors.length ? h('div', { class: 'ch-line' }, h('span', { class: 'muted' }, 'Cores: '), swatches) : null,
     b.fonts ? h('div', { class: 'ch-line' }, h('span', { class: 'muted' }, 'Fontes: '), b.fonts) : null,
     b.keywords?.length ? h('div', { class: 'ch-line' }, h('span', { class: 'muted' }, 'Palavras-chave: '), b.keywords.join(', ')) : null,
+    b.tags?.length ? h('div', { class: 'ch-line' }, h('span', { class: 'muted' }, 'Tags do canal: '), b.tags.join(', '), copy(b.tags.join(', '))) : null,
     b.description ? h('div', { class: 'ch-desc' }, h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Descrição'), copy(b.description)), h('p', { 'data-no-i18n': '' }, b.description)) : null,
     assets,
   );
@@ -305,58 +479,72 @@ function projectRow(c: ChannelsCtx, ch: ChannelView, p: ProjectRow, st: State, a
   );
 }
 
+/**
+ * Cadastro guiado: 1) link do canal (obrigatório — a plataforma e o @ saem dele), 2) conta do navegador para a
+ * autenticação, 3) tipo do canal. Depois de criar, o painel do canal segue com login → marca → identidade → análise.
+ */
 function openAdd(c: ChannelsCtx, st: State, again: () => void, initial?: string): void {
   const { forge, toast, guard } = c;
-  let platform = initial && st.platforms[initial] ? initial : (filter || Object.keys(st.platforms)[0] || 'youtube');
-  const nameIn = h('input', { placeholder: 'Nome' }) as HTMLInputElement;
-  const handleIn = h('input', { placeholder: '@seuhandle' }) as HTMLInputElement;
-  const preview = h('span', { class: 'muted ch-url-prev' });
+  const hint = initial && st.platforms[initial] ? initial : filter;
+  const linkIn = h('input', { placeholder: hint === 'tiktok' ? 'https://www.tiktok.com/@perfil' : hint === 'instagram' ? 'https://www.instagram.com/perfil' : hint === 'facebook' ? 'https://www.facebook.com/suapagina' : hint === 'kwai' ? 'https://www.kwai.com/@perfil' : 'https://www.youtube.com/@seucanal' }) as HTMLInputElement;
+  const detected = h('div', { class: 'ch-detect muted' }, 'Cole o link do canal ou perfil (YouTube, TikTok, Instagram, Facebook ou Kwai).');
+  const nameIn = h('input', { placeholder: 'Nome (vazio = o @ do link; a marca sugere o definitivo)' }) as HTMLInputElement;
   const accSel = h('select', {}, h('option', { value: '' }, '— escolher depois —'), ...st.accounts.map((a) => h('option', { value: a.id }, `${a.label}${a.email ? ` (${a.email})` : ''}${a.hasProfile ? ' · com login' : ''}`))) as HTMLSelectElement;
-
-  /* seletor visual de plataforma: um bloco colorido por rede */
-  const title = h('h3', {});
-  const picker = h('div', { class: 'ch-pick' });
-  const paint = () => {
-    title.textContent = platform === 'youtube' ? 'Novo canal do YouTube' : `Novo perfil do ${st.platforms[platform]?.label ?? platform}`;
-    nameIn.placeholder = `Nome do ${noun(platform)}`;
-    preview.textContent = profileUrl(platform, handleIn.value) ?? '';
-    picker.replaceChildren(...Object.entries(st.platforms).map(([id, info]) => h('button', {
-      class: `ch-pick-btn pl-${id}${id === platform ? ' on' : ''}`,
-      onclick: () => { platform = id; paint(); },
-    }, h('span', { class: 'ch-pick-ic' }, info.icon), h('span', {}, info.label),
-      st.ready.includes(id) ? null : h('small', {}, 'publicação em breve'))));
+  const typeSel = h('select', {}, h('option', { value: '' }, '— tipo do canal —'), ...(st.types ?? []).map((t) => h('option', { value: t.id, title: t.hint }, t.label))) as HTMLSelectElement;
+  const typeHint = h('div', { class: 'muted small' });
+  typeSel.addEventListener('change', () => { typeHint.textContent = (st.types ?? []).find((t) => t.id === typeSel.value)?.hint ?? ''; });
+  let parsed: { platform: string; handle?: string; url: string } | undefined;
+  let seq = 0;
+  const check = async () => {
+    const my = ++seq;
+    const v = linkIn.value.trim();
+    if (!v) { parsed = undefined; detected.textContent = 'Cole o link do canal ou perfil.'; detected.className = 'ch-detect muted'; return; }
+    try {
+      const r = await (forge['channelsParseLink'](v) as Promise<{ platform: string; handle?: string; url: string }>);
+      if (my !== seq) return;
+      parsed = r;
+      const info = st.platforms[r.platform];
+      detected.textContent = `${info?.icon ?? ''} ${info?.label ?? r.platform}${r.handle ? ` · ${r.handle}` : ''} — ${r.url}${st.ready.includes(r.platform) ? '' : ' (publicação em breve)'}`;
+      detected.className = 'ch-detect ok';
+    } catch (e) {
+      if (my !== seq) return;
+      parsed = undefined; detected.textContent = `⚠ ${(e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`; detected.className = 'ch-detect warn';
+    }
   };
-  handleIn.addEventListener('input', paint);
-  paint();
+  linkIn.addEventListener('input', () => void check());
 
   const bg = h('div', { class: 'ch-modal-bg' });
   const close = () => bg.remove();
   const box = h('div', { class: 'ch-modal' },
-    title,
-    h('p', { class: 'muted' }, `Até ${st.max} canais/perfis. A conta escolhida guarda a sessão do navegador — o login continua sendo feito por você.`),
-    picker,
+    h('h3', {}, 'Novo canal ou perfil'),
+    h('ol', { class: 'ch-wizard muted small' }, h('li', {}, 'Link do canal (obrigatório)'), h('li', {}, 'Autenticação: você faz o login no navegador da conta'), h('li', {}, 'Tipo do canal → a IA sugere nome, descrição e tags'), h('li', {}, 'Marca e banner (pode recriar)'), h('li', {}, 'Thumbnail e paletas; análise de métricas')),
     h('div', { class: 'ch-grid' },
-      h('label', {}, 'Nome', nameIn),
-      h('label', {}, 'Handle (opcional)', handleIn),
-      h('div', { class: 'ch-wide' }, preview),
-      h('label', { class: 'ch-wide' }, 'Conta (Automações)', accSel),
+      h('label', { class: 'ch-wide' }, '1. Link do canal *', linkIn),
+      h('div', { class: 'ch-wide' }, detected),
+      h('label', { class: 'ch-wide' }, '2. Conta do navegador (autenticação)', accSel),
+      h('label', { class: 'ch-wide' }, '3. Tipo do canal', typeSel),
+      h('div', { class: 'ch-wide' }, typeHint),
+      h('label', { class: 'ch-wide' }, 'Nome (opcional)', nameIn),
     ),
+    h('p', { class: 'muted small' }, `Até ${st.max} canais/perfis. O login é sempre feito por você — o app nunca digita senha.`),
     h('div', { class: 'row' }, h('span', { class: 'sp' }),
       h('button', { class: 'small', onclick: close }, 'Cancelar'),
       h('button', { class: 'small primary', onclick: async () => {
-        if (!nameIn.value.trim()) { toast(`Dê um nome ao ${noun(platform)}`, true); return; }
-        const r = await guard(() => forge['channelsAdd']({ name: nameIn.value, platform, accountId: accSel.value || undefined }));
+        await check();
+        if (!parsed) { toast('Cole um link válido de canal ou perfil', true); linkIn.focus(); return; }
+        const r = await guard(() => forge['channelsAdd']({ link: linkIn.value, name: nameIn.value || undefined, accountId: accSel.value || undefined, type: typeSel.value || undefined }));
         const id = (r as { channel?: { id: string } } | undefined)?.channel?.id;
-        if (id && handleIn.value.trim()) {
-          const hnd = handleIn.value.trim();
-          await guard(() => forge['channelsUpdate'](id, { handle: hnd.startsWith('@') ? hnd : `@${hnd}` }));
-        }
-        if (r) { close(); selected = id; filter = ''; toast(platform === 'youtube' ? 'Canal criado' : 'Perfil criado'); again(); }
-      } }, 'Criar'),
+        if (!r || !id) return;
+        close(); selected = id; filter = '';
+        toast('Cadastrado — agora faça o login (Autenticação) e crie a marca');
+        /* já abre o navegador da conta para a autenticação */
+        if (accSel.value) await guard(() => forge['channelsOpenLogin'](id));
+        again();
+      } }, 'Cadastrar e autenticar'),
     ),
   );
   bg.addEventListener('click', (e) => { if (e.target === bg) close(); });
   bg.append(box);
   document.body.append(bg);
-  nameIn.focus();
+  linkIn.focus();
 }

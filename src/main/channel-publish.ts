@@ -56,6 +56,7 @@ export const PLATFORM_ADAPTERS: Record<ChannelPlatform, PlatformAdapter> = {
   tiktok: { id: 'tiktok', ready: false, upload: async () => { throw new Error('publicação no TikTok ainda não implementada'); } },
   instagram: { id: 'instagram', ready: false, upload: async () => { throw new Error('publicação no Instagram ainda não implementada'); } },
   facebook: { id: 'facebook', ready: false, upload: async () => { throw new Error('publicação no Facebook ainda não implementada'); } },
+  kwai: { id: 'kwai', ready: false, upload: async () => { throw new Error('publicação no Kwai ainda não implementada'); } },
 };
 
 export interface PublishOptions {

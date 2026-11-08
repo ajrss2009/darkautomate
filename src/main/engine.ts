@@ -11,6 +11,7 @@ import { duration as probeDuration } from './ffmpeg';
 import { autoCast } from './cast';
 import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
 import { pluginsRoot } from './plugins';
+import { needsApproval, writeStoryboard } from './project-storyboard';
 
 export interface ExecContext {
   project: Project;
@@ -356,6 +357,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
         }
         /* história com elenco: a bíblia e as falas definem o elenco (uma voz distinta por personagem) */
         if (r.ok && (step.kind === 'scene_plan' || step.kind === 'asset_design') && isCastStory(project)) fillCast();
+        /* storyboard: depois do plano de cenas (também em cache), e aprovação do usuário se pedida */
+        if (r.ok && step.kind === 'scene_plan' && project.storyboard?.enabled && project.scenes.length) await storyboardGate();
       } else {
         const scenes = project.scenes.filter((s) =>
           (!opts.only?.sceneIds || opts.only.sceneIds.includes(s.id)) &&
@@ -393,6 +396,23 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
     for (const sc of project.scenes) {
       for (const [k, v] of Object.entries(sc.status ?? {})) if (v === 'running') sc.status[k] = 'pending';
     }
+    saveProject(projectDir, project);
+  }
+
+  /**
+   * Storyboard do plano de cenas (out/storyboard.html). Com aprovação: pausa até o usuário responder na tela
+   * (deps.approve) — sem quem aprove (lote/MCP), para com a mensagem e a aprovação feita depois vale na próxima execução.
+   */
+  async function storyboardGate() {
+    const { board, html } = writeStoryboard(project, projectDir);
+    emit({ t: 'log', stepId: 'storyboard', line: `🎞 storyboard: ${board.panels.length} quadros (${Math.round(board.totalSec)} s) → ${path.relative(projectDir, html)}` });
+    if (!needsApproval(project)) return;
+    if (!deps.approve) throw new Error('storyboard aguardando aprovação: abra o projeto, aprove o storyboard e execute de novo');
+    emit({ t: 'gate.waiting', stepId: 'storyboard', storyboard: html });
+    const ok = await deps.approve('storyboard');
+    if (!ok) throw new Error('storyboard reprovado pelo usuário: ajuste as cenas no editor (ou refaça o plano) e execute de novo');
+    project.storyboard = { ...project.storyboard!, approvedHash: board.hash, approvedAt: new Date().toISOString() };
+    emit({ t: 'log', stepId: 'storyboard', line: '✓ storyboard aprovado — seguindo para a produção das cenas' });
     saveProject(projectDir, project);
   }
 

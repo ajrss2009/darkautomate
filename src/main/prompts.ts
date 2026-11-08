@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Project, StepKind } from '../shared/types';
+import type { Project, Skill, StepKind } from '../shared/types';
+import { dnaScriptRule, dnaSfxRule, wordsPerSecond } from './channel-dna';
+import { identityPrompt } from './channel-setup';
 import type { ExecContext } from './engine';
 import { pluginPrompt, pluginsRoot } from './plugins';
 import { smallModelBudget } from './contract';
@@ -889,6 +891,9 @@ export function freeHtmlProblem(page: string): string | undefined {
 /** Pedido da etapa sem as marcas do modo estrito (CLIs, APIs, testes). */
 export function buildPrompt(c: ExecContext): string { return stripMarks(buildPromptMarked(c)); }
 
+/** Etapas sem visual nem texto na tela: a identidade do canal não entra no prompt. */
+const NO_IDENTITY_KINDS = new Set(['narration', 'transcribe', 'music', 'sfx', 'publish', 'edit']);
+
 /** Pedido com as partes de REGRA marcadas (skill, plugins, API, exemplos): os harnesses locais as levam ao prompt de sistema. */
 export function buildPromptMarked(c: ExecContext): string {
   const p = c.project;
@@ -912,7 +917,9 @@ export function buildPromptMarked(c: ExecContext): string {
   const stepKinds = new Set((p.route?.steps ?? []).filter((st) => st.enabled).map((st) => st.kind));
   const sceneKinds = routeSceneKinds(p);
   const availableKinds = sceneKinds.size ? `Nesta rota, os únicos tipos com etapa de produção são: ${[...sceneKinds].join(', ')}. Use SOMENTE esses tipos.` : '';
-  const skill = [skillText(p, c.step), userStyles(p)].filter(Boolean).join('\n');
+  /* identidade do canal de destino (paleta, tipografia, thumbnail): vence a do formato clonado — do clone, só a estrutura */
+  const channel = p.channelId && !NO_IDENTITY_KINDS.has(c.step.kind) ? (c.settings.channels ?? []).find((x) => x.id === p.channelId) : undefined;
+  const skill = [skillText(p, c.step), userStyles(p), identityPrompt(channel, c.step.kind)].filter(Boolean).join('\n');
   const extra = [workerText(p, c.step), briefText(c.projectDir, c.step.kind), referenceText(p, c.step.kind),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });
@@ -954,9 +961,11 @@ export function buildPromptMarked(c: ExecContext): string {
         /* a narração define a duração do vídeo: sem limite, um "vídeo de 10 s" saía com 55 palavras (28 s de voz) */
         (p.targetDurationSec > 0 ? (p.targetDurationSec >= 60
           /* vídeo longo: só com o teto, o modelo escrevia bem menos (episódio de 3 min saiu com 2 min de voz) — pede a faixa */
-          ? `TAMANHO: a narração define a duração (${p.targetDurationSec} s) — escreva ENTRE ${Math.round(wordBudget(p) * 0.9)} e ${wordBudget(p)} palavras faladas no total (≈ ${/^en/i.test(p.language ?? '') ? '2,8' : '2,6'} palavras/s); conte as palavras antes de gravar: se faltar, desenvolva as batidas com fatos, números e exemplos concretos (sem enrolação); se passar, corte (a linha de fontes e os títulos de capítulo não contam). `
-          : `TAMANHO: a narração tem de caber em ${p.targetDurationSec} s — no máximo ${wordBudget(p)} palavras faladas no total (≈ ${/^en/i.test(p.language ?? '') ? '2,8' : '2,6'} palavras/s); conte as palavras antes de gravar e corte o que passar (a linha de fontes não conta). `) : '') +
+          ? `TAMANHO: a narração define a duração (${p.targetDurationSec} s) — escreva ENTRE ${Math.round(wordBudget(p) * 0.9)} e ${wordBudget(p)} palavras faladas no total (≈ ${wpsText(p)} palavras/s); conte as palavras antes de gravar: se faltar, desenvolva as batidas com fatos, números e exemplos concretos (sem enrolação); se passar, corte (a linha de fontes e os títulos de capítulo não contam). `
+          : `TAMANHO: a narração tem de caber em ${p.targetDurationSec} s — no máximo ${wordBudget(p)} palavras faladas no total (≈ ${wpsText(p)} palavras/s); conte as palavras antes de gravar e corte o que passar (a linha de fontes não conta). `) : '') +
         (p.titleModel?.chosen ? `O roteiro precisa cumprir a promessa do título "${p.titleModel.chosen}" logo no início. ` : '') +
+        /* DNA estruturado do formato (canal clonado): gancho de 15 s, atos com %, densidade e função das transições */
+        (p.skill?.formatDna ? `${dnaScriptRule(p.skill.formatDna, p.targetDurationSec)} ` : '') +
         `Apenas o texto a ser falado, organizado por blocos` +
         (p.skill?.multiVoice ? ' — como é um diálogo, escreva cada fala numa linha no formato "NOME: fala".' : '.');
     case 'scene_plan': {
@@ -987,7 +996,7 @@ export function buildPromptMarked(c: ExecContext): string {
             : `visualIntent descreve UMA imagem estática (personagem, cenário, luz, enquadramento) que funcione como primeiro E último frame do loop. ` +
               `videoPrompt é OBRIGATÓRIO e deve ser um prompt em inglês, específico para o MiniMax H3 image-to-video: descreva o movimento cíclico sutil (respiração, piscar, vapor, chuva, folhas, luzes, parallax suave), câmera fixa, começo e fim iguais, ` +
               `sem cortes, sem texto, sem zoom brusco e sem elementos atravessando a borda do quadro.`) : '') +
-        (stepKinds.has('sfx') ? ` EFEITOS SONOROS (gerados por código): em cada cena, "sfx" = lista de 0 a 3 efeitos no formato "nome" (início da cena), "nome@segundos" ou "nome:palavra da narração" (toca quando a palavra é dita). Use só nomes desta biblioteca: ${sfxCatalogText()}. Sincronize com o que é narrado e não exagere. ` : '') +
+        (stepKinds.has('sfx') ? ` EFEITOS SONOROS (gerados por código): em cada cena, "sfx" = lista de 0 a 3 efeitos no formato "nome" (início da cena), "nome@segundos" ou "nome:palavra da narração" (toca quando a palavra é dita). Use só nomes desta biblioteca: ${sfxCatalogText()}. Sincronize com o que é narrado e não exagere. ${dnaSfxRule(p.skill?.formatDna, p.sceneSec ?? (p.skill?.formatDna?.avgTakeSec ? Math.max(8, Math.min(16, p.skill.formatDna.avgTakeSec * 3)) : 10))} ` : '') +
         (characterSheet(c.projectDir).length ? ` PERSONAGENS FIXOS (assets/assets.md): ${characterSheet(c.projectDir).map((ch) => ch.name).join(', ')} — cite-os pelo NOME no visualIntent quando aparecerem, para manter a mesma aparência. ` : '') +
         ` Estilo visual padrão: ${codeMusic ? 'code' : vt?.sceneKind}. visualIntent deve ser descritivo e autossuficiente (sem "ele/ela" sem referente).` +
         (projectKit(pluginsRoot(c.settings), p)?.kind === 'pages' ? ` BIBLIOTECA DE ESTILOS DO PLUGIN: cada cena é UMA página animada no estilo escolhido, de 3 a 6 s (corte numa pausa da fala), kind "code"; visualIntent descreve o quadro no vocabulário do estilo (composição, o que aparece, movimento, texto curto na tela).` : '') +
@@ -1089,6 +1098,9 @@ export function buildPromptMarked(c: ExecContext): string {
 }
 
 /** Palavras faladas que cabem na duração alvo (≈2,6/s em português, 2,8/s em inglês). Função pura. */
-export function wordBudget(p: Pick<Project, 'targetDurationSec' | 'language'>): number {
-  return Math.max(8, Math.round((p.targetDurationSec || 60) * (/^en/i.test(p.language ?? '') ? 2.8 : 2.6)));
+export function wordBudget(p: Pick<Project, 'targetDurationSec' | 'language'> & { skill?: Pick<Skill, 'formatDna'> }): number {
+  /* skill de canal clonado: o ritmo de fala MEDIDO (WPM) do formato define o tamanho do texto */
+  return Math.max(8, Math.round((p.targetDurationSec || 60) * wordsPerSecond(p.skill?.formatDna, p.language)));
 }
+/** palavras por segundo do projeto (texto do prompt) */
+const wpsText = (p: Pick<Project, 'language'> & { skill?: Pick<Skill, 'formatDna'> }) => wordsPerSecond(p.skill?.formatDna, p.language).toFixed(1).replace('.', ',');

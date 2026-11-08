@@ -256,6 +256,8 @@ export interface Skill {
   reviewCriteria?: string;
   /** plugins (formato Claude) que toda produção com esta skill usa — ex.: skill importada de um SKILL.md */
   plugins?: string[];
+  /** DNA estruturado do formato (skills de canal clonado): números que a produção aplica */
+  formatDna?: FormatDna;
 }
 export type ScriptEnding = 'loop' | 'next' | 'conclusion';
 
@@ -467,6 +469,8 @@ export interface Project {
   flowAccount?: string;
   /** canal (aba Canais) de destino deste vídeo; vazio = pergunta na hora de publicar */
   channelId?: string;
+  /** storyboard depois do plano de cenas (opcionalmente com aprovação do usuário) */
+  storyboard?: StoryboardOptions;
   /** voz da narração escolhida NESTE projeto (vence a da rota): arquivo da pasta voices (OmniVoice/Wan2GP) e/ou voz de API */
   narrationVoice?: { refAudio?: string; apiVoice?: string };
   subtitleStyle?: SubtitleStyle;
@@ -612,17 +616,83 @@ export interface Settings {
   executorProfiles?: ExecutorProfile[];
   /** Automações: contas Google (navegador próprio por conta), Flow e Antigravity por conta */
   automations?: AutomationsConfig;
-  /** Canais: identidade de publicação (YouTube/TikTok/Instagram/Facebook) que você gerencia */
+  /** Canais: identidade de publicação (YouTube/TikTok/Instagram/Facebook/Kwai) que você gerencia */
   channels?: Channel[];
+  /**
+   * Credenciais de análise das plataformas (a do YouTube fica em stock.youtube.apiKey).
+   * Tokens de acesso gerados pelo usuário no painel de desenvolvedor de cada rede — gravados cifrados.
+   */
+  channelApis?: ChannelApis;
+}
+
+/** Tokens das APIs oficiais (só leitura de métricas). */
+export interface ChannelApis {
+  /** TikTok Display API: access token do usuário (user.info.stats + video.list) */
+  tiktok?: { token?: string };
+  /** Facebook Graph API: token de página (ou de usuário com pages_read_engagement) */
+  facebook?: { token?: string };
+  /** Instagram Graph API: token + id da conta profissional (para business_discovery) */
+  instagram?: { token?: string; userId?: string };
+  /** Kwai: não há API pública de métricas; token reservado para a API de parceiros */
+  kwai?: { token?: string };
 }
 
 /** Onde o canal publica. O YouTube é o único com adaptador pronto; os demais usam o mesmo modelo. */
-export type ChannelPlatform = 'youtube' | 'tiktok' | 'instagram' | 'facebook';
+export type ChannelPlatform = 'youtube' | 'tiktok' | 'instagram' | 'facebook' | 'kwai';
+
+/** Paleta com papéis (hex): fundo, texto, destaque e apoio — e o modo (dark/light) que resulta dela. */
+export interface PaletteSpec {
+  background?: string; text?: string; accent?: string; secondary?: string;
+  /** cores extras (hex) */
+  extra?: string[];
+  mode?: 'dark' | 'light';
+  /** contraste texto × fundo (WCAG, 1–21), calculado pelo app */
+  contrast?: number;
+}
+
+/** Identidade visual do canal: paletas (canal, vídeos, thumbnail), tipografia e estilo de thumbnail. */
+export interface ChannelIdentity {
+  palettes?: { channel?: PaletteSpec; video?: PaletteSpec; thumbnail?: PaletteSpec };
+  /** estilo de thumbnail (id de THUMB_STYLES) + regras livres */
+  thumbStyle?: string;
+  thumbRules?: string;
+  typography?: { family?: string; weight?: string; case?: 'upper' | 'title' | 'sentence'; outline?: string; shadow?: string; animation?: string };
+  updatedAt?: string;
+}
 
 /** Marca do canal (mesmo formato que a clonagem pede à IA). */
 export interface ChannelBrand {
   names?: string[]; handle?: string; tagline?: string; description?: string; keywords?: string[];
   colors?: string[]; fonts?: string; logoIdea?: string; bannerPrompt?: string; avatarPrompt?: string; tone?: string;
+  /** tags do canal (palavras-chave da plataforma, sem #) */
+  tags?: string[];
+  /** sugestões de identidade que vieram junto com a marca */
+  identity?: ChannelIdentity;
+  /** quando foi gerada (histórico de marcas) */
+  createdAt?: string;
+}
+
+/** Métricas de um canal/perfil (API oficial ou yt-dlp). */
+export interface ChannelAnalytics {
+  platform: ChannelPlatform;
+  source: 'api' | 'yt-dlp' | 'manual';
+  at: string;
+  title?: string; handle?: string;
+  followers?: number; totalViews?: number; mediaCount?: number;
+  /** últimos itens analisados */
+  sample: number;
+  avgViews?: number; medianViews?: number; maxViews?: number;
+  /** (curtidas + comentários) ÷ views, em % */
+  engagementRate?: number;
+  uploadsPerWeek?: number;
+  avgDurationSec?: number;
+  shortsShare?: number;
+  /** dia da semana (0 = domingo) e hora UTC com mais views médias */
+  bestWeekday?: number; bestHourUtc?: number;
+  top?: Array<{ id: string; title: string; views?: number; url?: string; at?: string }>;
+  /** recomendações (IA ou regras do app) */
+  insights?: string[];
+  warnings?: string[];
 }
 
 /** Canal que VOCÊ gerencia: a sessão vem de uma conta de Automações; a marca é gerada por IA. */
@@ -637,10 +707,61 @@ export interface Channel {
   /** endereço do canal, quando ele já existe na plataforma */
   url?: string;
   brand?: ChannelBrand;
+  /** marcas anteriores (a mais recente primeiro) — "recriar marca" guarda a atual aqui */
+  brandHistory?: ChannelBrand[];
+  /** tipo do canal (id de CHANNEL_TYPES) */
+  type?: string;
+  /** idioma principal do canal */
+  language?: string;
+  /** autenticação: login confirmado pelo usuário na conta do navegador */
+  auth?: { status: 'pending' | 'opened' | 'confirmed'; at?: string };
+  identity?: ChannelIdentity;
+  /** última análise de métricas */
+  analytics?: ChannelAnalytics;
+  /** clones (Pesquisar → Clonar canal) associados a este canal */
+  cloneIds?: string[];
   /** arquivos gerados, relativos a workspace/channels/mine/<id>/ */
   assets?: { banner?: string; avatar?: string; thumb?: string };
   createdAt: string;
   lastPublishAt?: string;
+}
+
+/**
+ * DNA do formato ESTRUTURADO (medido + descrito), gravado na skill do clone para a produção usar números,
+ * não só texto: WPM no tamanho do roteiro, atos com %, take médio no plano de cenas, SFX por minuto etc.
+ * Só estrutura — a identidade (paleta, fontes, marca) vem do canal do usuário quando existir.
+ */
+export interface FormatDna {
+  wpm?: number;
+  hook?: { firstSec?: number; timeToRewardSec?: number; anatomy?: string[] };
+  acts?: Array<{ name: string; pct: number; goal?: string }>;
+  actModel?: '3-atos' | 'retencao';
+  transitions?: string[];
+  secPerFact?: number;
+  avgTakeSec?: number;
+  jumpCutShare?: number;
+  cameraMoves?: string[];
+  lens?: string;
+  depthOfField?: string;
+  textAnimation?: string;
+  typography?: { family?: string; case?: string; outline?: string; shadow?: string };
+  graphicStyle?: string[];
+  aiStylePrompt?: string;
+  palette?: PaletteSpec;
+  sfxPerMin?: number;
+  sfxKind?: 'organico' | 'digital' | 'misto';
+  music?: { bpm?: number; silenceBeforeReveal?: boolean; cutsOnBeat?: boolean; genreByAct?: string[] };
+  voiceProcessing?: string;
+}
+
+/** Storyboard do projeto: gerado do plano de cenas; pode exigir aprovação antes de produzir as cenas. */
+export interface StoryboardOptions {
+  enabled: boolean;
+  /** pausar a execução até o usuário aprovar */
+  approval?: boolean;
+  /** hash do plano aprovado (aprovação vale enquanto o plano não muda) */
+  approvedHash?: string;
+  approvedAt?: string;
 }
 
 /** Publicação registrada em out/publish.json (um item por plataforma/canal). */
@@ -684,7 +805,7 @@ export type EngineEvent =
   | { t: 'step.done'; stepId: string; sceneId?: string; binding: string; files: string[] }
   | { t: 'step.failed'; stepId: string; sceneId?: string; reason: string }
   | { t: 'step.skipped'; stepId: string; sceneId?: string; reason: string }
-  | { t: 'gate.waiting'; stepId: string; sceneId?: string }
+  | { t: 'gate.waiting'; stepId: string; sceneId?: string; storyboard?: string }
   | { t: 'log'; stepId?: string; sceneId?: string; line: string }
   /** progresso: por cenas (projeto com cenas) ou por entregáveis (projeto sem cenas). */
   | { t: 'run.progress'; mode?: 'scenes' | 'deliverables'; done: number; total: number; etaMs: number; elapsedMs: number; label?: string }

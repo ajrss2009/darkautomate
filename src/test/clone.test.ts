@@ -26,7 +26,7 @@ async function main() {
   assert.equal(pickVideos(entries, 99).length, 5, 'máximo limitado ao que existe no formato');
 
   // ───────── métricas puras
-  assert.deepEqual(cutMetrics([2, 4, 6, 8], 10), { shots: 5, avgShotSec: 2, cutsPerMin: 24 });
+  assert.deepEqual(cutMetrics([2, 4, 6, 8], 10), { shots: 5, avgShotSec: 2, cutsPerMin: 24, jumpCutShare: 0, shotStdSec: 0 });
   const sp = speechMetrics('Você sabia disso? Eu também não sabia. Vamos ver agora como funciona tudo.', 6);
   assert.equal(sp.words, 13);
   assert.equal(sp.wpm, 130);

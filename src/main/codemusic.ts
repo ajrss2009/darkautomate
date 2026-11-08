@@ -29,6 +29,9 @@ export function moodFor(p: Project, params: Record<string, unknown> = {}): Mood 
   if (/lo-?fi|chill|estud/.test(txt)) return 'lofi';
   if (/8-?bit|chiptune|pixel/.test(txt)) return 'chiptune';
   if (/synthwave|80s|retr[oô]/.test(txt)) return 'synthwave';
+  /* DNA do formato: o BPM medido/descrito escolhe o clima de andamento mais próximo */
+  const bpm = p.skill?.formatDna?.music?.bpm;
+  if (bpm) return (Object.entries(SYNTHS) as Array<[Mood, Synth]>).sort((a, b) => Math.abs(a[1].bpm - bpm) - Math.abs(b[1].bpm - bpm))[0]![0];
   const byType: Partial<Record<string, Mood>> = {
     stickman: 'explainer', flat_explainer: 'explainer', whiteboard: 'explainer', vector: 'explainer', low_poly: 'ambient', code_3d: 'ambient',
     motion_graphics: 'pop', pixel_art: 'chiptune', doc_netflix: 'ambient', realistic: 'ambient', slideshow: 'ambient', ms_paint: 'pop', vox_collage: 'lofi',
