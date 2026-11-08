@@ -2,6 +2,7 @@ import type { Binding, ExecutorCategory, ExecutorProfile, Project, ReasoningEffo
 import { EFFORT_OPTIONS, harnessOffersEffort } from '../shared/effort';
 import { CATEGORIES, CATEGORY_INFO, CATEGORY_OF, ROLES, ROLE_INFO, ROLE_OF, applyExecutorProfile, applyStepBindings, balanceRoles, downstreamSteps, profileSkips, setStepHead, stepTargets, type StepRole } from '../shared/profiles';
 import { askConfirm, showMessage } from './dialogs';
+import { modelName, reserveChain } from '../shared/exec-names';
 
 /*
  * Janelas modais ilustradas para escolher QUEM executa cada parte do vídeo:
@@ -114,11 +115,27 @@ const CAP_OF_CAT: Record<ExecutorCategory, string | undefined> = { text: undefin
 const API_CAT: Record<ExecutorCategory, string> = { text: 'text', code: 'text', image: 'image', video: 'video', voice: 'voice', music: 'music' };
 const WF_ICON: Record<string, string> = { image: '🖼️', video: '🎞️', voice: '🗣️', music: '🎼' };
 
+/* nome do MODELO de cada workflow/template (ex.: wan2gp-tts.json = OmniVoice) e modelos carregados no Wan2GP */
+const templateMeta = new Map<string, { label: string; modelType?: string }>();
+let wanLoaded: Set<string> | undefined;
+export function setCatalogNames(cat: Pick<Catalog, 'workflows' | 'wan2gpTemplates'> & { wan2gpModels?: Array<{ kind: string; model: string }> }): void {
+  for (const w of [...cat.workflows, ...cat.wan2gpTemplates] as Array<{ file: string; label: string; modelType?: string }>) templateMeta.set(w.file, { label: w.label, modelType: w.modelType });
+  wanLoaded = cat.wan2gpModels?.length ? new Set(cat.wan2gpModels.map((m) => m.model)) : undefined;
+}
+
 export function bindingArt(b: Binding): { icon: string; title: string; sub: string; where: string } {
   switch (b.type) {
     case 'harness': { const a = HARNESS_ART[b.harness] ?? { icon: '🤖', name: b.harness, where: 'local/nuvem' }; return { icon: a.icon, title: a.name, sub: b.model && b.model !== 'auto' ? b.model : 'modelo padrão', where: a.where }; }
-    case 'comfyui': return { icon: '🖥️', title: 'ComfyUI', sub: b.workflow.replace(/\.json$/, ''), where: 'GPU local' };
-    case 'wan2gp': return { icon: '🌀', title: 'Wan2GP', sub: b.template.replace(/\.json$/, ''), where: 'GPU local' };
+    case 'comfyui': {
+      const m = templateMeta.get(b.workflow), name = modelName(b.workflow, m?.label);
+      return { icon: '🖥️', title: name ? `ComfyUI · ${name}` : 'ComfyUI', sub: b.workflow.replace(/\.json$/, ''), where: 'GPU local' };
+    }
+    case 'wan2gp': {
+      const m = templateMeta.get(b.template), name = modelName(b.template, m?.label, m?.modelType);
+      const loaded = m?.modelType && wanLoaded ? wanLoaded.has(m.modelType) : undefined;
+      return { icon: '🌀', title: name ? `Wan2GP · ${name}` : 'Wan2GP', sub: b.template.replace(/\.json$/, ''),
+        where: loaded === undefined ? 'GPU local' : loaded ? 'GPU local · carregado' : 'GPU local · ⚠ modelo não carregado' };
+    }
     case 'api': return { icon: '☁️', title: `API ${b.provider}`, sub: b.model + (b.voice ? ` · voz ${b.voice}` : ''), where: 'nuvem (paga)' };
     case 'stock': return { icon: '🗂️', title: 'Bancos de mídia', sub: b.sources.join(' + '), where: 'internet' };
     case 'builtin': return { icon: '🧰', title: 'Ferramenta do app', sub: b.tool, where: 'local' };
@@ -260,6 +277,7 @@ export interface ProvidersChoice { profileId?: string; chains?: ExecutorProfile[
  */
 export async function openProvidersModal(c: PickerCtx, o: { route?: Route; current?: ProvidersChoice; onPick: (ch: ProvidersChoice | undefined) => void; mode?: 'project' | 'profile'; editProfile?: ExecutorProfile }) {
   const [catalog, settings] = await Promise.all([c.forge['catalog']() as Promise<Catalog>, c.forge['getSettings']() as Promise<Settings>]);
+  setCatalogNames(catalog);
   const meta = (await c.forge['meta']()) as { profiles?: ExecutorProfile[] };
   let profiles = meta.profiles ?? [];
   const status = await loadStatus(c);
@@ -358,7 +376,9 @@ export async function openProvidersModal(c: PickerCtx, o: { route?: Route; curre
         shown ? tile(shown, { status, small: true, selected: !!mine, label: mine ? bindingArt(shown).sub + ' · escolhido' : bindingArt(shown).sub + ' · da rota' }) : h('div', { class: 'muted' }, !o.route ? 'Como a rota define (clique em Trocar)' : used ? '—' : 'Esta rota não usa esta categoria.'),
         h('div', { class: 'muted pused' }, o.route && used ? `Entra em: ${e.steps.map((s) => s.label).join(', ')}` : '',
           e.locked.length ? h('div', {}, `🔒 Mantido pela rota: ${e.locked.map((s) => s.label).join(', ')}`) : null),
-        (chains[cat]?.length ?? 0) > 1 ? h('div', { class: 'pchips' }, h('span', { class: 'muted' }, 'Reservas: '), ...chains[cat]!.slice(1).map((b) => h('span', { class: 'chip' }, artIcon(bindingArt(b).icon), ` ${bindingArt(b).sub}`))) : null);
+        /* reservas = a cadeia REAL da etapa (o escolhido na frente, os da rota continuam atrás) — antes só mostrava as escolhas da janela */
+        (() => { const rest = reserveChain(e.steps[0]?.bindings, chains[cat]); return rest.length ? h('div', { class: 'pchips' }, h('span', { class: 'muted' }, 'Reservas: '),
+          ...rest.map((b) => h('span', { class: 'chip', title: `${bindingArt(b).title} — ${bindingArt(b).sub}` }, artIcon(bindingArt(b).icon), ` ${bindingArt(b).title.replace(/^(ComfyUI|Wan2GP) · /, '$1 ')}`))) : null; })());
       if (open === cat) {
         const opts = optionsFor(cat, catalog);
         const sel = chains[cat]?.[0];

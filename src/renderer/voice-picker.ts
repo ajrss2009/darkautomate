@@ -1,5 +1,6 @@
 import type { Binding, Route } from '../shared/types';
 import { isVoiceModel, voicesForModel } from '../shared/voices';
+import { modelName } from '../shared/exec-names';
 
 /* Voz da narração DESTE projeto: arquivos da pasta voices (OmniVoice/Wan2GP, clonagem) e vozes de API.
    ▶ ouve o arquivo de referência; 🗣 gera uma frase no idioma do projeto com o executor real da rota.
@@ -34,7 +35,8 @@ export interface VoicePickerOpts {
 let audio: HTMLAudioElement | undefined;
 
 const keyOf = (b: Binding) => b.type === 'api' ? `api:${b.provider}:${b.model}` : b.type === 'comfyui' ? `comfyui:${b.workflow}` : b.type === 'wan2gp' ? `wan2gp:${b.template}` : b.type === 'harness' ? `harness:${b.harness}` : b.type;
-const labelOf = (b: Binding) => b.type === 'api' ? `☁ ${b.provider} · ${b.model}` : b.type === 'comfyui' ? `🖥 OmniVoice/ComfyUI · ${b.workflow.replace(/\.json$/, '')}` : b.type === 'wan2gp' ? `🖥 Wan2GP · ${b.template.replace(/\.json$/, '')}` : b.type;
+const labelOf = (b: Binding) => b.type === 'api' ? `☁ ${b.provider} · ${b.model}` : b.type === 'comfyui' ? `🖥 OmniVoice/ComfyUI · ${b.workflow.replace(/\.json$/, '')}`
+  : b.type === 'wan2gp' ? `🖥 Wan2GP · ${modelName(b.template) ? `${modelName(b.template)} (${b.template.replace(/\.json$/, '')})` : b.template.replace(/\.json$/, '')}` : b.type;
 const isVoiceEngine = (b: Binding) => b.type === 'api' || b.type === 'comfyui' || b.type === 'wan2gp';
 
 export function voicePicker(o: VoicePickerOpts): HTMLElement {
