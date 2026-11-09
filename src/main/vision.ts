@@ -13,6 +13,25 @@ async function visionModel(OLLAMA: string): Promise<string | undefined> {
   } catch { return undefined; }
 }
 
+/** Pergunta livre a um modelo de visão local (Ollama) sobre uma imagem; devolve o texto (ou undefined sem modelo). */
+export async function describeImage(file: string, prompt: string, baseUrl?: string, log?: (l: string) => void): Promise<string | undefined> {
+  const OLLAMA = (baseUrl || OLLAMA_DEFAULT).replace(/\/+$/, '');
+  if (!fs.existsSync(file)) return undefined;
+  const model = await visionModel(OLLAMA);
+  if (!model) { log?.('visão: nenhum modelo de visão no Ollama (ex.: qwen3-vl:4b)'); return undefined; }
+  try {
+    const r = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, stream: false, keep_alive: '2m', options: { temperature: 0.2, num_predict: 1500 },
+        messages: [{ role: 'user', content: prompt, images: [fs.readFileSync(file).toString('base64')] }] }),
+      signal: AbortSignal.timeout(240_000),
+    });
+    if (!r.ok) { log?.(`visão: HTTP ${r.status}`); return undefined; }
+    const j = (await r.json()) as { message?: { content?: string; thinking?: string } };
+    return (j.message?.content || j.message?.thinking || '').trim() || undefined;
+  } catch (e) { log?.(`visão: ${(e as Error).message}`); return undefined; }
+}
+
 export interface VisionVerdict { model: string; match: number; hasText: boolean; raw: string }
 
 /**

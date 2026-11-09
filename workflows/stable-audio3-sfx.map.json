@@ -1,0 +1,7 @@
+{
+  "_doc": "Stable Audio 3 Small SFX (ComfyUI): efeitos sonoros e ambiência da cena a partir do texto (sfx_prompt = efeitos pedidos no plano + o lugar da cena; sfx_seconds = duração da cena, até 120 s). Modelos: Comfy-Org/stable-audio-3 → checkpoints/stable_audio_3_small_sfx.safetensors e text_encoders/t5gemma_b_b_ul2.safetensors. O app converte para scenes/<id>/audio/sfx.wav no tamanho da cena.",
+  "outputNode": "57",
+  "vars": {},
+  "label": "Stable Audio 3 — efeitos sonoros da cena",
+  "capability": "sfx"
+}

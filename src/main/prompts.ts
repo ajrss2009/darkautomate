@@ -1,10 +1,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Project, Skill, StepKind } from '../shared/types';
+import type { Project, Scene, Skill, StepKind } from '../shared/types';
 import { dnaScriptRule, dnaSfxRule, wordsPerSecond } from './channel-dna';
 import { identityPrompt, paletteEnglish, projectPalettePrompt } from './channel-setup';
 import { charactersPrompt } from './characters';
 import { mixPrompt } from './skill-mix';
+import { productCtaPrompt } from './clone-business';
+import { emotionInstruction } from './speech-emotion';
+import { seriesBlock } from './story-import';
+import { styleBlock, styleVisual } from './style-ref';
 import type { ExecContext } from './engine';
 import { pluginPrompt, pluginsRoot } from './plugins';
 import { smallModelBudget } from './contract';
@@ -240,8 +244,9 @@ const ENDING_TEXT = {
   conclusion: 'fechamento com uma conclusão clara e uma chamada para ação curta',
 };
 /** Instrução de voz da skill para TTS que aceita instruções (ex.: gpt-4o-mini-tts). */
-export function narrationInstructions(p: Project): string {
-  return [p.skill?.steps?.['narration'], p.scriptStyle].filter(Boolean).join(' ').slice(0, 900);
+export function narrationInstructions(p: Project, scene?: Pick<Scene, 'emotion' | 'delivery'>): string {
+  /* a emoção da fala vem primeiro (o corte em 900 caracteres nunca a perde) */
+  return [emotionInstruction(scene), p.skill?.steps?.['narration'], p.scriptStyle].filter(Boolean).join(' ').slice(0, 900);
 }
 /** Voz do personagem da cena (elenco do projeto). */
 export function castFor(p: Project, speaker?: string) {
@@ -283,7 +288,10 @@ export function visualPrompt(c: ExecContext): string {
   const s = c.scene;
   if (c.step?.kind === 'video' && isMusicClip(c.project)) return loopVideoPrompt(c);
   const pal = paletteEnglish(c.project.palette?.video);
-  return [s?.visualIntent ?? c.project.idea, s?.notes, characterLock(c.projectDir, s?.visualIntent ?? ''), c.project.videoStyle, pal && `color palette: ${pal}`, vt?.stylePrompt, s?.camera ? `camera: ${s.camera}` : '']
+  /* cenários/objetos da biblioteca citados na cena: mesma aparência sempre */
+  const lib = (c.project.characters ?? []).some((x) => x.entity) ? charactersPrompt({ characters: (c.project.characters ?? []).filter((x) => x.entity) }, 'image', s) : '';
+  return [s?.visualIntent ?? c.project.idea, s?.notes, characterLock(c.projectDir, s?.visualIntent ?? ''), lib, styleVisual(c.project), c.project.videoStyle, pal && `color palette: ${pal}`,
+    c.project.styleRef ? '' : vt?.stylePrompt, s?.camera ? `camera: ${s.camera}` : '']
     .filter(Boolean).join('. ');
 }
 
@@ -925,7 +933,8 @@ export function buildPromptMarked(c: ExecContext): string {
   /* identidade do canal de destino (paleta, tipografia, thumbnail): vence a do formato clonado — do clone, só a estrutura */
   const channel = p.channelId && !NO_IDENTITY_KINDS.has(c.step.kind) ? (c.settings.channels ?? []).find((x) => x.id === p.channelId) : undefined;
   const skill = [skillText(p, c.step), userStyles(p), identityPrompt(channel, c.step.kind), projectPalettePrompt(p.palette, c.step.kind),
-    charactersPrompt(p, c.step.kind), mixPrompt(p, c.step.kind)].filter(Boolean).join('\n');
+    charactersPrompt(p, c.step.kind, c.scene), mixPrompt(p, c.step.kind), productCtaPrompt(channel?.products, c.step.kind),
+    seriesBlock(p, c.step.kind), styleBlock(p, c.step.kind)].filter(Boolean).join('\n');
   const extra = [workerText(p, c.step), briefText(c.projectDir, c.step.kind), referenceText(p, c.step.kind),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });
@@ -987,11 +996,12 @@ export function buildPromptMarked(c: ExecContext): string {
           ? `VÍDEO EM CÓDIGO (vence a skill): POUCAS cenas longas, cada uma com ${CODE_SCENE_MIN_SEC} a ${CODE_SCENE_MAX_SEC} s (nunca menos de ${CODE_SCENE_MIN_SEC} s), ou seja ≈ ${codeSceneCount(p.targetDurationSec)} cenas; junte trechos seguidos da narração na mesma cena e descreva no visualIntent as 2 a 4 etapas que a animação percorre dentro dela (o que entra, o que muda, como termina)`
           : 'duração por cena conforme a skill; padrão 3–8 s'}; total ≈ ${p.targetDurationSec}s). ` +
         `SOMA OBRIGATÓRIA: a soma de "durationSec" DEVE ficar entre ${Math.round(p.targetDurationSec * 0.95)} e ${Math.round(p.targetDurationSec * 1.05)} s. NÃO resuma o roteiro: cada cena usa o trecho correspondente da narração, sem cortar frases; confira a soma antes de gravar o JSON. ` +
-        `Grave um ARRAY JSON em scenes.json: [{"id":"s01","title","narration","visualIntent","videoPrompt","kind":"image|video|code|motion|mixed|stock","durationSec","camera","searchTerms"${multi ? ',"speaker"' : ''}${stepKinds.has('sfx') ? ',"sfx"' : ''}${p.attachments?.some((a) => a.use === 'scene') ? `,"userMedia"${sceneVideos.length ? ',"clipStart","clipCrop","manualDuration"' : ''}` : ''}}]. ` +
+        `Grave um ARRAY JSON em scenes.json: [{"id":"s01","title","narration","visualIntent","videoPrompt","kind":"image|video|code|motion|mixed|stock","durationSec","camera","searchTerms"${multi ? ',"speaker"' : ''}${!isLyricVideo(p) && !isMusicClip(p) ? ',"emotion","delivery"' : ''}${stepKinds.has('sfx') ? ',"sfx"' : ''}${p.attachments?.some((a) => a.use === 'scene') ? `,"userMedia"${sceneVideos.length ? ',"clipStart","clipCrop","manualDuration"' : ''}` : ''}}]. ` +
         `Tipos de cena: image | video | code | motion | mixed (código + mídias de bancos) | stock (somente mídia de banco). ` +
         `OBRIGATÓRIO: TODA cena dos tipos stock, mixed, image e video deve ter "searchTerms" com 2–4 palavras em INGLÊS descrevendo exatamente a imagem que combina com o que está sendo narrado naquele trecho. ` +
         `Se o trecho é de ÉPOCA/histórico, ponha a década e "archival" nos termos (ex.: "1930s factory workers archival", "1960s TV studio vintage"); se é espaço, termos como "NASA astronaut spacewalk" — os bancos são consultados por tema (antigo → Internet Archive primeiro; espaço → NASA; museu/natureza → Smithsonian). ` +
         `${mixed ? `Use SOMENTE e de forma equilibrada os tipos ${mixKinds(p)}. ` : ''}${availableKinds}` +
+        (!isLyricVideo(p) && !isMusicClip(p) ? ` EMOÇÃO DA FALA (a voz segue): em toda cena com narração/fala ponha "emotion" = UM destes rótulos: neutro, alegre, triste, raiva, medo, surpresa, carinho, tenso, sussurro, empolgado, ironico, cansado, choro, decidido — e "delivery" = como dizer em até 12 palavras (ritmo, intensidade, pausas; ex.: "devagar, quase sem voz, pausa antes do nome"). Varie conforme a cena pede; narração informativa costuma ser neutro/empolgado.${p.h3Speech ? ' A fala é gerada pelo MiniMax H3 junto com o vídeo: cada cena com fala até 15 s e a fala cabendo na duração.' : ''} ` : '') +
         (multi ? ` DIÁLOGO: cada cena tem UMA fala; "speaker" = nome do personagem que fala (o mesmo nome em todas as falas dele${p.cast?.length ? `; elenco: ${p.cast.map((m) => m.speaker).join(', ')}` : ''}); "narration" = só a fala, sem o nome. ` : '') +
         (timing ? ` LYRIC VIDEO: tempos dos versos da canção (out/lyrics-timing.json):\n${timing}\nCrie UMA cena "code" por bloco da letra, na ordem; "narration" = versos do bloco separados por " / "; "durationSec" = fim − início do bloco (a soma deve dar a duração da canção). ` : '') +
         (isMusicClip(p) ? (clip.perTrack

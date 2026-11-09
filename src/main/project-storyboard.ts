@@ -21,6 +21,12 @@ export interface StoryboardPanel {
   skill?: string;
   /** imagem já gerada para a cena (reexecução), relativa ao projeto */
   image?: string;
+  /** opções geradas para escolher (relativas ao projeto) e as escolhidas */
+  candidates?: { sketch?: string[]; frame?: string[] };
+  firstFrame?: string;
+  sketch?: string;
+  speaker?: string;
+  emotion?: string;
 }
 export interface Storyboard { project: string; name: string; hash: string; createdAt: string; totalSec: number; panels: StoryboardPanel[] }
 
@@ -45,9 +51,10 @@ export function buildStoryboard(p: Pick<Project, 'id' | 'name' | 'scenes' | 'tar
     const from = t; t += d;
     const mid = from + d / 2;
     const act = acts.find((a) => mid >= a.from && mid <= a.to)?.name;
-    const image = Object.values(s.artifacts ?? {}).flat().find((f) => IMG.test(f));
+    const image = s.firstFrame ?? s.sketch ?? Object.values(s.artifacts ?? {}).flat().find((f) => IMG.test(f));
     return { id: s.id, index: s.index, title: s.title, from: Math.round(from * 10) / 10, to: Math.round(t * 10) / 10, durationSec: d, act,
       narration: s.narration, visual: s.visualIntent, camera: s.camera, kind: s.kind, sfx: s.sfx?.length ? s.sfx : undefined, image,
+      candidates: s.candidates, firstFrame: s.firstFrame, sketch: s.sketch, speaker: s.speaker, emotion: s.emotion,
       skill: p.skillMix ? (s.skillOverride?.name ?? p.skill?.name) : undefined };
   });
   return { project: p.id, name: p.name, hash: planHash(p.scenes), createdAt: new Date().toISOString(), totalSec: Math.round(t * 10) / 10, panels };
@@ -104,3 +111,48 @@ export function readStoryboard(projectDir: string): Storyboard | undefined {
 /** Precisa de aprovação? (opção ligada e o plano atual ainda não foi aprovado) */
 export const needsApproval = (p: Pick<Project, 'storyboard' | 'scenes'>): boolean =>
   !!p.storyboard?.enabled && !!p.storyboard.approval && p.storyboard.approvedHash !== planHash(p.scenes);
+
+/* ───────── opções por cena: esboço em traço e quadro inicial (com aprovação) ───────── */
+
+/** Quantas opções gerar de cada tipo (0 = não gera). */
+export function candidatePlan(o?: Project['storyboard']): { sketch: number; frame: number } {
+  const sk = o?.approval ? o.sketches : undefined;
+  if (!sk) return { sketch: 0, frame: 0 };
+  const n = Math.max(1, Math.min(4, Math.round(sk.count || 1)));
+  return { sketch: sk.mode === 'frame' ? 0 : n, frame: sk.mode === 'sketch' ? 0 : n };
+}
+
+/** Visual do ESBOÇO em traço (storyboard de lápis) para o executor de imagem. */
+export function sketchIntent(s: Pick<Scene, 'visualIntent' | 'camera'>): string {
+  return `Rough storyboard sketch, black pencil line art on plain white paper, loose confident lines, simple hatching, NO color, NO painting, NO text: ${s.visualIntent}` +
+    `${s.camera ? `. Camera: ${s.camera}` : ''}. Clear composition and character positions, like a film storyboard panel.`;
+}
+
+export interface StoryboardPicks { [sceneId: string]: { frame?: string; sketch?: string } }
+const picksFile = (projectDir: string) => path.join(projectDir, 'out', 'storyboard-picks.json');
+export function readPicks(projectDir: string): StoryboardPicks {
+  try { return JSON.parse(fs.readFileSync(picksFile(projectDir), 'utf8')) as StoryboardPicks; } catch { return {}; }
+}
+/** Grava a escolha (só uma opção gerada para a cena vale; null limpa). */
+export function writePick(projectDir: string, scene: Pick<Scene, 'id' | 'candidates'>, kind: 'frame' | 'sketch', rel: string | null): StoryboardPicks {
+  if (rel && !(scene.candidates?.[kind] ?? []).includes(rel)) throw new Error('opção inválida para esta cena');
+  const all = readPicks(projectDir);
+  const cur = { ...(all[scene.id] ?? {}) };
+  if (rel) cur[kind] = rel; else delete cur[kind];
+  if (cur.frame || cur.sketch) all[scene.id] = cur; else delete all[scene.id];
+  fs.mkdirSync(path.dirname(picksFile(projectDir)), { recursive: true });
+  fs.writeFileSync(picksFile(projectDir), JSON.stringify(all, null, 1));
+  return all;
+}
+/** Aplica as escolhas às cenas (firstFrame vira a imagem da cena; sketch vira referência). Devolve quantas mudaram. */
+export function applyPicks(scenes: Scene[], picks: StoryboardPicks): number {
+  let n = 0;
+  for (const sc of scenes) {
+    const pk = picks[sc.id];
+    const frame = pk?.frame && sc.candidates?.frame?.includes(pk.frame) ? pk.frame : undefined;
+    const sketch = pk?.sketch && sc.candidates?.sketch?.includes(pk.sketch) ? pk.sketch : undefined;
+    if (frame !== sc.firstFrame) { if (frame) sc.firstFrame = frame; else delete sc.firstFrame; n++; }
+    if (sketch !== sc.sketch) { if (sketch) sc.sketch = sketch; else delete sc.sketch; n++; }
+  }
+  return n;
+}

@@ -17,11 +17,14 @@ import * as myChannelPub from './channel-publish';
 import { generateBrand as generateChannelBrand, renderBrandFiles, type BrandInput } from './channel-brand';
 import { CHANNEL_TYPES, THUMB_STYLES, channelType, parseChannelLink, recreateNote } from './channel-setup';
 import { analyticsLine, analyzeChannel } from './channel-analytics';
-import { enginesFromRoute, estimateCost, normalizeProducts, productsPrompt, type CostInput } from './clone-business';
+import { channelProductsContext, enginesFromRoute, estimateCost, mergeChannelProducts, normalizeProducts, patchChannelProducts, productsPrompt, projectCost, type CostInput, type CostRates } from './clone-business';
 import { dnaSceneSec } from './channel-dna';
-import { planHash, readStoryboard, writeStoryboard } from './project-storyboard';
+import { applyPicks, planHash, readStoryboard, writePick, writeStoryboard } from './project-storyboard';
+import { deleteStory, episodeProject, getStory, importStory, listStories, saveStory } from './story-import';
+import { measurePalette, normalizeStyleRef, styleRequest } from './style-ref';
+import { describeImage } from './vision';
 import * as characters from './characters';
-import type { LibraryCharacter } from '../shared/types';
+import type { LibraryCharacter, LibraryEntity, Story } from '../shared/types';
 import { SOCIAL_SITES, findSocial, isSocialPlatform, listProfile, netscapeCookies, searchSocial, type SocialPlatform } from './social-search';
 import { cookieArgs, ensureYtDlp, setCookieProvider } from './youtube';
 import { bindingLabel } from '../shared/types';
@@ -62,7 +65,7 @@ import { exportForEditor } from './nle-export';
 import { writePublishKit } from './publish-kit';
 import { autoFrameTime, bestFrameTime, grabFrame, projectThumbDesign, renderThumb, thumbSize, thumbText } from './thumb-render';
 import type { ThumbDesign } from '../shared/thumbdesign';
-import { LANGUAGE_KINDS, fitSceneSfx, llmJson, rewriteScenes, translateProject } from './editor';
+import { LANGUAGE_KINDS, extractJson, fitSceneSfx, llmJson, rewriteScenes, translateProject } from './editor';
 import * as sfx from './sfx';
 import { STOCK_SOURCES } from '../shared/stock-sources';
 import { auditLibrary } from './audit';
@@ -555,7 +558,18 @@ async function projectRow(id: string) {
   return { ...base, scenes, scenesWithMedia, hasFinal, running: isRunning, totalMs: pr?.production?.totalMs ?? 0, firstFrame, frameFromFinal: hasFinal && !!firstFrame,
     typeId: pr?.typeId, language: pr?.language, status, runs: pr?.production?.runs?.length ?? 0, lastRunAt: lastRun?.endedAt, lastRunOk: lastRun?.ok, updatedAt,
     skillId: pr?.skillId ?? pr?.skill?.id, skillName: pr?.skill?.name, routeName: pr?.route?.name, aspect: pr?.aspect, targetDurationSec: pr?.targetDurationSec, dir,
-    plugins: pr?.plugins ?? [] };
+    plugins: pr?.plugins ?? [], cost: pr ? costOfProject(pr) : undefined };
+}
+
+/** custo estimado por vídeo (selo $): preços do clone associado ao canal do projeto, se houver; senão os padrões */
+function costOfProject(pr: Project): { perVideo: number; currency: string; lines: Array<{ item: string; qty: string; cost: number }>; assumptions: string[] } | undefined {
+  try {
+    let rates: Partial<CostRates> | undefined;
+    const ch = pr.channelId ? (settings.channels ?? []).find((x) => x.id === pr.channelId) : undefined;
+    if (ch?.cloneIds?.length) { const store = cloneStore(settings, app.getVersion()); for (const cid of ch.cloneIds) { const r = store.get(cid)?.business?.costInput?.rates; if (r) { rates = r; break; } } }
+    const e = projectCost(pr, rates);
+    return { perVideo: e.perVideo, currency: e.currency, lines: e.lines, assumptions: e.assumptions };
+  } catch { return undefined; }
 }
 
 /** folga após o tempo máximo de produção: cenas em andamento terminam (e entram no cache) antes do corte */
@@ -1027,6 +1041,37 @@ function registerIpc() {
     return { analytics: a, state: channelsState() };
   });
   h('channels:analyze-cancel', () => { analyzeAbort?.abort(); return true; });
+  /* ── produtos para vender no canal (aba Canais) e CTA no roteiro dos projetos do canal ── */
+  h('channels:products', async (id: string, ai?: { harness?: string; model?: string }) => {
+    const ch = myChannels.getChannel(settings, id);
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 600_000);
+    try {
+      const { json, binding } = await llmJson([{ type: 'harness', harness: (ai?.harness || 'auto') as HarnessBinding['harness'], model: ai?.model || undefined }], settings, path.join(settings.workspace, 'tools', 'finder'),
+        productsPrompt(channelProductsContext(ch, ch.type ? channelType(ch.type)?.label : undefined)), ac.signal, (line) => send({ t: 'log', stepId: 'channel', line } as EngineEvent));
+      const plan = normalizeProducts(json, (binding as { harness?: string } | undefined)?.harness);
+      if (!plan.info.length && !plan.physical.length) throw new Error('a IA não devolveu produtos');
+      ch.products = mergeChannelProducts(ch.products, plan, 'ai');
+      saveSettings(settings);
+      return { channel: ch, state: channelsState() };
+    } finally { clearTimeout(t); }
+  });
+  h('channels:products-set', (id: string, patch: Parameters<typeof patchChannelProducts>[1]) => {
+    const ch = myChannels.getChannel(settings, id);
+    if (!ch.products) throw new Error('o canal ainda não tem produtos');
+    ch.products = patchChannelProducts(ch.products, patch ?? {});
+    saveSettings(settings);
+    return { channel: ch, state: channelsState() };
+  });
+  /** traz os produtos pesquisados nos clones associados a este canal */
+  h('channels:products-import', (id: string) => {
+    const ch = myChannels.getChannel(settings, id);
+    const store = cloneStore(settings, app.getVersion());
+    const plans = (ch.cloneIds ?? []).map((cid) => { try { return store.get(cid)?.business?.products; } catch { return undefined; } }).filter((x): x is NonNullable<typeof x> => !!x);
+    if (!plans.length) throw new Error('nenhum clone associado a este canal tem produtos pesquisados');
+    for (const pl of plans) ch.products = mergeChannelProducts(ch.products, pl, 'clone');
+    saveSettings(settings);
+    return { channel: ch, state: channelsState() };
+  });
   h('channels:brand-restore', (id: string, index: number) => {
     const c = myChannels.restoreChannelBrand(settings, id, index); saveSettings(settings); return { channel: c, state: channelsState() };
   });
@@ -1113,6 +1158,7 @@ function registerIpc() {
     if (channelId) {
       const ch = myChannels.linkClone(settings, channelId, cloneId, true);
       c.linked = { channelId, platform: ch.platform, name: ch.name, at: new Date().toISOString() };
+      if (c.business?.products && !ch.products?.items.length) ch.products = mergeChannelProducts(undefined, c.business.products, 'clone');
       /* projetos novos com a skill do clone já saem para este canal: a identidade dele vence a do formato */
     } else delete c.linked;
     saveSettings(settings);
@@ -1723,18 +1769,109 @@ function registerIpc() {
   });
   /** Ouvir a voz da narração no idioma do projeto (mesmo executor da etapa; resultado em cache). */
   /* ── biblioteca de personagens (folha de personagem, aparência fixa, voz, desenho por código) ── */
-  h('characters:list', () => characters.listCharacters(settings).map((c) => ({ ...c, dir: characters.charDir(settings, c.id) })));
+  h('characters:list', (entity?: LibraryEntity) => characters.listCharacters(settings, entity).map((c) => ({ ...c, dir: characters.charDir(settings, c.id) })));
+  /** salva o teste de voz (prévia) numa pasta: padrão workspace/voices/testes; pick = o usuário escolhe a pasta */
+  h('voice:save-test', async (file: string, label?: string, pick?: boolean) => {
+    const src = path.resolve(String(file));
+    const ws = path.resolve(settings.workspace);
+    if (!src.startsWith(ws) || !fs.existsSync(src) || !/\.(mp3|wav|flac|ogg|m4a)$/i.test(src)) throw new Error('teste de voz não encontrado');
+    let dir = path.join(settings.workspace, 'voices', 'testes');
+    if (pick) {
+      const r = await dialog.showOpenDialog(win!, { title: 'Pasta para salvar o teste de voz', defaultPath: dir, properties: ['openDirectory', 'createDirectory'] });
+      if (r.canceled || !r.filePaths[0]) return null;
+      dir = r.filePaths[0];
+    }
+    fs.mkdirSync(dir, { recursive: true });
+    const base = String(label ?? 'voz').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'voz';
+    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+    const out = path.join(dir, `${base}-${stamp}${path.extname(src).toLowerCase()}`);
+    fs.copyFileSync(src, out);
+    return out;
+  });
+  h('voice:open-tests', () => { const dir = path.join(settings.workspace, 'voices', 'testes'); fs.mkdirSync(dir, { recursive: true }); return shell.openPath(dir); });
+  h('characters:add-model', async (id: string) => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Modelo 3D (GLB, GLTF, OBJ ou FBX)', properties: ['openFile'], filters: [{ name: 'Modelos 3D', extensions: ['glb', 'gltf', 'obj', 'fbx'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return characters.addCharacterModel(settings, id, r.filePaths[0]);
+  });
+  h('characters:remove-model', (id: string, name: string) => characters.removeCharacterModel(settings, id, name));
+  /* ── histórias: importar romance/texto longo, série em episódios e episódio → projeto ── */
+  let storyAbort: AbortController | undefined;
+  h('story:import', async (o: { text?: string; pickFile?: boolean; title?: string; episodes?: number; episodeSec?: number; language?: string; kind?: LibraryCharacter['kind']; harness?: string; model?: string }) => {
+    let text = String(o?.text ?? '');
+    if (o?.pickFile) {
+      const r = await dialog.showOpenDialog(win!, { title: 'Romance ou texto longo', properties: ['openFile'], filters: [{ name: 'Texto', extensions: ['txt', 'md', 'markdown', 'html', 'htm'] }] });
+      if (r.canceled || !r.filePaths[0]) return null;
+      text = fs.readFileSync(r.filePaths[0], 'utf8');
+      if (/\.html?$/i.test(r.filePaths[0])) text = text.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/p>/gi, '\n\n').replace(/<[^>]+>/g, ' ');
+    }
+    storyAbort?.abort(); const ac = new AbortController(); storyAbort = ac;
+    const log = (line: string) => send({ t: 'log', stepId: 'story', line } as EngineEvent);
+    const cwd = path.join(settings.workspace, 'tools', 'story');
+    return importStory(settings, text, { title: o?.title, episodes: o?.episodes, episodeSec: o?.episodeSec, language: o?.language, kind: o?.kind }, {
+      llm: async (prompt) => (await llmJson([{ type: 'harness', harness: (o?.harness || 'auto') as HarnessBinding['harness'], model: o?.model || undefined }], settings, cwd, prompt, ac.signal, log)).json,
+      log, signal: ac.signal,
+    });
+  });
+  h('story:cancel', () => { storyAbort?.abort(); return true; });
+  h('story:list', () => listStories(settings));
+  h('story:get', (id: string) => getStory(settings, id));
+  h('story:delete', (id: string) => { deleteStory(settings, id); return true; });
+  h('story:save', (st: Story) => { const cur = getStory(settings, st.id); return saveStory(settings, { ...cur, title: String(st.title ?? cur.title).slice(0, 120), episodes: Array.isArray(st.episodes) ? st.episodes : cur.episodes, updatedAt: new Date().toISOString() }); });
+  /** dados do Novo projeto para um episódio (o renderer abre o Novo projeto já preenchido) */
+  h('story:episode-input', (id: string, n: number) => episodeProject(getStory(settings, id), Number(n), characters.listCharacters(settings)));
+  h('story:episode-link', (id: string, n: number, projectId: string) => {
+    const st = getStory(settings, id); const ep = st.episodes.find((e) => e.n === Number(n));
+    if (ep) { ep.projectId = projectId; saveStory(settings, st); }
+    return st;
+  });
+  /* ── estilo a partir de uma imagem (Novo projeto) ── */
+  h('style:extract', async (o?: { harness?: string; model?: string }) => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Imagem de referência do estilo', properties: ['openFile'], filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const file = r.filePaths[0];
+    const log = (line: string) => send({ t: 'log', stepId: 'style', line } as EngineEvent);
+    const measured = await measurePalette(settings.ffmpeg, file);
+    const cwd = path.join(settings.workspace, 'tools', 'style', String(Date.now()));
+    fs.mkdirSync(cwd, { recursive: true });
+    const local = path.join(cwd, `ref${path.extname(file).toLowerCase()}`);
+    fs.copyFileSync(file, local);
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 300_000);
+    try {
+      let raw: unknown; let by: string | undefined;
+      /* 1º harness (abre a imagem da pasta); sem harness, modelo de visão local (Ollama) */
+      try { const got = await llmJson([{ type: 'harness', harness: (o?.harness || 'auto') as HarnessBinding['harness'], model: o?.model || undefined }], settings, cwd, styleRequest(path.basename(local), measured), ac.signal, log); raw = got.json; by = got.binding; }
+      catch (e) {
+        log(`harness indisponível (${(e as Error).message.slice(0, 120)}) — tentando o modelo de visão local`);
+        const txt = await describeImage(local, styleRequest('imagem anexada', measured), settings.providers.find((p) => /ollama/i.test(p.id))?.baseUrl?.replace(/\/v1\/?$/, ''), log);
+        if (!txt) throw new Error('nenhuma IA de visão disponível (harness ou modelo de visão no Ollama) — a paleta foi medida, descreva o estilo à mão');
+        raw = extractJson(txt); by = 'visão local (Ollama)';
+      }
+      return { ...normalizeStyleRef(raw, measured, file, by), measured };
+    } finally { clearTimeout(t); }
+  });
+  /* ── storyboard: escolher o esboço / quadro inicial de uma cena ── */
+  h('project:storyboard-pick', (id: string, sceneId: string, kind: 'frame' | 'sketch', rel: string | null) => {
+    const dir = projectDirOf(settings, id);
+    const p = ops.readProject(settings, id);
+    const sc = p.scenes.find((x) => x.id === sceneId);
+    if (!sc) throw new Error('cena não encontrada');
+    const picks = writePick(dir, sc, kind, rel);
+    /* sem execução esperando: grava direto no projeto (com execução pausada, o motor aplica ao aprovar) */
+    if (!running.has(id)) { applyPicks(p.scenes, picks); ops.saveProjectFile(settings, p, { scenes: false }); writeStoryboard(p, dir); }
+    return { picks };
+  });
   h('characters:save', (c: Partial<LibraryCharacter>) => characters.saveCharacter(settings, c));
   h('characters:delete', (id: string) => { characters.deleteCharacter(settings, id); return true; });
-  h('characters:add-image', async (id: string, role: 'sheet' | 'portrait' | 'extra') => {
+  h('characters:add-image', async (id: string, role: 'sheet' | 'portrait' | 'extra' | `variant:${string}`) => {
     const r = await dialog.showOpenDialog(win!, { title: 'Imagem do personagem', properties: ['openFile'], filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
     return characters.addCharacterImage(settings, id, r.filePaths[0], role);
   });
-  h('characters:sheet-prompt', (id: string) => characters.sheetPrompt(characters.getCharacter(settings, id)));
-  h('characters:generate-sheet', (id: string, binding: Binding) => characters.generateCharacterSheet(settings,
+  h('characters:sheet-prompt', (id: string, variantId?: string) => { const ch = characters.getCharacter(settings, id); return characters.sheetPrompt(ch, '', variantId ? ch.variants?.find((v) => v.id === variantId) : undefined); });
+  h('characters:generate-sheet', (id: string, binding: Binding, variantId?: string) => characters.generateCharacterSheet(settings,
     createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }), id, binding,
-    (line) => send({ t: 'log', line: `personagem: ${line}` } as EngineEvent)));
+    (line) => send({ t: 'log', line: `biblioteca: ${line}` } as EngineEvent), variantId));
   h('voice:preview', (i: VoicePreviewInput) => voicePreview(settings, createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }), i,
     (line) => send({ t: 'log', line: `prévia de voz: ${line}` } as EngineEvent)));
   /** Efeitos pedidos (ou escolhidos pela IA) sincronizados com o que acontece no visual; regera a faixa das cenas. */

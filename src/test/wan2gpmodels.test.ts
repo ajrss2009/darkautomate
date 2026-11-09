@@ -36,14 +36,14 @@ function main() {
   assert.equal(cleanWan2gpPost(null), undefined);
   /* todos os templates: JSON válido, capability conhecida e só variáveis que o executor preenche */
   const dir = path.resolve(__dirname, '../../workflows');
-  const known = new Set(['prompt', 'negative', 'text', 'seed', 'width', 'height', 'resolution', 'frames', 'fps', 'seconds', 'seconds_int', 'music_seconds', 'style', 'lyrics',
+  const known = new Set(['delivery', 'sfx_prompt', 'sfx_seconds', 'prompt', 'negative', 'text', 'seed', 'width', 'height', 'resolution', 'frames', 'fps', 'seconds', 'seconds_int', 'music_seconds', 'style', 'lyrics',
     'init_image', 'ref_audio', 'ref_images', 'ref_prompt', 'language_name', 'language_code', 'language_label', 'speech_seconds']);
   const files = fs.readdirSync(dir).filter((f) => /^wan2gp-.*\.json$/.test(f));
   assert.ok(files.length >= 17, `templates Wan2GP: ${files.length}`);
   for (const f of files) {
     const t = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as { model_type: string; capability: string; settings: Record<string, unknown>; label: string; needsRefs?: boolean; needsRefAudio?: boolean };
     assert.ok(t.model_type && t.label, f);
-    assert.ok(['image', 'video', 'voice', 'music'].includes(t.capability), `${f}: capability`);
+    assert.ok(['image', 'video', 'voice', 'music', 'sfx'].includes(t.capability), `${f}: capability`);
     for (const v of placeholders(t.settings)) assert.ok(known.has(v), `${f}: variável desconhecida {{${v}}}`);
     if (placeholders(t.settings).includes('ref_images')) assert.ok(t.needsRefs, `${f}: usa o elenco → needsRefs`);
     if (t.settings['audio_guide'] === '{{ref_audio}}') assert.ok(t.needsRefAudio, `${f}: clona voz → needsRefAudio`);

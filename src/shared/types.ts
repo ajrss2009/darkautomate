@@ -135,6 +135,16 @@ export interface Scene {
   searchTerms?: string;                // termos para bancos de mídia (Pexels/Pixabay/Wikipedia)
   videoPrompt?: string;                // prompt escrito para o vídeo IA (MiniMax H3), quando a cena é um loop
   speaker?: string;                    // personagem que fala nesta cena (skills com várias vozes)
+  /** emoção da fala (a voz segue): neutro, alegre, triste, raiva, medo, surpresa, carinho, tenso, sussurro, empolgado… */
+  emotion?: string;
+  /** como dizer a fala (ritmo, intensidade, pausa) — vai junto com a emoção para a voz */
+  delivery?: string;
+  /** quadro inicial escolhido no storyboard (relativo ao projeto): vira a imagem da cena */
+  firstFrame?: string;
+  /** esboço em traço escolhido no storyboard (relativo ao projeto): referência de composição */
+  sketch?: string;
+  /** opções geradas para o storyboard (relativas ao projeto) */
+  candidates?: { sketch?: string[]; frame?: string[] };
   userMedia?: string;                  // arquivo do usuário (assets/user) usado como visual desta cena
   /** trecho do vídeo do usuário a exibir: segundo inicial no arquivo (padrão 0) */
   clipStart?: number;
@@ -476,6 +486,12 @@ export interface Project {
   /** várias skills com percentual de tempo; as cópias das secundárias ficam em skillMixSkills */
   skillMix?: { items: SkillMixItem[]; mode: 'blocks' | 'interleave'; warnings?: string[] };
   skillMixSkills?: Skill[];
+  /** episódio de uma série (Biblioteca → Histórias) */
+  series?: { storyId: string; title: string; episode: number; total: number; previously?: string; cliffhanger?: string; arc?: string };
+  /** estilo visual extraído de uma imagem de referência */
+  styleRef?: StyleRef;
+  /** fala gerada pelo próprio vídeo do MiniMax H3 (voz, emoção e lábios no vídeo; a narração por TTS fica de reserva) */
+  h3Speech?: boolean;
   /** paleta escolhida no Novo projeto (vence a do canal e a do formato) */
   palette?: { video?: PaletteSpec; thumbnail?: PaletteSpec };
   /** voz da narração escolhida NESTE projeto (vence a da rota): arquivo da pasta voices (OmniVoice/Wan2GP) e/ou voz de API */
@@ -702,6 +718,18 @@ export interface ChannelAnalytics {
   warnings?: string[];
 }
 
+/** Produto sugerido para o canal; `chosen` = entra no CTA dos roteiros; `url` = link do usuário (afiliado/loja). */
+export interface ChannelProduct {
+  kind: 'info' | 'physical'; name: string; category?: string; platform?: string; priceRange?: string; commission?: string;
+  why?: string; placement?: string; fit: number; search?: string; links?: Array<{ label: string; url: string }>;
+  chosen?: boolean; url?: string;
+}
+export interface ChannelProducts {
+  items: ChannelProduct[]; notes?: string; at: string; by?: string; source: 'ai' | 'clone';
+  /** CTA no roteiro: ligado, onde entra e quantos produtos por vídeo */
+  cta?: { enabled: boolean; placement: 'middle' | 'end' | 'both'; max: number };
+}
+
 /** Canal que VOCÊ gerencia: a sessão vem de uma conta de Automações; a marca é gerada por IA. */
 export interface Channel {
   /** 'ch1', 'ch2'… (mesmo esquema de g1..g20 das contas) */
@@ -727,6 +755,8 @@ export interface Channel {
   analytics?: ChannelAnalytics;
   /** clones (Pesquisar → Clonar canal) associados a este canal */
   cloneIds?: string[];
+  /** produtos para vender no canal (IA ou importados de um clone) e o CTA deles no roteiro */
+  products?: ChannelProducts;
   /** arquivos gerados, relativos a workspace/channels/mine/<id>/ */
   assets?: { banner?: string; avatar?: string; thumb?: string };
   createdAt: string;
@@ -768,6 +798,16 @@ export interface FormatDna {
 export interface LibraryCharacter {
   id: string;
   name: string;
+  /** o que é: personagem (padrão), cenário (local fixo) ou objeto (prop) */
+  entity?: LibraryEntity;
+  /** variações por episódio/fase (roupa, idade, ferimento…) — cada uma pode ter a própria folha */
+  variants?: CharacterVariant[];
+  /** história importada de onde veio (Biblioteca → Histórias) */
+  storyId?: string;
+  /** outros nomes pelos quais aparece no texto */
+  aliases?: string[];
+  /** modelos 3D (GLB/GLTF/OBJ/FBX, relativos à pasta do item) para cenas geradas por código (Three.js) */
+  models?: string[];
   /** pessoa (foto-realista), cartoon/animação, desenho por código, animal/criatura, outro */
   kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro';
   /** descrição livre do criador (personalidade, história, papel) */
@@ -789,8 +829,39 @@ export interface LibraryCharacter {
   updatedAt?: string;
 }
 
+export type LibraryEntity = 'character' | 'location' | 'prop';
+export interface CharacterVariant { id: string; label: string; look: string; episodes?: number[]; sheet?: string }
+
 /** Personagem da biblioteca congelado no projeto (a biblioteca pode mudar depois). */
-export interface ProjectCharacter { id: string; name: string; look: string; kind: LibraryCharacter['kind']; voice?: LibraryCharacter['voice']; code?: string; description?: string }
+export interface ProjectCharacter { id: string; name: string; look: string; kind: LibraryCharacter['kind']; voice?: LibraryCharacter['voice']; code?: string; description?: string;
+  entity?: LibraryEntity; variant?: string;
+  /** modelos 3D copiados para o projeto (relativos à pasta do projeto) */
+  models?: string[] }
+
+/** Relação entre personagens extraída da história. */
+export interface StoryRelation { a: string; b: string; type: string; note?: string }
+export interface StoryEvent { order: number; event: string; chapter?: string; characters?: string[]; location?: string }
+export interface StoryEpisode {
+  n: number; title: string; summary: string; beats: string[]; cliffhanger?: string;
+  characters: string[]; locations?: string[]; props?: string[];
+  /** variação de personagem neste episódio (nome do personagem → rótulo da variação) */
+  variants?: Record<string, string>;
+  projectId?: string;
+}
+/** História importada (romance/texto longo): elenco, relações, linha do tempo e a série em episódios. */
+export interface Story {
+  id: string; title: string; logline?: string; synopsis?: string; genre?: string; language?: string;
+  createdAt: string; updatedAt?: string; sourceChars: number;
+  characters: string[]; locations: string[]; props: string[];
+  relations: StoryRelation[]; timeline: StoryEvent[];
+  arc?: string; episodeSec?: number; episodes: StoryEpisode[];
+}
+
+/** Estilo do projeto extraído de uma imagem de referência (Novo projeto → "Estilo de uma imagem"). */
+export interface StyleRef {
+  file?: string; stylePrompt: string; avoid?: string; tags?: string[]; medium?: string; lighting?: string;
+  palette?: string[]; by?: string; at: string;
+}
 
 /** Mistura de skills: a principal (1ª) dá roteiro/voz/trilha/legenda; as cenas se dividem pelo percentual de tempo. */
 export interface SkillMixItem { skillId: string; name: string; pct: number }
@@ -800,6 +871,8 @@ export interface StoryboardOptions {
   enabled: boolean;
   /** pausar a execução até o usuário aprovar */
   approval?: boolean;
+  /** com aprovação: gera opções por cena para escolher — esboço em traço e/ou quadro inicial (1–4 de cada) */
+  sketches?: { mode: 'sketch' | 'frame' | 'both'; count: number };
   /** hash do plano aprovado (aprovação vale enquanto o plano não muda) */
   approvedHash?: string;
   approvedAt?: string;

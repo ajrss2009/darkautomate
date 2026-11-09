@@ -11,6 +11,7 @@ import { pluginRecommendations } from './plugins';
 import { dnaSceneSec, dnaSubtitleStyle } from './channel-dna';
 import { normalizePalette } from './channel-setup';
 import { applyCharacters } from './characters';
+import { userStyleRef } from './style-ref';
 import { normalizeMix } from './skill-mix';
 import { routeSceneKinds } from './prompts';
 
@@ -145,9 +146,17 @@ export interface NewProjectInput {
   /** trilha sonora por código (vence a da rota) */
   codeMusic?: boolean;
   /** criar storyboard depois do plano de cenas; approval = pausar até o usuário aprovar */
-  storyboard?: { enabled?: boolean; approval?: boolean };
-  /** personagens da biblioteca (ids) */
+  storyboard?: { enabled?: boolean; approval?: boolean; sketches?: { mode?: 'sketch' | 'frame' | 'both'; count?: number } };
+  /** itens da biblioteca (personagens, cenários, objetos — ids) */
   characterIds?: string[];
+  /** variação de cada personagem neste projeto (id → rótulo/id da variação) */
+  characterVariants?: Record<string, string>;
+  /** episódio de uma série importada (Biblioteca → Histórias) */
+  series?: Project['series'];
+  /** estilo extraído de uma imagem de referência */
+  styleRef?: Project['styleRef'];
+  /** fala gerada pelo MiniMax H3 no próprio vídeo */
+  h3Speech?: boolean;
   /** várias skills com percentual (a 1ª é a principal e deve ser a skillId) */
   skillMix?: Array<{ skillId: string; pct: number }>;
   skillMixMode?: 'blocks' | 'interleave';
@@ -262,7 +271,11 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
     cast: cast.length ? cast : undefined,
     executorProfile: prof?.id,
     channelId: input.channelId?.trim() || undefined,
-    storyboard: input.storyboard?.enabled ? { enabled: true, approval: !!input.storyboard.approval } : undefined,
+    storyboard: input.storyboard?.enabled ? { enabled: true, approval: !!input.storyboard.approval,
+      ...(input.storyboard.approval && input.storyboard.sketches?.mode ? { sketches: { mode: (['sketch', 'frame', 'both'] as const).includes(input.storyboard.sketches.mode) ? input.storyboard.sketches.mode : 'both', count: Math.max(1, Math.min(4, Math.round(Number(input.storyboard.sketches.count) || 2))) } } : {}) } : undefined,
+    series: input.series?.storyId ? { ...input.series, title: String(input.series.title ?? '').slice(0, 120), episode: Math.max(1, Math.round(Number(input.series.episode) || 1)), total: Math.max(1, Math.round(Number(input.series.total) || 1)) } : undefined,
+    styleRef: userStyleRef(input.styleRef),
+    h3Speech: input.h3Speech ? true : undefined,
     maxProductionMin: input.maxProductionMin && input.maxProductionMin > 0 ? Math.round(input.maxProductionMin) : undefined,
     sceneConcurrency: input.sceneConcurrency && input.sceneConcurrency > 0 ? Math.min(8, Math.round(input.sceneConcurrency)) : undefined,
     agents: orch || workers.length ? JSON.parse(JSON.stringify({ orchestrator: orch, workers })) : undefined,
@@ -308,7 +321,20 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
   const dir = projectDirOf(s, id);
   fs.mkdirSync(dir, { recursive: true });
   /* personagens da biblioteca: folha como foto de personagem, elenco, bíblia e cópia congelada */
-  if (input.characterIds?.length) applyCharacters(s, project, dir, input.characterIds);
+  if (input.characterIds?.length) applyCharacters(s, project, dir, input.characterIds, input.characterVariants ?? {});
+  /* estilo de uma imagem: a imagem vai junto como referência e a paleta medida vira a do vídeo (se o usuário não escolheu outra) */
+  if (project.styleRef?.file && fs.existsSync(project.styleRef.file)) {
+    const ud = path.join(dir, 'assets', 'user');
+    fs.mkdirSync(ud, { recursive: true });
+    const rel = `style-reference${path.extname(project.styleRef.file).toLowerCase()}`;
+    fs.copyFileSync(project.styleRef.file, path.join(ud, rel));
+    project.styleRef = { ...project.styleRef, file: path.join(ud, rel) };
+    project.attachments = [...(project.attachments ?? []), { file: rel, kind: 'image', use: 'reference', note: `Imagem de referência do ESTILO (copie só o estilo: ${project.styleRef.stylePrompt.slice(0, 200)})` }];
+  }
+  if (project.styleRef?.palette?.length && !project.palette?.video) {
+    const pv = normalizePalette({ extra: project.styleRef.palette } as never) ?? normalizePalette(project.styleRef.palette as never);
+    if (pv) project.palette = { ...(project.palette ?? {}), video: pv };
+  }
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(project, null, 2));
   return project;
 }

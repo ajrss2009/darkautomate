@@ -313,6 +313,7 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
     ),
     identitySection(c, ch, st, again),
     analyticsSection(c, ch, st, again),
+    productsSection(c, ch, again),
     h('div', { class: 'ch-sec' }, h('h4', {}, '📤 Publicar'),
       ready ? null : h('p', { class: 'muted' }, `${info.label}: a publicação ainda não está implementada nesta versão. O cadastro, a marca e o vínculo com projetos já funcionam.`),
       projBox,
@@ -547,4 +548,51 @@ function openAdd(c: ChannelsCtx, st: State, again: () => void, initial?: string)
   bg.append(box);
   document.body.append(bg);
   linkIn.focus();
+}
+
+interface ChProduct { kind: 'info' | 'physical'; name: string; category?: string; platform?: string; priceRange?: string; commission?: string; why?: string; placement?: string; fit: number; links?: Array<{ label: string; url: string }>; chosen?: boolean; url?: string }
+interface ChProducts { items: ChProduct[]; notes?: string; at: string; by?: string; source: 'ai' | 'clone'; cta?: { enabled: boolean; placement: 'middle' | 'end' | 'both'; max: number } }
+
+/** Produtos para vender no canal: pesquisa por IA (tipo, marca, análise) ou importados do clone; os marcados viram CTA no roteiro. */
+function productsSection(c: ChannelsCtx, ch: ChannelView & { products?: ChProducts }, again: () => void): HTMLElement {
+  const { forge, guard, toast } = c;
+  const cp = ch.products;
+  const btn = h('button', { class: 'small primary' }, cp ? '↻ Pesquisar de novo' : '🛒 Sugerir produtos para vender') as HTMLButtonElement;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = '⏳ a IA está pesquisando produtos do nicho…';
+    try { if (await guard(() => forge['channelsProducts'](ch.id))) { toast('Produtos sugeridos'); again(); } }
+    finally { btn.disabled = false; btn.textContent = cp ? '↻ Pesquisar de novo' : '🛒 Sugerir produtos para vender'; }
+  });
+  const imp = ch.cloneIds?.length ? h('button', { class: 'small', onclick: async () => { if (await guard(() => forge['channelsProductsImport'](ch.id))) { toast('Produtos do clone importados'); again(); } } }, '🧬 Importar do clone') : null;
+  const set = async (patch: unknown, msg?: string) => { if (await guard(() => forge['channelsProductsSet'](ch.id, patch))) { if (msg) toast(msg); again(); } };
+  const card = (p: ChProduct) => {
+    const cb = h('input', { type: 'checkbox', title: 'usar no CTA dos roteiros deste canal' }) as HTMLInputElement; cb.checked = !!p.chosen;
+    cb.addEventListener('change', () => void set({ chosen: { [p.name]: cb.checked } }, cb.checked ? `"${p.name}" entra no CTA` : undefined));
+    const url = h('input', { value: p.url ?? '', placeholder: 'seu link (afiliado ou loja) — vai na descrição' }) as HTMLInputElement;
+    url.addEventListener('change', () => void set({ urls: { [p.name]: url.value } }, url.value ? 'Link salvo' : 'Link removido'));
+    return h('div', { class: `cl-prod${p.chosen ? ' chosen' : ''}` },
+      h('div', { class: 'row' }, h('label', { class: 'inline chk' }, cb, h('strong', {}, p.name)), h('span', { class: 'sp' }), h('span', { class: 'fit', title: 'aderência ao canal' }, `${p.fit}/10`)),
+      h('div', { class: 'muted small' }, [p.kind === 'info' ? '📚 infoproduto' : '📦 físico', p.category, p.platform, p.priceRange, p.commission && `comissão ${p.commission}`].filter(Boolean).join(' · ')),
+      p.why ? h('div', { class: 'small' }, p.why) : null, p.placement ? h('div', { class: 'muted small' }, `🎬 ${p.placement}`) : null,
+      url,
+      h('div', { class: 'row' }, ...(p.links ?? []).map((l) => h('button', { class: 'small', onclick: () => void forge['openUrl']?.(l.url) }, `🔎 ${l.label}`)),
+        h('span', { class: 'sp' }), h('button', { class: 'small', title: 'tirar da lista', onclick: () => void set({ remove: [p.name] }) }, '✕')));
+  };
+  const cta = cp?.cta ?? { enabled: true, placement: 'middle' as const, max: 1 };
+  const on = h('input', { type: 'checkbox' }) as HTMLInputElement; on.checked = cta.enabled;
+  const where = h('select', {}, ...[['middle', 'no meio (depois de uma recompensa)'], ['end', 'no fim'], ['both', 'meio + fim']].map(([v, l]) => h('option', { value: v!, ...(v === cta.placement ? { selected: true } : {}) }, l!))) as HTMLSelectElement;
+  const max = h('select', {}, ...['1', '2', '3'].map((v) => h('option', { value: v, ...(Number(v) === cta.max ? { selected: true } : {}) }, `${v} por vídeo`))) as HTMLSelectElement;
+  const saveCta = () => void set({ cta: { enabled: on.checked, placement: where.value, max: Number(max.value) } }, 'CTA salvo');
+  on.addEventListener('change', saveCta); where.addEventListener('change', saveCta); max.addEventListener('change', saveCta);
+  const chosen = cp?.items.filter((x) => x.chosen).length ?? 0;
+  const info = cp?.items.filter((x) => x.kind === 'info') ?? [], phys = cp?.items.filter((x) => x.kind === 'physical') ?? [];
+  return h('div', { class: 'ch-sec' }, h('h4', {}, '🛒 Produtos para vender'),
+    h('p', { class: 'muted small' }, 'A IA sugere infoprodutos e produtos físicos a partir do tipo, da marca e da análise do canal (ou importe os do clone associado). Marque os que quer vender: eles entram como CTA no roteiro e na descrição de todo projeto deste canal. Os links 🔎 abrem a busca na loja — cole o SEU link de afiliado no campo.'),
+    h('div', { class: 'row' }, btn, imp, cp ? h('span', { class: 'muted small' }, `${cp.source === 'clone' ? 'do clone' : 'pela IA'} · ${new Date(cp.at).toLocaleString()}${cp.by ? ` · ${cp.by}` : ''}`) : null),
+    cp?.notes ? h('div', { class: 'small' }, `💡 ${cp.notes}`) : null,
+    cp ? h('div', { class: 'row ch-cta' }, h('label', { class: 'inline chk' }, on, `📣 CTA no roteiro (${chosen} marcado${chosen === 1 ? '' : 's'})`), where, max) : null,
+    cp && on.checked && !chosen ? h('div', { class: 'muted small' }, 'Marque ao menos um produto para o CTA entrar nos roteiros.') : null,
+    info.length ? h('div', {}, h('h5', {}, '📚 Infoprodutos'), h('div', { class: 'cl-biz' }, ...info.map(card))) : null,
+    phys.length ? h('div', {}, h('h5', {}, '📦 Produtos físicos'), h('div', { class: 'cl-biz' }, ...phys.map(card))) : null,
+    !cp ? h('p', { class: 'muted' }, 'Ainda sem produtos.') : null);
 }

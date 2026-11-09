@@ -1,0 +1,14 @@
+{
+  "_doc": "Wan2GP efeitos sonoros da cena com Stable Audio 3 (mesmo modelo da trilha, pedido como efeitos + ambiência, sem música nem voz). sfx_prompt = efeitos do plano + lugar da cena; sfx_seconds = duração da cena. O app converte para scenes/<id>/audio/sfx.wav no tamanho da cena.",
+  "model_type": "stable_audio3_medium",
+  "settings": {
+    "prompt": "{{sfx_prompt}}",
+    "negative_prompt": "music, melody, singing, speech, voices, talking, hiss, distortion, low quality",
+    "audio_prompt_type": "",
+    "duration_seconds": "{{sfx_seconds}}",
+    "num_inference_steps": 8,
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP · efeitos sonoros da cena (Stable Audio 3)",
+  "capability": "sfx"
+}

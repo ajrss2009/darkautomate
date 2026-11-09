@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ApiCategory, Settings, StockSource } from '../shared/types';
 
-export type Capability = 'image' | 'video' | 'voice' | 'music';
+export type Capability = 'image' | 'video' | 'voice' | 'music' | 'sfx';
 export interface CatalogItem { file: string; label: string; capability: Capability; backend: 'comfyui' | 'wan2gp'; modelType?: string }
 
 /** Catálogo para o editor de rotas: o que cada tipo de tarefa pode usar. */
@@ -19,7 +19,7 @@ export interface Catalog {
   flowAccounts: Array<{ id: string; label: string; email?: string }>;
 }
 
-const CAPS: Capability[] = ['image', 'video', 'voice', 'music'];
+const CAPS: Capability[] = ['image', 'video', 'voice', 'music', 'sfx'];
 
 export function buildCatalog(s: Settings, workflowsDir: string): Catalog {
   const workflows: CatalogItem[] = [], wan: CatalogItem[] = [];

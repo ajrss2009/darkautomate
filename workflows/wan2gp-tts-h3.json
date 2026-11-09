@@ -3,7 +3,7 @@
   "model_type": "minimax_h3_tts_ref2va_pruned",
   "needsRefAudio": true,
   "settings": {
-    "prompt": "Speaker 1:\n[{{language_label}}, natural and clear narration] {{text}}",
+    "prompt": "Speaker 1:\n[{{language_label}}, {{delivery}}] {{text}}",
     "audio_prompt_type": "A",
     "audio_guide": "{{ref_audio}}",
     "duration_seconds": "{{speech_seconds}}",

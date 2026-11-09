@@ -22,7 +22,7 @@ await import('./build-cartoon3d.mjs');
 await emit('src/main/main.ts', 'dist/main/main.js', { platform: 'node', format: 'cjs', external: ['electron', 'ws'] });
 await emit('src/preload/preload.ts', 'dist/preload/preload.js', { platform: 'node', format: 'cjs', external: ['electron'] });
 await emit('src/renderer/renderer.ts', 'dist/renderer/renderer.js', { platform: 'browser', format: 'iife' });
-for (const t of ['engine', 'ops', 'library', 'skills', 'features', 'workflows', 'wan2gp', 'routes', 'automations', 'flow', 'skillgen', 'sfx', 'soundtrack', 'cast', 'attachments', 'compilation', 'resources', 'youtube', 'usage', 'kit', 'e2e', 'folds', 'portable', 'craft', 'adapt', 'clone', 'replan', 'channels', 'contract', 'channel-dna', 'tutorial', 'cartoon3d', 'linksubs', 'timeline', 'studio', 'strict', 'shots', 'editorfx', 'wan2gpmodels', 'channel-setup', 'channel-analytics', 'clone-business', 'storyboard', 'dna-checklist', 'social-search', 'exec-names', 'editor-outliers', 'characters']) {
+for (const t of ['engine', 'ops', 'library', 'skills', 'features', 'workflows', 'wan2gp', 'routes', 'automations', 'flow', 'skillgen', 'sfx', 'soundtrack', 'cast', 'attachments', 'compilation', 'resources', 'youtube', 'usage', 'kit', 'e2e', 'folds', 'portable', 'craft', 'adapt', 'clone', 'replan', 'channels', 'contract', 'channel-dna', 'tutorial', 'cartoon3d', 'linksubs', 'timeline', 'studio', 'strict', 'shots', 'editorfx', 'wan2gpmodels', 'channel-setup', 'channel-analytics', 'clone-business', 'storyboard', 'dna-checklist', 'social-search', 'exec-names', 'editor-outliers', 'characters', 'channel-products', 'story-library']) {
   await emit(`src/test/${t}.test.ts`, `dist/test/${t}.test.js`, { platform: 'node', format: 'cjs', external: ['electron', 'ws'] });
 }
 

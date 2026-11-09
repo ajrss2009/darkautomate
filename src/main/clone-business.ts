@@ -1,4 +1,4 @@
-import type { Route } from '../shared/types';
+import type { Channel, ChannelProduct, ChannelProducts, Project, Route } from '../shared/types';
 
 /*
  * NEGÓCIO DO CANAL CLONADO (Pesquisar → Clonar canal):
@@ -222,4 +222,95 @@ export function estimateCost(input: CostInput): CostEstimate {
       `texto: ${e.text} · voz: ${e.voice} · imagem: ${e.image} · vídeo: ${e.video} · trilha: ${e.music}`,
     ],
   };
+}
+
+/* ───────── produtos do CANAL do usuário (aba Canais) e CTA no roteiro ───────── */
+
+/** Contexto do pedido de produtos a partir do canal (tipo, marca, análise). */
+export function channelProductsContext(ch: Pick<Channel, 'name' | 'platform' | 'type' | 'language' | 'brand' | 'analytics'>, typeLabel?: string): Parameters<typeof productsPrompt>[0] {
+  const b = ch.brand;
+  const niche = [ch.name, typeLabel ?? ch.type, b?.tagline, b?.description?.slice(0, 300), b?.keywords?.length ? `palavras-chave: ${b.keywords.slice(0, 10).join(', ')}` : '']
+    .filter(Boolean).join(' — ');
+  return { niche, audience: b?.tone ? `tom ${b.tone}` : undefined, format: typeLabel, language: ch.language, titles: (ch.analytics?.top ?? []).map((t) => t.title).filter(Boolean), linkedPlatform: ch.platform };
+}
+
+/**
+ * Junta a pesquisa (IA ou clone) com a lista atual do canal: mantém escolha e link do usuário pelo nome;
+ * itens escolhidos que não vieram na nova pesquisa continuam (o usuário escolheu, não some).
+ */
+export function mergeChannelProducts(prev: ChannelProducts | undefined, plan: Pick<ProductPlan, 'info' | 'physical' | 'notes' | 'by'>, source: 'ai' | 'clone'): ChannelProducts {
+  const key = (n: string) => n.trim().toLowerCase();
+  const old = new Map((prev?.items ?? []).map((x) => [key(x.name), x]));
+  const fresh = [...plan.info, ...plan.physical].map((p): ChannelProduct => {
+    const o = old.get(key(p.name));
+    return { ...p, links: p.links ?? productLinks(p), chosen: o?.chosen, url: o?.url };
+  });
+  const names = new Set(fresh.map((x) => key(x.name)));
+  const kept = (prev?.items ?? []).filter((x) => (x.chosen || x.url) && !names.has(key(x.name)));
+  return { items: [...kept, ...fresh].slice(0, 30), notes: plan.notes ?? prev?.notes, at: new Date().toISOString(), by: plan.by, source,
+    cta: prev?.cta ?? { enabled: true, placement: 'middle', max: 1 } };
+}
+
+/** Aplica escolhas do usuário (marcar produto, link próprio, regras do CTA). Link só http(s). */
+export function patchChannelProducts(cp: ChannelProducts, patch: { chosen?: Record<string, boolean>; urls?: Record<string, string>; cta?: Partial<NonNullable<ChannelProducts['cta']>>; remove?: string[] }): ChannelProducts {
+  const key = (n: string) => n.trim().toLowerCase();
+  const ch = new Map(Object.entries(patch.chosen ?? {}).map(([k, v]) => [key(k), !!v]));
+  const us = new Map(Object.entries(patch.urls ?? {}).map(([k, v]) => [key(k), String(v ?? '').trim()]));
+  const rm = new Set((patch.remove ?? []).map(key));
+  const items = cp.items.filter((x) => !rm.has(key(x.name))).map((x) => {
+    const k = key(x.name); const y = { ...x };
+    if (ch.has(k)) { if (ch.get(k)) y.chosen = true; else delete y.chosen; }
+    if (us.has(k)) { const u = us.get(k)!; if (/^https?:\/\/\S+$/i.test(u)) y.url = u.slice(0, 500); else delete y.url; }
+    return y;
+  });
+  const c0 = cp.cta ?? { enabled: true, placement: 'middle' as const, max: 1 };
+  const c = patch.cta ?? {};
+  const cta = { enabled: c.enabled ?? c0.enabled, placement: (['middle', 'end', 'both'] as const).includes(c.placement as 'middle') ? c.placement! : c0.placement, max: Math.max(1, Math.min(3, Math.round(Number(c.max ?? c0.max) || 1))) };
+  return { ...cp, items, cta };
+}
+
+/** Produtos que entram no vídeo: os escolhidos, os de maior aderência primeiro, até o máximo do CTA. */
+export function ctaProducts(cp: ChannelProducts | undefined): ChannelProduct[] {
+  if (!cp?.cta?.enabled) return [];
+  return cp.items.filter((x) => x.chosen).sort((a, b) => b.fit - a.fit).slice(0, cp.cta.max || 1);
+}
+
+/** Bloco do prompt: roteiro (onde e como falar do produto) e metadados (descrição com os links). */
+export function productCtaPrompt(cp: ChannelProducts | undefined, stepKind: string): string {
+  const list = ctaProducts(cp);
+  if (!list.length) return '';
+  const where = cp!.cta!.placement === 'end' ? 'no fim, antes da despedida' : cp!.cta!.placement === 'both' ? 'uma menção curta no meio (depois de uma recompensa) e o chamado no fim' : 'no meio do vídeo, logo depois de uma recompensa (nunca no gancho)';
+  const line = (p: ChannelProduct) => `- ${p.name}${p.category ? ` (${p.category})` : ''}${p.why ? ` — por que o público quer: ${p.why}` : ''}${p.placement ? ` — encaixe sugerido: ${p.placement}` : ''}`;
+  if (stepKind === 'script' || stepKind === 'scene_plan') {
+    return `PRODUTO(S) DO CANAL — CTA (escolhidos pelo usuário):\n${list.map(line).join('\n')}\n` +
+      `Inclua o CTA ${where}, em 1–2 frases naturais ligadas ao assunto do vídeo ("o link está na descrição"). ` +
+      'Sem promessa de ganho, sem preço inventado, sem falar mal de concorrente; se o produto não tiver relação com o tema, faça só uma menção leve no fim.' +
+      (stepKind === 'scene_plan' ? ' Marque a cena do CTA no "visualIntent" (o produto ou o tema dele na tela, com texto curto "link na descrição").' : '');
+  }
+  if (stepKind === 'metadata') {
+    return `PRODUTOS NA DESCRIÇÃO: acrescente um bloco "🛒 Indicados neste vídeo" com:\n${list.map((p) => `- ${p.name}: ${p.url ?? '[coloque aqui o seu link]'}`).join('\n')}\n` +
+      'Use exatamente esses links (não invente outros) e, se houver link de afiliado, avise "link de afiliado" na mesma linha.';
+  }
+  return '';
+}
+
+/* ───────── custo estimado de UM projeto (selo $ da lista de projetos) ───────── */
+
+/** Custo por vídeo de um projeto: rota (quem gera), cenas do plano (tipos e durações) ou a duração alvo. */
+export function projectCost(p: Pick<Project, 'targetDurationSec' | 'scenes' | 'route' | 'skill' | 'sceneSec'>, rates?: Partial<CostRates>): CostEstimate {
+  const fromRoute = enginesFromRoute(p.route);
+  const scenes = p.scenes ?? [];
+  const dur = scenes.reduce((a, s) => a + (s.durationSec && s.durationSec > 0 ? s.durationSec : 0), 0) || p.targetDurationSec || 60;
+  let mix = fromRoute.mix;
+  if (scenes.length) {
+    const c = { image: 0, video: 0, stock: 0, code: 0 };
+    for (const s of scenes) {
+      const k = s.kind === 'video' ? 'video' : s.kind === 'stock' ? 'stock' : s.kind === 'code' || s.kind === 'motion' ? 'code' : 'image';
+      c[k] += s.durationSec && s.durationSec > 0 ? s.durationSec : 1;
+    }
+    const t = Object.values(c).reduce((a, b) => a + b, 0) || 1;
+    mix = { image: c.image / t, video: c.video / t, stock: c.stock / t, code: c.code / t };
+  }
+  const f = p.skill?.formatDna;
+  return estimateCost({ durationSec: dur, wpm: f?.wpm, sceneSec: scenes.length ? Math.max(3, dur / scenes.length) : p.sceneSec ?? f?.avgTakeSec, videosPerMonth: 1, months: 1, mix, engines: fromRoute.engines, rates });
 }

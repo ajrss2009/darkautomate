@@ -33,6 +33,39 @@ export interface VoicePickerOpts {
 }
 
 let audio: HTMLAudioElement | undefined;
+/** frase do teste de voz (vale para todos os testes da sessão; vazio = frase padrão do idioma) */
+let testText = '';
+
+/**
+ * Barra do ÚLTIMO teste de voz: player com controles, 💾 salvar (pasta voices/testes ou outra pasta) e 📂 abrir a pasta.
+ * Reusada no Novo projeto e na Biblioteca.
+ */
+export function voiceTestBar(forge: Api, guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>): HTMLElement & { show: (file: string, label: string) => void } {
+  const bar = h('div', { class: 'voice-test', hidden: true });
+  const show = (file: string, label: string) => {
+    const player = h('audio', { controls: true, src: forge.mediaUrl(file) + '?t=' + Date.now() }) as HTMLAudioElement;
+    const msg = h('span', { class: 'muted small' });
+    const save = (pick: boolean) => void guard(async () => {
+      const out = (await forge['voiceSaveTest'](file, label, pick)) as string | null;
+      if (out) msg.textContent = `✓ salvo em ${out}`;
+    });
+    bar.replaceChildren(h('b', {}, `🔊 Teste: ${label}`), player,
+      h('button', { class: 'small', title: 'Salva uma cópia em voices/testes (na pasta de trabalho)', onclick: () => save(false) }, '💾 Salvar teste'),
+      h('button', { class: 'small', title: 'Escolher a pasta onde salvar', onclick: () => save(true) }, '💾 Salvar em…'),
+      h('button', { class: 'small', onclick: () => void guard(() => forge['voiceOpenTests']()) }, '📂 Pasta dos testes'), msg);
+    bar.hidden = false;
+    audio?.pause(); audio = player; void player.play().catch(() => {});
+  };
+  return Object.assign(bar, { show });
+}
+
+/** Campo da frase do teste (compartilhado). */
+export function voiceTestText(): HTMLInputElement {
+  const inp = h('input', { class: 'voice-test-text', value: testText, placeholder: 'Frase do teste de voz (vazio = frase padrão do idioma)' }) as HTMLInputElement;
+  inp.addEventListener('input', () => { testText = inp.value; });
+  return inp;
+}
+export const currentTestText = () => testText.trim() || undefined;
 
 const keyOf = (b: Binding) => b.type === 'api' ? `api:${b.provider}:${b.model}` : b.type === 'comfyui' ? `comfyui:${b.workflow}` : b.type === 'wan2gp' ? `wan2gp:${b.template}` : b.type === 'harness' ? `harness:${b.harness}` : b.type;
 const labelOf = (b: Binding) => b.type === 'api' ? `☁ ${b.provider} · ${b.model}` : b.type === 'comfyui' ? `🖥 OmniVoice/ComfyUI · ${b.workflow.replace(/\.json$/, '')}`
@@ -41,6 +74,7 @@ const isVoiceEngine = (b: Binding) => b.type === 'api' || b.type === 'comfyui' |
 
 export function voicePicker(o: VoicePickerOpts): HTMLElement {
   const box = h('div', { class: 'card voice-panel', 'data-project-voice': '' });
+  const testBar = voiceTestBar(o.forge, o.guard);
   const paint = () => {
     const narr = o.route?.steps.find((st) => st.kind === 'narration' && st.enabled);
     /* motores possíveis: os da cadeia da rota + todo modelo de voz das APIs configuradas */
@@ -64,9 +98,9 @@ export function voicePicker(o: VoicePickerOpts): HTMLElement {
     /* qual vem primeiro na cadeia = narração principal; o outro é reserva */
     const apiFirst = !!api && (!local || chain.indexOf(api) < chain.indexOf(local));
     const play = (url: string) => { audio?.pause(); audio = new Audio(url); void audio.play().catch(() => {}); };
-    const speak = (b: Binding, btn: HTMLElement) => void o.guard(async () => {
+    const speak = (b: Binding, btn: HTMLElement, label = 'voz') => void o.guard(async () => {
       const old = btn.textContent; btn.textContent = '…'; btn.setAttribute('disabled', '');
-      try { const f = (await o.forge['voicePreview']({ binding: b, language: o.language })) as string; play(o.forge.mediaUrl(f) + '?t=' + Date.now()); }
+      try { const f = (await o.forge['voicePreview']({ binding: b, language: o.language, text: currentTestText() })) as string; testBar.show(f, `${label} (${o.language})`); }
       finally { btn.textContent = old; btn.removeAttribute('disabled'); }
     });
     const set = (v: NarrationVoice) => { o.value = v; o.onChange(v); paint(); };
@@ -111,18 +145,20 @@ export function voicePicker(o: VoicePickerOpts): HTMLElement {
         h('div', { class: 'voice-grid' },
           h('div', { class: `voice-card${cur ? '' : ' on'}`, 'data-voice': '' },
             h('button', { class: 'vpick', onclick: () => set({ ...o.value, refAudio: undefined }) }, h('span', { class: 'vname' }, `Voz da rota${routeRef ? ` (${name(routeRef)})` : ' (padrão do modelo)'}`)),
-            h('button', { class: 'vspeak', title: 'Ouvir falando', onclick: (e: Event) => speak(local, e.currentTarget as HTMLElement) }, '🗣')),
+            h('button', { class: 'vspeak', title: 'Ouvir falando', onclick: (e: Event) => speak(local, e.currentTarget as HTMLElement, 'voz da rota') }, '🗣')),
           ...o.voices.map((v) => h('div', { class: `voice-card${cur === v.path ? ' on' : ''}`, 'data-voice': v.name },
             h('button', { class: 'vplay', title: 'Ouvir o arquivo de referência', onclick: () => play(o.forge.mediaUrl(v.path)) }, '▶'),
             h('button', { class: 'vpick', onclick: () => set({ ...o.value, refAudio: v.path }) }, h('span', { class: 'vname' }, name(v.name)), cur === v.path ? h('span', { class: 'tag done' }, 'escolhida') : null),
-            h('button', { class: 'vspeak', title: `Ouvir esta voz falando em ${o.language}`, onclick: (e: Event) => speak({ ...local, refAudio: v.path } as Binding, e.currentTarget as HTMLElement) }, '🗣'))))) : null,
+            h('button', { class: 'vspeak', title: `Ouvir esta voz falando em ${o.language}`, onclick: (e: Event) => speak({ ...local, refAudio: v.path } as Binding, e.currentTarget as HTMLElement, name(v.name)) }, '🗣'))))) : null,
       api && apiList.length ? h('div', {},
         h('div', { class: 'muted' }, `${apiFirst ? 'Narração principal' : 'Reserva'} por API (${api.provider} · ${api.model}): voz deste projeto`),
         h('div', { class: 'voice-chips' },
           h('span', { class: `chipgrp${o.value.apiVoice ? '' : ' on'}` }, h('button', { class: `chip${o.value.apiVoice ? '' : ' on'}`, onclick: () => set({ ...o.value, apiVoice: undefined }) }, `da rota (${api.voice ?? 'padrão'})`)),
           ...apiList.map((v) => h('span', { class: `chipgrp${o.value.apiVoice === v ? ' on' : ''}` },
             h('button', { class: `chip${o.value.apiVoice === v ? ' on' : ''}`, 'data-api-voice': v, title: vlabel(v) === v ? v : `${vlabel(v)} · ${v}`, onclick: () => set({ ...o.value, apiVoice: v }) }, vlabel(v)),
-            h('button', { class: 'chip vspeak', title: `Ouvir ${vlabel(v)} em ${o.language}`, onclick: (e: Event) => speak({ ...api, voice: v }, e.currentTarget as HTMLElement) }, '▶'))))) : null,
+            h('button', { class: 'chip vspeak', title: `Ouvir ${vlabel(v)} em ${o.language}`, onclick: (e: Event) => speak({ ...api, voice: v }, e.currentTarget as HTMLElement, vlabel(v)) }, '▶'))))) : null,
+      narr ? h('div', { class: 'row' }, h('label', { class: 'grow' }, '🧪 Frase do teste', voiceTestText())) : null,
+      testBar,
       api && !apiList.length ? h('div', { class: 'muted' }, `Nenhuma voz carregada para ${api.provider} — abra Configurações → APIs de voz, clique em Testar (carrega as vozes da conta + biblioteca) e salve.`) : null] as Child[]).filter((x): x is Node => !!x));
   };
   paint();

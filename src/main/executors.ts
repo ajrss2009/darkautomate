@@ -34,6 +34,9 @@ import { contractProblem, smallModelBudget } from './contract';
 import { voiceAccepted } from '../shared/voices';
 import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt } from './cast';
+import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3SpeechScene, isH3Video, sceneSpeech } from './speech-emotion';
+import { styleNegative } from './style-ref';
+import { inScene } from './characters';
 import { projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 import { mark, stepSchema } from '../shared/strict';
@@ -635,7 +638,7 @@ const apiExec = (_o: ExecutorOptions): Executor => async (c) => {
     const voice = memberVoice || projVoice || b.voice || (p.kind === 'gemini' ? 'Kore' : p.kind === 'fish' ? '' : 'alloy');
     if (memberVoice) c.log(`voz de ${member!.speaker}: ${voice}`);
     if (p.kind === 'fish' && !voice) c.log('Fish Audio: nenhuma voz escolhida — usando a voz padrão da conta (escolha a voz na etapa de narração)');
-    const written = await prov.tts(p, b.model, voice, c.scene.narration, file, c.signal, narrationInstructions(c.project));
+    const written = await prov.tts(p, b.model, voice, c.scene.narration, file, c.signal, narrationInstructions(c.project, c.scene));
     /* Gemini grava .wav: remove narrações antigas com outra extensão para a cena não ter duas */
     if (written !== file) try { fs.rmSync(file, { force: true }); } catch { /* ok */ }
     await trimNarration(c, written);
@@ -685,7 +688,12 @@ function commonVars(c: ExecContext, side: { maxSide?: number; multiple?: number;
   const sceneSec = c.scene?.durationSec ?? 4;
   const total = c.project.scenes.reduce((a, x) => a + (x.durationSec ?? 4), 0) || c.project.targetDurationSec;
   return {
-    prompt: isThumb ? thumbnailPrompt(c) : visualPrompt(c), negative: vt?.negativePrompt ?? '', text: c.scene?.narration ?? c.project.idea,
+    prompt: isThumb ? thumbnailPrompt(c) : visualPrompt(c), negative: [vt?.negativePrompt, styleNegative(c.project)].filter(Boolean).join(', '), text: c.scene?.narration ?? c.project.idea,
+    /* como dizer a fala (emoção do plano): templates de voz usam {{delivery}} */
+    delivery: c.scene ? deliveryEnglish(c.scene) : 'natural and clear narration',
+    /* efeitos sonoros por IA (Stable Audio 3): o que soa na cena e por quanto tempo */
+    sfx_prompt: c.scene ? sfx.sfxAiPrompt(c.scene) : 'Sound effects and ambience only, no music, no speech.',
+    sfx_seconds: clamp(Math.round(sceneSec * 10) / 10, 1, 120),
     /* seed em 32 bits: vários nós (OmniVoice, etc.) validam max=2147483647 e recusam o prompt inteiro */
     seed: (seedBase + (c.scene?.index ?? 0) + (c.scene?.variation ?? 0) * 1000) % 2147483647, ...size,
     resolution: `${size.width}x${size.height}`,
@@ -753,7 +761,21 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
   // diálogo: a voz do personagem da cena (elenco) vence a voz da rota
   const member = c.step.kind === 'narration' ? castFor(c.project, c.scene?.speaker) : undefined;
   if (member && !member.refAudio && c.scene?.speaker) c.log(`personagem "${member.speaker}" sem voz de referência no elenco — usando a voz da rota`);
-  const refAudio: string | undefined = member?.refAudio || (c.step.kind === 'narration' ? c.project.narrationVoice?.refAudio : undefined) || b.refAudio || side.refAudio;
+  /* vídeo H3 com voz clonada (minimax-h3-ref2v-voice): a voz de quem fala na cena vira o <Audio 1> (ref_audios do nó);
+     sem voz clonada para ela, o nó de áudio sai e a cena segue só com as imagens */
+  let videoVoice: string | undefined;
+  if (c.step.kind === 'video' && placeholders(wf).includes('ref_audio')) {
+    const v = c.scene?.speaker ? castFor(c.project, c.scene.speaker)?.refAudio : c.project.narrationVoice?.refAudio;
+    if (v && fs.existsSync(v) && h3SpeechScene(c.project, c.scene, b)) {
+      videoVoice = v;
+      vars['ref_audio'] = await client.upload(v);
+      c.log(`MiniMax H3: voz clonada ${path.basename(v)} como <Audio 1>${c.scene?.speaker ? ` (${c.scene.speaker})` : ' (narrador)'}`);
+    } else {
+      dropRefAudio(wf);
+      c.log(`MiniMax H3: ${c.scene?.narration?.trim() ? `${c.scene?.speaker ?? 'o narrador'} sem voz clonada (elenco/voz do projeto)` : 'cena sem fala'} — vídeo só com as imagens de referência`);
+    }
+  }
+  const refAudio: string | undefined = member?.refAudio || (c.step.kind === 'narration' ? c.project.narrationVoice?.refAudio : undefined) || (c.step.kind === 'video' ? undefined : b.refAudio || side.refAudio);
   if (refAudio) {
     if (!fs.existsSync(refAudio)) throw new Error(`áudio de referência não encontrado: ${refAudio}`);
     c.log(`voz de referência: ${path.basename(refAudio)}`);
@@ -777,6 +799,7 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
     (missing.some((k) => k === 'init_image' || k === 'first_frame' || k === 'last_frame') ? ' (este workflow precisa da imagem da cena: etapa "image" antes)' : '') +
     (missing.includes('ref_audio') ? ' (defina refAudio no .map.json)' : ''));
   const graph = applyVariables(wf, vars, mapping);
+  const castNames: string[] = [];
   /* dorama/história: retratos do elenco entram como referências extras do MiniMax H3 ref2video */
   if (c.step.kind === 'video' && c.scene && Number(side.castRefs) > 0) {
     const chars = charactersInScene(c.projectDir, c.scene, Number(side.castRefs));
@@ -785,7 +808,14 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
       try { uploads.push(await client.upload(await ensurePortrait(c, o, client, ch))); }
       catch (e) { c.log(`retrato de ${ch.name} indisponível (${(e as Error).message}) — segue sem ele`); }
     }
-    if (injectCastRefs(graph as never, uploads, chars, String(vars['prompt'] ?? ''))) c.log(`elenco como referência: ${chars.slice(0, uploads.length).map((x) => x.name).join(', ')}`);
+    if (injectCastRefs(graph as never, uploads, chars, String(vars['prompt'] ?? ''))) { castNames.push(...chars.slice(0, uploads.length).map((x) => x.name)); c.log(`elenco como referência: ${castNames.join(', ')}`); }
+  }
+  /* fala do MiniMax H3: a fala (com emoção) entra no próprio vídeo — "(S1) says: <d>[Idioma] …</d>" */
+  const h3Talk = c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b);
+  if (h3Talk) {
+    const node = Object.values(graph as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>).find((n) => /^MiniMaxH3/i.test(n?.class_type ?? '') && typeof n?.inputs?.['prompt'] === 'string');
+    const idx = c.scene!.speaker ? castNames.findIndex((n) => n.toLowerCase() === c.scene!.speaker!.toLowerCase()) + 1 : 0;
+    if (node) { node.inputs!['prompt'] = addH3Speech(String(node.inputs!['prompt']), sceneSpeech(c.project, c.scene!, idx || undefined), videoVoice ? h3AudioRef(idx || undefined, c.scene!.speaker ?? 'the narrator') : undefined); c.log(`MiniMax H3: fala no vídeo${c.scene!.emotion ? ` (emoção: ${c.scene!.emotion})` : ''}`); }
   }
   const pid = await client.submit(graph);
   c.log(`ComfyUI prompt_id=${pid}`);
@@ -793,13 +823,15 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
   const outs = collectOutputs(entry, outputNode);
   if (outs.length === 0) throw new Error('ComfyUI não retornou arquivos de saída');
   const dest = primaryFile(c.step.kind, c);
-  const audioKind = c.step.kind === 'narration' || c.step.kind === 'music';
+  const audioKind = c.step.kind === 'narration' || c.step.kind === 'music' || c.step.kind === 'sfx';
   const pick = outs.find((f) => (c.step.kind === 'image' || c.step.kind === 'thumbnail' ? f.kind === 'images'
     : audioKind ? f.kind === 'audio' : f.kind !== 'audio')) ?? outs[0]!;
   const finalDest = audioKind || c.step.kind === 'video'
     ? dest.replace(/\.\w+$/, path.extname(pick.filename) || path.extname(dest)) : dest;
   await client.download(pick, finalDest);
   if (c.step.kind === 'narration') await trimNarration(c, finalDest);
+  if (h3Talk) await keepVideoSpeech(c, finalDest);
+  if (c.step.kind === 'sfx') return { files: [await sceneSfxWav(c, finalDest)] };
   /* marca que este clipe veio de um workflow com primeiro E último frame:
      o clip-musical usa a marca para remover o frame duplicado e fechar o loop. */
   if (c.step.kind === 'video' && c.sceneDir && need.has('first_frame') && need.has('last_frame')) {
@@ -858,6 +890,25 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
     applyWan2gpReferenceVoice(settings, refAudio, typeof tpl.settings.alt_prompt === 'string' ? tpl.settings.alt_prompt : undefined);
     c.log(`Wan2GP: clonando a voz de referência ${path.basename(refAudio)}`);
   }
+  /* voice design (sem voz clonada): a emoção da fala entra na descrição da voz */
+  if (!refAudio && c.step.kind === 'narration' && c.scene?.emotion && typeof settings['alt_prompt'] === 'string' && settings['alt_prompt'].trim()) {
+    settings['alt_prompt'] = `${settings['alt_prompt']}, ${deliveryEnglish(c.scene)}`;
+  }
+  /* fala do MiniMax H3 no vídeo: fala com emoção no prompt e, se o personagem tem voz clonada, ela vira o <Audio 1> (Ref2VA) */
+  const h3Talk = c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b);
+  if (h3Talk && typeof settings['prompt'] === 'string') {
+    const names = String(vars['ref_prompt'] ?? '') ? charactersInScene(c.projectDir, c.scene!, 3).map((ch) => ch.name) : [];
+    const idx = c.scene!.speaker ? names.findIndex((n) => n.toLowerCase() === c.scene!.speaker!.toLowerCase()) + 1 : 0;
+    const voice = castFor(c.project, c.scene!.speaker)?.refAudio ?? (c.scene!.speaker ? undefined : c.project.narrationVoice?.refAudio);
+    const useAudio = !!voice && fs.existsSync(voice) && /ref2va/i.test(tpl.model_type);
+    settings['prompt'] = addH3Speech(settings['prompt'], sceneSpeech(c.project, c.scene!, idx || undefined), useAudio ? h3AudioRef(idx || undefined, c.scene!.speaker) : undefined);
+    if (useAudio) {
+      const flags = String(settings['audio_prompt_type'] ?? '').toUpperCase();
+      if (!flags.includes('A')) settings['audio_prompt_type'] = `A${flags}`;
+      settings['audio_guide'] = voice;
+    }
+    c.log(`MiniMax H3: fala no vídeo${c.scene!.emotion ? ` (emoção: ${c.scene!.emotion})` : ''}${useAudio ? ` com a voz clonada ${path.basename(voice!)}` : ''}`);
+  }
   const dest0 = primaryFile(c.step.kind, c);
   const client = Wan2gpClient.get(cfg, path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'wan2gp_bridge.py'));
   const res = await client.generate(tpl.model_type, settings, c.signal, c.log);
@@ -868,8 +919,42 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   const dest = c.step.kind === 'image' || c.step.kind === 'thumbnail' ? dest0 : dest0.replace(/\.\w+$/, path.extname(pick));
   ensureDir(dest); fs.copyFileSync(pick, dest);
   if (c.step.kind === 'narration') await trimNarration(c, dest);
+  if (h3Talk) await keepVideoSpeech(c, dest);
+  if (c.step.kind === 'sfx') return { files: [await sceneSfxWav(c, dest)] };
   return { files: [dest] };
 };
+
+/**
+ * Fala gerada pelo MiniMax H3 no vídeo: o áudio do clipe vira a narração da cena (scenes/<id>/audio/narration.wav),
+ * assim a montagem, as legendas e a duração usam a voz do próprio vídeo. Clipe sem áudio: o motor narra por TTS.
+ */
+async function keepVideoSpeech(c: ExecContext, video: string): Promise<void> {
+  if (!c.sceneDir) return;
+  const dir = path.join(c.sceneDir, 'audio');
+  fs.mkdirSync(dir, { recursive: true });
+  const out = path.join(dir, 'narration.wav');
+  try {
+    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', video, '-vn', '-ac', '2', '-ar', '44100', out], c.signal);
+    if (!fs.existsSync(out) || fs.statSync(out).size < 2000) throw new Error('clipe sem áudio');
+    for (const f of fs.readdirSync(dir)) if (f.startsWith('narration.') && f !== 'narration.wav') fs.rmSync(path.join(dir, f), { force: true });
+    c.log('MiniMax H3: a fala do vídeo virou a narração da cena');
+  } catch (e) { fs.rmSync(out, { force: true }); c.log(`MiniMax H3: não deu para usar o áudio do vídeo (${(e as Error).message.slice(0, 120)}) — a cena será narrada por TTS`); }
+}
+
+/** Efeitos gerados por IA viram scenes/<id>/audio/sfx.wav (estéreo 44,1 kHz, no tamanho da cena) — o formato que a montagem mistura. */
+async function sceneSfxWav(c: ExecContext, file: string): Promise<string> {
+  if (!c.sceneDir) throw new Error('efeitos sonoros são por cena');
+  const out = path.join(c.sceneDir, 'audio', 'sfx.wav');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const sec = Math.max(0.5, c.scene?.durationSec ?? 4).toFixed(3);
+  const tmp = `${out}.tmp.wav`;
+  await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', file, '-af', `aformat=sample_rates=44100:channel_layouts=stereo,apad=whole_dur=${sec},atrim=end=${sec}`, '-ac', '2', '-ar', '44100', tmp], c.signal);
+  fs.copyFileSync(tmp, out); fs.rmSync(tmp, { force: true });
+  if (path.resolve(file) !== path.resolve(out)) try { fs.rmSync(file, { force: true }); } catch { /* ok */ }
+  if (!sfx.validWav(out)) throw new Error('efeito sonoro gerado ficou vazio');
+  c.log(`efeitos sonoros por IA: ${path.basename(out)} (${sec} s)`);
+  return out;
+}
 
 /** Uma geração por vez em cada conta do Flow (a página é uma só). */
 const flowLocks = new Map<string, Promise<unknown>>();
@@ -893,6 +978,15 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
     const dest = primaryFile(k, c);
     /* personagens da cena (biblioteca/elenco): folha ou retrato como referência, na ordem em que aparecem */
     const refs = c.scene && k !== 'thumbnail' ? charactersInScene(c.projectDir, c.scene, 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file)) : [];
+    /* cenários e objetos da biblioteca citados na cena + o esboço escolhido no storyboard (composição) */
+    if (c.scene && k !== 'thumbnail') {
+      for (const it of (c.project.characters ?? []).filter((x) => x.entity && inScene(x.name, c.scene))) {
+        const f = ['.png', '.jpg', '.jpeg', '.webp'].map((e) => path.join(c.projectDir, 'assets', 'user', it.entity === 'location' ? 'locations' : 'props', `${it.id}${e}`)).find((x) => fs.existsSync(x));
+        if (f && refs.length < 5) refs.push({ name: it.entity === 'location' ? `cenário ${it.name}` : `objeto ${it.name}`, file: f });
+      }
+      const sk = c.scene.sketch ? path.join(c.projectDir, c.scene.sketch) : '';
+      if (sk && fs.existsSync(sk) && refs.length < 6) refs.push({ name: 'esboço do storyboard (siga a composição)', file: sk });
+    }
     const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
       aspect: c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });

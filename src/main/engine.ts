@@ -11,7 +11,8 @@ import { duration as probeDuration } from './ffmpeg';
 import { autoCast } from './cast';
 import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
 import { pluginsRoot } from './plugins';
-import { needsApproval, writeStoryboard } from './project-storyboard';
+import { applyPicks, candidatePlan, needsApproval, readPicks, sketchIntent, writeStoryboard } from './project-storyboard';
+import { isH3Video, isH3Voice, normalizeEmotion } from './speech-emotion';
 import { applySkillMix } from './skill-mix';
 
 export interface ExecContext {
@@ -267,6 +268,12 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   let mode: 'scenes' | 'deliverables' = 'deliverables';
   const finishedProject = new Set<string>();     // etapas de escopo projeto concluídas
   let planRef: { ordered: RouteStep[]; active: (st: RouteStep) => boolean } | null = null;
+  /* fala do MiniMax H3: cenas cujo vídeo não trouxe fala voltam para a narração por TTS */
+  const ttsFallback = new Set<string>();
+  const h3VideoRoute = () => (planRef?.ordered ?? route.steps).some((st) => st.enabled && st.kind === 'video' && isH3Video(st.bindings[0]));
+  /* fala no vídeo: opção do projeto com H3 na rota, ou o 1º executor de vídeo é um H3 com voz clonada */
+  const speechInVideo = () => (!!project.h3Speech && h3VideoRoute()) || (planRef?.ordered ?? route.steps).some((st) => st.enabled && st.kind === 'video' && isH3Voice(st.bindings[0]));
+  const sceneHasAudio = (sc: Scene) => { try { return fs.readdirSync(path.join(sceneDirOf(projectDir, sc), 'audio')).some((f) => f.startsWith('narration.') && !f.includes('.trim')); } catch { return false; } };
   const plannedScenes = () => project.scenes.filter((s) => !opts.only?.sceneIds || opts.only.sceneIds.includes(s.id));
 
   /** Etapas de cena que valem para esta cena. */
@@ -408,6 +415,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
    * (deps.approve) — sem quem aprove (lote/MCP), para com a mensagem e a aprovação feita depois vale na próxima execução.
    */
   async function storyboardGate() {
+    applyPicks(project.scenes, readPicks(projectDir));
+    const want = candidatePlan(project.storyboard);
+    if ((want.sketch || want.frame) && needsApproval(project)) await makeCandidates(want);
     const { board, html } = writeStoryboard(project, projectDir);
     emit({ t: 'log', stepId: 'storyboard', line: `🎞 storyboard: ${board.panels.length} quadros (${Math.round(board.totalSec)} s) → ${path.relative(projectDir, html)}` });
     if (!needsApproval(project)) return;
@@ -415,9 +425,56 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
     emit({ t: 'gate.waiting', stepId: 'storyboard', storyboard: html });
     const ok = await deps.approve('storyboard');
     if (!ok) throw new Error('storyboard reprovado pelo usuário: ajuste as cenas no editor (ou refaça o plano) e execute de novo');
+    applyPicks(project.scenes, readPicks(projectDir));
+    const chosen = project.scenes.filter((s) => s.firstFrame).length, sk = project.scenes.filter((s) => s.sketch).length;
     project.storyboard = { ...project.storyboard!, approvedHash: board.hash, approvedAt: new Date().toISOString() };
-    emit({ t: 'log', stepId: 'storyboard', line: '✓ storyboard aprovado — seguindo para a produção das cenas' });
+    emit({ t: 'log', stepId: 'storyboard', line: `✓ storyboard aprovado${chosen || sk ? ` (${chosen} quadro(s) inicial(is) e ${sk} esboço(s) escolhidos)` : ''} — seguindo para a produção das cenas` });
     saveProject(projectDir, project);
+  }
+
+  /** Gera as opções de cada cena (esboço em traço e/ou quadro inicial) com a etapa de imagem da rota. */
+  async function makeCandidates(want: { sketch: number; frame: number }) {
+    const imgStep = (planRef?.ordered ?? route.steps).find((st) => st.enabled && st.kind === 'image' && st.bindings.length);
+    if (!imgStep) { emit({ t: 'log', stepId: 'storyboard', line: 'storyboard: a rota não tem etapa de imagem — sem opções de esboço/quadro para escolher' }); return; }
+    emit({ t: 'log', stepId: 'storyboard', line: `🎨 storyboard: gerando ${[want.sketch && `${want.sketch} esboço(s)`, want.frame && `${want.frame} quadro(s) inicial(is)`].filter(Boolean).join(' e ')} por cena com ${bindingLabel(imgStep.bindings[0]!)}…` });
+    for (const sc of [...project.scenes].sort((a, b) => a.index - b.index)) {
+      if (stopping()) throw new Error(stopMessage());
+      const codeOnly = sc.kind === 'code' || sc.kind === 'motion';
+      for (const kind of ['sketch', 'frame'] as const) {
+        const n = kind === 'frame' && codeOnly ? 0 : want[kind];
+        const list = (sc.candidates?.[kind] ?? []).filter((f) => fs.existsSync(path.join(projectDir, f)));
+        for (let i = list.length; i < n; i++) {
+          const rel = await oneCandidate(imgStep, sc, kind, i);
+          if (!rel) break;
+          list.push(rel);
+        }
+        if (list.length) sc.candidates = { ...(sc.candidates ?? {}), [kind]: list };
+      }
+      saveProject(projectDir, project);
+    }
+  }
+  async function oneCandidate(step: RouteStep, sc: Scene, kind: 'sketch' | 'frame', i: number): Promise<string | undefined> {
+    const dir = path.join(sceneDirOf(projectDir, sc), 'candidates');
+    const tmp = path.join(dir, `tmp-${kind}-${i}`);
+    fs.mkdirSync(tmp, { recursive: true });
+    const scene: Scene = { ...sc, visualIntent: kind === 'sketch' ? sketchIntent(sc) : sc.visualIntent, variation: (sc.variation ?? 0) + 101 + i + (kind === 'sketch' ? 50 : 0), firstFrame: undefined, status: {}, artifacts: {} };
+    try {
+      for (const b of step.bindings) {
+        const exec = deps.executors[b.type];
+        if (!exec || signal.aborted) continue;
+        try {
+          const r = await exec({ project: sceneProject(project, sc), projectDir, step, binding: b, scene, sceneDir: tmp, outDir: path.join(projectDir, 'out'), settings: deps.settings, signal,
+            log: (line) => emit({ t: 'log', stepId: 'storyboard', sceneId: sc.id, line }) });
+          const img = r.files.find((f) => /\.(png|jpe?g|webp)$/i.test(f) && fs.existsSync(f));
+          if (!img) continue;
+          const name = `${kind}-${i + 1}${path.extname(img).toLowerCase()}`;
+          fs.copyFileSync(img, path.join(dir, name));
+          emit({ t: 'log', stepId: 'storyboard', sceneId: sc.id, line: `cena ${sc.index}: ${kind === 'sketch' ? 'esboço' : 'quadro'} ${i + 1} pronto` });
+          return path.relative(projectDir, path.join(dir, name)).split(path.sep).join('/');
+        } catch (e) { emit({ t: 'log', stepId: 'storyboard', sceneId: sc.id, line: `cena ${sc.index}: ${bindingLabel(b)} falhou (${(e as Error).message.slice(0, 160)})` }); }
+      }
+      return undefined;
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   }
 
   /**
@@ -476,6 +533,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
         try { fs.writeFileSync(file, JSON.stringify(list, null, 2)); } catch { /* só o projeto em memória */ }
       }
     }
+    const prevScenes = new Map(project.scenes.map((x) => [x.id, x]));
     project.scenes = list.map((s, i) => ({
       id: s.id ?? `s${String(i + 1).padStart(2, '0')}`,
       index: i + 1,
@@ -492,6 +550,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       searchTerms: termsText(s.searchTerms) || [s.title, s.visualIntent].filter(Boolean).join(' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length > 2).slice(0, 6).join(' ') || undefined,
       videoPrompt: s.videoPrompt,
       speaker: typeof s.speaker === 'string' && s.speaker.trim() ? s.speaker.trim() : undefined,
+      emotion: normalizeEmotion(s.emotion),
+      delivery: typeof s.delivery === 'string' && s.delivery.trim() ? s.delivery.trim().slice(0, 120) : undefined,
       userMedia: typeof s.userMedia === 'string' && s.userMedia.trim() ? s.userMedia.trim() : undefined,
       clipStart: Number(s.clipStart) > 0 ? Math.round(Number(s.clipStart) * 100) / 100 : undefined,
       trimStart: Number(s.trimStart) > 0 ? Math.round(Number(s.trimStart) * 1000) / 1000 : undefined,
@@ -505,6 +565,16 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       status: {},
       artifacts: {},
     }));
+    /* opções/escolhas do storyboard sobrevivem ao recarregar o plano (mesma cena, mesmo visual) */
+    for (const sc of project.scenes) {
+      const pv = prevScenes.get(sc.id);
+      if (!pv || pv.visualIntent !== sc.visualIntent) continue;
+      if (pv.candidates) sc.candidates = pv.candidates;
+      if (pv.firstFrame) sc.firstFrame = pv.firstFrame;
+      if (pv.sketch) sc.sketch = pv.sketch;
+      if (!sc.emotion && pv.emotion) sc.emotion = pv.emotion;
+      if (!sc.delivery && pv.delivery) sc.delivery = pv.delivery;
+    }
     emit({ t: 'log', line: `scenes.json carregado: ${project.scenes.length} cenas` });
   }
 
@@ -566,6 +636,23 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       scene.artifacts[step.id] = [];
       emit({ t: 'step.skipped', stepId: step.id, sceneId, reason: 'cena sem fala — fica em silêncio' });
       return { ok: true };
+    }
+
+    /* fala do MiniMax H3: a voz sai do próprio vídeo (emoção e lábios juntos); o TTS fica de reserva */
+    if (step.kind === 'narration' && scene && speechInVideo() && !ttsFallback.has(scene.id)) {
+      scene.status[step.id] = 'skipped';
+      scene.artifacts[step.id] = [];
+      emit({ t: 'step.skipped', stepId: step.id, sceneId, reason: 'fala gerada no vídeo pelo MiniMax H3 (a narração por TTS entra só se o vídeo vier sem fala)' });
+      return { ok: true };
+    }
+    /* quadro inicial escolhido no storyboard: vira a imagem da cena (não gera de novo) */
+    if (step.kind === 'image' && scene?.firstFrame) {
+      const f = path.isAbsolute(scene.firstFrame) ? scene.firstFrame : path.join(projectDir, scene.firstFrame);
+      if (fs.existsSync(f)) {
+        emit({ t: 'log', stepId: step.id, sceneId, line: `🎞 quadro inicial escolhido no storyboard: ${path.basename(f)}` });
+        finish(step, scene, [f]);
+        return { ok: true, cached: true };
+      }
     }
 
     // cache: qualquer binding da cadeia com artefato válido evita reexecução
@@ -736,6 +823,17 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
 
   /** Narração concluída => duração da cena passa a ser a do áudio (a menos que o usuário a tenha fixado). */
   async function afterStep(step: RouteStep, scene: Scene) {
+    /* vídeo do H3 sem fala (outro provedor da rota, ou o H3 falhou na fala): narra por TTS agora */
+    if (step.kind === 'video' && scene.narration?.trim() && speechInVideo() && !sceneHasAudio(scene)) {
+      const nar = (planRef?.ordered ?? []).find((st) => st.kind === 'narration' && st.enabled);
+      if (nar) {
+        ttsFallback.add(scene.id);
+        emit({ t: 'log', stepId: nar.id, sceneId: scene.id, line: 'o vídeo desta cena veio sem a fala do MiniMax H3 — narrando por TTS' });
+        const r = await runUnit(nar, scene);
+        if (r.ok) await afterStep(nar, scene);
+      }
+      return;
+    }
     if (step.kind !== 'narration' || scene.manualDuration) return;
     const a = scene.artifacts[step.id]?.find((f) => /\.(mp3|wav|m4a|ogg|flac)$/i.test(f));
     if (!a) return;

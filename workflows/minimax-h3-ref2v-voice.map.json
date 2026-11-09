@@ -1,0 +1,11 @@
+{
+  "_doc": "MiniMax H3 referência->vídeo com elenco E VOZ CLONADA: <Picture 1> = imagem da cena; <Picture 2..3> = folhas/retratos dos personagens da cena; <Audio 1> = a voz de referência (pasta voices) de quem fala na cena (LoadAudio -> ref_audios.ref_audio_0 do MiniMaxH3ReferenceToVideo). A fala da cena (com a emoção do plano) entra no prompt no formato do H3 (S1) + <d>[Idioma] ...</d> e o timbre segue <Audio 1>; o áudio do vídeo vira a narração da cena. Sem voz clonada para quem fala, o nó de áudio sai e a cena segue só com as imagens.",
+  "megapixels": 0.4,
+  "multiple": 32,
+  "outputNode": "19",
+  "castRefs": 2,
+  "vars": {},
+  "label": "MiniMax H3 — referência → vídeo com voz clonada (elenco + fala)",
+  "capability": "video",
+  "voiceRef": true
+}

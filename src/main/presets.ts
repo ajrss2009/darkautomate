@@ -127,6 +127,10 @@ const stockStep = (): RouteStep => step({ id: 'stock', kind: 'stock_media', labe
 export const sfxStep = (auto = false, after: string[] = []): RouteStep => step({ id: 'sfx', kind: 'sfx', label: 'Efeitos sonoros (gerados por código)', scope: 'scene', dependsOn: ['narration', 'transcribe', ...after], optional: true, onFail: 'skip',
   bindings: [{ type: 'builtin', tool: 'sfx-code' }], params: { auto }, retry: { max: 1, backoffMs: 300 }, timeoutSec: 300, concurrency: 2 });
 
+/** Efeitos sonoros por IA (Stable Audio 3 no ComfyUI ou no Wan2GP): efeitos + ambiência da cena; reserva = efeitos por código. */
+export const sfxAiStep = (after: string[] = []): RouteStep => step({ id: 'sfx', kind: 'sfx', label: 'Efeitos sonoros por IA (Stable Audio 3)', scope: 'scene', dependsOn: ['narration', 'transcribe', ...after], optional: true, onFail: 'skip',
+  bindings: [{ type: 'comfyui', server: 'local', workflow: 'stable-audio3-sfx.json' }, { type: 'wan2gp', template: 'wan2gp-sfx-stable.json' }, { type: 'builtin', tool: 'sfx-code' }], params: { auto: true }, retry: { max: 1, backoffMs: 500 }, timeoutSec: 900, concurrency: 1 });
+
 const transcribeStep = (): RouteStep => step({ id: 'transcribe', kind: 'transcribe', label: 'Transcrever narração (Whisper) p/ sincronia', scope: 'scene', dependsOn: ['narration'],
   bindings: [{ type: 'builtin', tool: 'whisper' }, { type: 'builtin', tool: 'estimate-words' }], retry: { max: 1, backoffMs: 500 }, timeoutSec: 600, concurrency: 1 });
 
@@ -255,6 +259,21 @@ export const ROUTES: Route[] = [
     ],
   },
   {
+    id: 'dorama-voz-clonada', name: 'Dorama / história com fala no vídeo (MiniMax H3 ref2video + voz clonada)',
+    description: 'Como o dorama com elenco, mas a FALA sai do próprio vídeo: o MiniMax H3 ref2video recebe o quadro da cena, as folhas/retratos dos personagens e a voz clonada de quem fala (<Audio 1>, pasta voices), e gera imagem + voz com a emoção do plano e os lábios sincronizados. ComfyUI primeiro, Wan2GP de reserva; cena sem voz clonada sai só com as imagens e a narração por TTS entra quando o vídeo vem sem fala.',
+    videoTypes: ['micro_drama', 'interactive_story', 'custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro (falas por personagem)', scope: 'project', bindings: textChain }),
+      step({ id: 'bible', kind: 'asset_design', label: 'Bíblia de personagens (aparência + voz)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas (uma fala por cena, até 15 s, com emoção)', scope: 'project', dependsOn: ['script', 'bible'], bindings: textChain }),
+      step({ id: 'narration', kind: 'narration', label: 'Vozes por TTS (só de reserva: a fala vem do vídeo)', scope: 'scene', dependsOn: ['scene_plan'], bindings: castTtsChain, concurrency: 2, params: { multiVoice: true } }),
+      step({ id: 'image', kind: 'image', label: 'Quadro da cena (elenco consistente)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'], bindings: imageChain }),
+      step({ id: 'video', kind: 'video', label: 'Vídeo + fala da cena (MiniMax H3 ref2video com voz clonada)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'],
+        bindings: [{ type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v-voice.json' }, { type: 'wan2gp', template: 'wan2gp-h3-elenco-voz.json' }, { type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v-cast.json' }, ...videoChain], timeoutSec: 2400, onFail: 'skip' }),
+      ...tail(['narration', 'image', 'video']),
+    ],
+  },
+  {
     id: 'dorama-codigo', name: 'Dorama / história com elenco em código (vozes por personagem)',
     description: 'Mesma bíblia de personagens e vozes do dorama, mas cada cena é animada por código (Canvas/SVG/WebGL): os personagens são desenhados sempre com as mesmas formas e cores da bíblia, sincronizados com a fala de quem está falando.',
     videoTypes: ['micro_drama', 'interactive_story', 'custom'],
@@ -341,6 +360,24 @@ export const ROUTES: Route[] = [
       transcribeStep(),
       step({ id: 'image', kind: 'image', label: 'Imagem da cena (slide)', scope: 'scene', dependsOn: ['scene_plan', 'assets'], bindings: [{ type: 'flow' }, ...imageChain], timeoutSec: 900 }),
       sfxStep(true),
+      step({ id: 'subtitles', kind: 'subtitles', label: 'Legendas SRT', scope: 'project', dependsOn: ['narration', 'image'], bindings: [{ type: 'builtin', tool: 'subtitles' }] }),
+      step({ id: 'edit', kind: 'edit', label: 'Montagem: movimento + transições + efeitos (sem música)', scope: 'project', dependsOn: ['narration', 'image', 'sfx', 'subtitles'], bindings: [{ type: 'builtin', tool: 'assemble' }], params: { autoMotion: true, defaultTransition: 'fade', transitionSec: 0.6 } }),
+      step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição SEO e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),
+      step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail (formato do projeto)', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: [{ type: 'flow' }, ...thumbChain], timeoutSec: 900 }),
+    ],
+  },
+  {
+    id: 'slideshow-sfx-ai', name: 'Slideshow narrado com efeitos sonoros por IA (Stable Audio 3)',
+    description: 'Roteiro → personagens fixos → cenas → narração → imagens (Google Flow, com fallback local/API) → efeitos sonoros e ambiência gerados pelo Stable Audio 3 (ComfyUI ou Wan2GP; reserva: efeitos por código) → montagem com movimento e transições. Sem música.',
+    videoTypes: ['slideshow', 'realistic', 'anime_2d', 'cartoon_3d', 'doc_netflix', 'micro_drama'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro', scope: 'project', bindings: textChain }),
+      step({ id: 'assets', kind: 'asset_design', label: 'Personagens fixos (mesma aparência)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas + efeitos sonoros', scope: 'project', dependsOn: ['script', 'assets'], bindings: textChain }),
+      step({ id: 'narration', kind: 'narration', label: 'Narração (TTS)', scope: 'scene', dependsOn: ['scene_plan'], bindings: ttsChain, concurrency: 2 }),
+      transcribeStep(),
+      step({ id: 'image', kind: 'image', label: 'Imagem da cena (slide)', scope: 'scene', dependsOn: ['scene_plan', 'assets'], bindings: [{ type: 'flow' }, ...imageChain], timeoutSec: 900 }),
+      sfxAiStep(),
       step({ id: 'subtitles', kind: 'subtitles', label: 'Legendas SRT', scope: 'project', dependsOn: ['narration', 'image'], bindings: [{ type: 'builtin', tool: 'subtitles' }] }),
       step({ id: 'edit', kind: 'edit', label: 'Montagem: movimento + transições + efeitos (sem música)', scope: 'project', dependsOn: ['narration', 'image', 'sfx', 'subtitles'], bindings: [{ type: 'builtin', tool: 'assemble' }], params: { autoMotion: true, defaultTransition: 'fade', transitionSec: 0.6 } }),
       step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição SEO e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),

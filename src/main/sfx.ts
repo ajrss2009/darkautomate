@@ -194,3 +194,15 @@ export async function applySceneSfx(ffmpeg: string, ffprobe: string, sceneDir: s
 
 /** Lista para os prompts das IAs: "whoosh (transição passagem), impact (...)". */
 export const sfxCatalogText = () => SFX_LIBRARY.map((d) => `${d.id} (${d.tags})`).join(', ');
+
+/**
+ * Pedido de efeitos sonoros por IA (Stable Audio 3): os efeitos do plano (nomes da biblioteca ou texto livre) +
+ * a ambiência do lugar da cena, sem música e sem voz. Função pura.
+ */
+export function sfxAiPrompt(scene: Pick<Scene, 'sfx' | 'sfxCues' | 'visualIntent' | 'title'>): string {
+  const named = [...(scene.sfxCues ?? []).map((c) => String(c.name ?? '')), ...(scene.sfx ?? []).map((x) => String(x).split(/[@:]/)[0]!.trim())]
+    .filter(Boolean).map((n) => { const d = sfxDef(n); return d ? d.label : n.replace(/[-_]+/g, ' '); });
+  const fx = [...new Set(named)].slice(0, 6);
+  const place = (scene.visualIntent || scene.title || '').replace(/\s+/g, ' ').slice(0, 220);
+  return `Sound effects and ambience only, no music, no speech, no voices. ${fx.length ? `Clear foley: ${fx.join(', ')}. ` : ''}${place ? `Ambience of this scene: ${place}.` : ''} Realistic, clean, high quality stereo.`.trim();
+}

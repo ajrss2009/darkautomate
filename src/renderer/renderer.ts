@@ -31,6 +31,16 @@ interface ProjectRow {
   id: string; name: string; videoType: string; createdAt: string; scenes: number; hasFinal: boolean; running: boolean; totalMs?: number; firstFrame?: string | null; typeId?: string; language?: string;
   status?: 'running' | 'done' | 'failed' | 'partial' | 'new'; scenesWithMedia?: number; frameFromFinal?: boolean; runs?: number; lastRunAt?: string; lastRunOk?: boolean; updatedAt?: string;
   skillId?: string; skillName?: string; routeName?: string; aspect?: string; targetDurationSec?: number; dir?: string;
+  cost?: { perVideo: number; currency: string; lines: Array<{ item: string; qty: string; cost: number }>; assumptions: string[] };
+}
+
+/** selo $ (fundo verde) com o custo estimado do vídeo; o detalhe fica na dica */
+function costBadge(p: Pick<ProjectRow, 'cost'>): HTMLElement | null {
+  const c = p.cost; if (!c) return null;
+  const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tip = ['Custo estimado deste vídeo', ...c.lines.map((l) => `${l.item}: ${l.qty} = ${c.currency} ${fmt(l.cost)}`), ...c.assumptions.map((a) => `• ${a}`),
+    '(GPU local, assinatura e harness grátis contam 0 — os preços vêm do clone associado ao canal, se houver)'].join('\n');
+  return h('span', { class: 'cost-badge', title: tip }, h('b', {}, '$'), ` ${c.currency === 'USD' ? '' : c.currency + ' '}${fmt(c.perVideo)}`);
 }
 interface Forge {
   meta(): Promise<{ videoTypes: Array<{ id: string; label: string; defaultAspect: string; defaultDurationSec: number; sceneKind?: SceneKind }>; routes: Route[]; skills: Skill[]; agents: Agent[]; thumbnails: ThumbnailTemplate[]; voices: Array<{ name: string; path: string }>; profiles?: ExecutorProfile[]; sfxLibrary?: SfxItem[] }>;
@@ -70,7 +80,10 @@ interface Forge {
   setAttachment(id: string, file: string, patch: { use?: Attachment['use']; note?: string; character?: string }): Promise<Project>;
   openFolder(id: string): Promise<string>;
   /* biblioteca de personagens e canais (Novo projeto) */
-  charactersList(): Promise<CharRow[]>;
+  charactersList(entity?: string): Promise<CharRow[]>;
+  styleExtract(o?: unknown): Promise<unknown>;
+  storyEpisodeLink(id: string, n: number, projectId: string): Promise<unknown>;
+  storyboardPick(id: string, sceneId: string, kind: 'frame' | 'sketch', rel: string | null): Promise<unknown>;
   channelsGet(): Promise<unknown>;
   /* storyboard do projeto (plano de cenas) e aprovação da execução pausada */
   projectStoryboard(id: string, regenerate?: boolean): Promise<unknown>;
@@ -177,6 +190,9 @@ let preflight: { projectId?: string; steps: Array<{ id: string; kind: string; la
 let pendingPlugin: { id: string; style?: string } | undefined;
 /** ideia vinda de "Obter vídeos" (Criar vídeo inspirado) */
 let pendingIdea: string | undefined;
+/** episódio de uma série (Biblioteca → Histórias) aberto no Novo projeto já preenchido */
+let pendingEpisode: { storyId: string; n: number; name: string; idea: string; targetDurationSec: number; characterIds: string[]; variants: Record<string, string>; series: Record<string, unknown>; missing: string[] } | undefined;
+export function openEpisodeInNew(ep: NonNullable<typeof pendingEpisode>): void { pendingEpisode = ep; go('new'); }
 /** skill a pré-selecionar no Novo projeto (ex.: canal clonado) */
 let pendingSkill: string | undefined;
 /** dobra de nicho escolhida (id em library/folds) para o próximo projeto */
@@ -494,7 +510,7 @@ async function renderProjects() {
     return h('tr', { 'data-row': p.id, class: live ? 'row-running' : '' },
       h('td', {}, cb),
       h('td', {}, frameCell(p)),
-      h('td', {}, h('strong', {}, p.name), h('span', { class: 'run-badge', title: live?.step ? `etapa ${live.step}` : '' }, '● executando'), h('div', { class: 'muted' }, [p.skillName ?? p.videoType, p.routeName].filter(Boolean).join(' · ')),
+      h('td', {}, h('strong', {}, p.name), costBadge(p), h('span', { class: 'run-badge', title: live?.step ? `etapa ${live.step}` : '' }, '● executando'), h('div', { class: 'muted' }, [p.skillName ?? p.videoType, p.routeName].filter(Boolean).join(' · ')),
         h('div', { class: 'muted pdir', title: p.dir ?? '' }, p.id)),
       h('td', {}, statusTag(p), h('div', { class: 'muted' }, p.scenes ? `${p.scenesWithMedia ?? 0}/${p.scenes} cenas com mídia` : 'sem cenas'),
         p.status === 'failed' ? h('div', { class: 'muted' }, 'última execução falhou') : null),
@@ -685,7 +701,8 @@ async function openThumbModelModal(onDone: (tpl: ThumbnailTemplate) => void) {
  * Storyboard do projeto: quadros do plano de cenas (tempo, ato, visual, câmera, narração, efeitos).
  * waiting = a execução está pausada esperando a resposta (Aprovar segue; Reprovar para a execução).
  */
-interface BoardPanel { id: string; index: number; title: string; from: number; to: number; act?: string; narration: string; visual: string; camera?: string; kind: string; sfx?: string[]; image?: string }
+interface BoardPanel { id: string; index: number; title: string; from: number; to: number; act?: string; narration: string; visual: string; camera?: string; kind: string; sfx?: string[]; image?: string;
+  candidates?: { sketch?: string[]; frame?: string[] }; firstFrame?: string; sketch?: string; speaker?: string; emotion?: string }
 let storyboardOpen = '';
 async function openStoryboardModal(projectId: string, waiting = false) {
   if (storyboardOpen === projectId) return;
@@ -696,12 +713,31 @@ async function openStoryboardModal(projectId: string, waiting = false) {
   const live = waiting || r.waiting;
   const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
   const dir = (await guard(() => forge.getProject(projectId)) as { dir?: string } | undefined)?.dir;
-  const grid = h('div', { class: 'sb-grid' }, ...r.board.panels.map((p) => h('div', { class: 'sb-card' },
-    p.image ? h('img', { src: forge.mediaUrl(/^[a-z]:|^\//i.test(p.image) || !dir ? p.image : `${dir}/${p.image}`), alt: '' }) : null,
+  const abs = (f: string) => forge.mediaUrl(/^[a-z]:|^\//i.test(f) || !dir ? f : `${dir}/${f}`);
+  /* opções geradas (esboço em traço / quadro inicial): clique escolhe; clicar de novo tira a escolha */
+  const options = (p: BoardPanel, kind: 'sketch' | 'frame', mainImg: HTMLImageElement | null) => {
+    const list = p.candidates?.[kind] ?? [];
+    if (!list.length) return null;
+    const picked = () => (kind === 'frame' ? p.firstFrame : p.sketch);
+    const row = h('div', { class: 'sb-opts' }, h('span', { class: 'muted small' }, kind === 'sketch' ? '✏️ Esboços:' : '🖼 Quadro inicial:'));
+    const paint = () => row.querySelectorAll('img').forEach((im) => im.classList.toggle('on', im.getAttribute('data-rel') === picked()));
+    for (const rel of list) row.append(h('img', { src: abs(rel), alt: '', 'data-rel': rel, title: kind === 'frame' ? 'Usar como a imagem desta cena' : 'Usar como composição desta cena', onclick: () => void guard(async () => {
+      const next = picked() === rel ? null : rel;
+      await forge.storyboardPick(projectId, p.id, kind, next);
+      if (kind === 'frame') p.firstFrame = next ?? undefined; else p.sketch = next ?? undefined;
+      if (mainImg && (next || p.firstFrame || p.sketch)) mainImg.src = abs((p.firstFrame ?? p.sketch ?? next)!);
+      paint();
+    }) }));
+    paint();
+    return row;
+  };
+  const grid = h('div', { class: 'sb-grid' }, ...r.board.panels.map((p) => { const mainImg = p.image ? h('img', { src: abs(p.image), alt: '' }) as HTMLImageElement : null; return h('div', { class: 'sb-card' },
+    mainImg,
+    options(p, 'sketch', mainImg), options(p, 'frame', mainImg),
     h('div', { class: 'sb-head' }, h('span', { class: 'sb-n' }, String(p.index)), h('strong', {}, p.title), h('span', { class: 'sp' }), h('span', { class: 'muted' }, `${mmss(p.from)}–${mmss(p.to)}`)),
     p.act ? h('span', { class: 'sb-act' }, p.act) : null,
     h('p', {}, h('b', {}, 'Visual: '), p.visual), p.camera ? h('p', {}, h('b', {}, 'Câmera: '), p.camera) : null,
-    h('p', { class: 'muted' }, `“${p.narration}”`), p.sfx?.length ? h('p', { class: 'muted' }, `🔊 ${p.sfx.join(', ')}`) : null)));
+    h('p', { class: 'muted' }, `${p.speaker ? `${p.speaker}: ` : ''}“${p.narration}”${p.emotion ? ` · 🎭 ${p.emotion}` : ''}`), p.sfx?.length ? h('p', { class: 'muted' }, `🔊 ${p.sfx.join(', ')}`) : null); }));
   const answer = async (ok: boolean) => {
     const res = await guard(() => (forge.projectApprove(projectId, ok) as Promise<{ live: boolean }>));
     if (!res) return;
@@ -779,6 +815,11 @@ async function renderNew() {
   const flowSel = agyAccountSelect('np-flow', '', undefined, 'flow');
   const chSel = channelSelect('np-channel');
   if (pendingIdea) { (idea as HTMLTextAreaElement).value = pendingIdea; pendingIdea = undefined; }
+  const episode = pendingEpisode; pendingEpisode = undefined;
+  if (episode) { (name as HTMLInputElement).value = episode.name; (idea as HTMLTextAreaElement).value = episode.idea; }
+  const episodeBox = episode ? h('div', { class: 'card np-episode' }, h('strong', {}, `📖 ${String(episode.series['title'] ?? '')} — episódio ${episode.n} de ${String(episode.series['total'] ?? '?')}`),
+    h('div', { class: 'muted small' }, 'Elenco, cenários, objetos e variações do episódio já estão escolhidos abaixo; o roteiro recebe o "anteriormente" da série e termina com o gancho.'),
+    episode.missing.length ? h('div', { class: 'tag running' }, `⚠ fora da Biblioteca: ${episode.missing.join(', ')}`) : null) : null;
   const ideaLbl = h('span', {}, 'Ideia / prompt simples (o sistema acrescenta a skill, os estilos, o idioma e as referências)');
   const builtin = skills.filter((k) => k.builtin), mine = skills.filter((k) => !k.builtin);
   const skill = h('select', { id: 'np-skill' }, h('option', { value: '' }, '— escolha uma skill (tipo de vídeo) —'),
@@ -801,7 +842,7 @@ async function renderNew() {
   paintMusInfo();
   const waveform = h('select', { id: 'np-waveform' }, ...[['line', 'Linha'], ['p2p', 'Barras'], ['cline', 'Preenchida'], ['dot', 'Pontos']].map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
   const aspect = h('select', { id: 'np-aspect' }, ...['9:16', '16:9', '1:1', '4:5'].map((a) => h('option', { value: a }, a))) as HTMLSelectElement;
-  const dsec = h('input', { type: 'number', value: '60', min: '5', id: 'np-dur' }) as HTMLInputElement;
+  const dsec = h('input', { type: 'number', value: String(episode?.targetDurationSec ?? 60), min: '5', id: 'np-dur' }) as HTMLInputElement;
   const lang = h('select', { id: 'np-lang' }, ...LANGUAGES.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
   const quality = h('select', {}, ...['standard', 'depth', 'polished', 'verified', 'ultra'].map((q) => h('option', { value: q }, q))) as HTMLSelectElement;
   const npFreeEngine = freeEngineSelect('np-free-engine', '');
@@ -819,17 +860,54 @@ async function renderNew() {
   const storyCb = h('input', { type: 'checkbox', id: 'np-storyboard' }) as HTMLInputElement;
   const storyApproveCb = h('input', { type: 'checkbox', id: 'np-storyboard-approve' }) as HTMLInputElement;
   storyApproveCb.checked = true; storyApproveCb.disabled = true;
-  storyCb.addEventListener('change', () => { storyApproveCb.disabled = !storyCb.checked; });
+  const sketchMode = h('select', { id: 'np-storyboard-sketch', title: 'Com aprovação: o app gera opções por cena com a etapa de imagem da rota e você escolhe a melhor no storyboard' },
+    ...[['', 'sem opções'], ['sketch', '✏️ esboço em traço'], ['frame', '🖼 quadro inicial'], ['both', '✏️ esboço + 🖼 quadro']].map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+  const sketchCount = h('select', { id: 'np-storyboard-count' }, ...['1', '2', '3', '4'].map((v) => h('option', { value: v, ...(v === '2' ? { selected: true } : {}) }, `${v} opção(ões) por cena`))) as HTMLSelectElement;
+  const paintSketch = () => { sketchMode.disabled = !storyCb.checked || !storyApproveCb.checked; sketchCount.disabled = sketchMode.disabled || !sketchMode.value; };
+  storyCb.addEventListener('change', () => { storyApproveCb.disabled = !storyCb.checked; paintSketch(); });
+  storyApproveCb.addEventListener('change', paintSketch); sketchMode.addEventListener('change', paintSketch); paintSketch();
+  const h3SpeechCb = h('input', { type: 'checkbox', id: 'np-h3-speech' }) as HTMLInputElement;
+
+  /* ── 🖼 estilo a partir de uma imagem de referência ── */
+  let styleRef: { file?: string; stylePrompt: string; avoid?: string; tags?: string[]; medium?: string; lighting?: string; palette?: string[]; by?: string; at?: string } | undefined;
+  const styleBox = h('div', { class: 'card', id: 'np-style-ref' });
+  const paintStyle = () => {
+    const pickBtn = h('button', { class: 'small primary', onclick: () => void guard(async () => {
+      pickBtn.setAttribute('disabled', ''); pickBtn.textContent = '⏳ lendo o estilo da imagem…';
+      try { const r = await forge['styleExtract']() as typeof styleRef | null; if (r) { styleRef = r; toast('Estilo extraído da imagem'); } }
+      finally { paintStyle(); }
+    }) }, styleRef ? '↻ Outra imagem' : '🖼 Estilo de uma imagem') as HTMLButtonElement;
+    if (!styleRef) { styleBox.replaceChildren(h('div', { class: 'row' }, h('strong', {}, '🖼 Estilo a partir de uma imagem'), h('span', { class: 'muted small' }, ' (opcional) — envie uma imagem: a IA descreve o estilo e o app mede a paleta; vale para todas as cenas e a thumbnail'), h('span', { class: 'sp' }), pickBtn)); return; }
+    const sp = h('textarea', { rows: '3' }) as HTMLTextAreaElement; sp.value = styleRef.stylePrompt; sp.addEventListener('input', () => { styleRef!.stylePrompt = sp.value; });
+    const av = h('input', { value: styleRef.avoid ?? '', placeholder: 'o que evitar' }) as HTMLInputElement; av.addEventListener('input', () => { styleRef!.avoid = av.value; });
+    const sw = h('div', { class: 'row wrap' }, ...(styleRef.palette ?? []).map((x) => { const s0 = h('span', { class: 'np-pal-sw', title: x }); s0.style.background = x; return s0; }));
+    const img = styleRef.file ? h('img', { class: 'np-style-img', src: forge.mediaUrl(styleRef.file), alt: '' }) : null;
+    styleBox.replaceChildren(h('div', { class: 'row' }, h('strong', {}, '🖼 Estilo da imagem'), h('span', { class: 'muted small' }, [styleRef.medium, styleRef.lighting, styleRef.by && `por ${styleRef.by}`].filter(Boolean).join(' · ')), h('span', { class: 'sp' }), pickBtn,
+      h('button', { class: 'small', onclick: () => { styleRef = undefined; paintStyle(); } }, '✕ Remover')),
+      h('div', { class: 'row' }, img, h('div', { class: 'grow' }, h('label', {}, 'Estilo (vai em todas as cenas)', sp), h('label', {}, 'Evitar', av), sw,
+        styleRef.tags?.length ? h('div', { class: 'muted small' }, styleRef.tags.map((t) => `#${t}`).join(' ')) : null)));
+  };
+  paintStyle();
 
   /* ── 👥 personagens da biblioteca (viram o elenco: folha como referência, aparência fixa e voz) ── */
-  const pickedChars = new Set<string>();
+  const pickedChars = new Set<string>(episode?.characterIds ?? []);
+  const charVariants: Record<string, string> = { ...(episode?.variants ?? {}) };
   const charsBox = h('div', { class: 'card', id: 'np-characters' });
   void guard(() => forge.charactersList()).then((list) => {
     const rows = (list ?? []) as CharRow[];
+    const chip = (ch: CharRow) => {
+        const img = charImage(forge as never, ch);
+        const v = charVariants[ch.id];
+        return h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, 'data-pick-char': ch.id, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}${v ? ` · variação: ${v}` : ''}`,
+          onclick: () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); paintChars(); } },
+          img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name), v ? h('small', { class: 'tag done' }, v) : h('small', { class: 'muted' }, (ch.entity && ch.entity !== 'character') ? '' : KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
+    };
+    const group = (e: string, title: string) => { const g = rows.filter((x) => (x.entity ?? 'character') === e); return g.length ? h('div', {}, h('div', { class: 'muted small' }, title), h('div', { class: 'chr-pick' }, ...g.map(chip))) : null; };
     const paintChars = () => charsBox.replaceChildren(...([
-      h('div', { class: 'row' }, h('strong', {}, '👥 Personagens da biblioteca'), h('span', { class: 'muted small' }, rows.length ? ` ${pickedChars.size} escolhido(s) — viram o elenco: folha como referência de imagem, aparência fixa e voz em todas as cenas` : ' nenhum ainda — crie na aba Personagens'), h('span', { class: 'sp' }),
-        h('button', { class: 'small', onclick: () => go('characters') }, '＋ Criar personagem')),
-      rows.length ? h('div', { class: 'chr-pick' }, ...rows.map((ch) => {
+      h('div', { class: 'row' }, h('strong', {}, '📚 Biblioteca (personagens, cenários, objetos)'), h('span', { class: 'muted small' }, rows.length ? ` ${pickedChars.size} escolhido(s) — folhas como referência de imagem, aparência fixa, voz e modelos 3D em todas as cenas` : ' nada ainda — crie na aba Biblioteca'), h('span', { class: 'sp' }),
+        h('button', { class: 'small', onclick: () => go('characters') }, '＋ Abrir a Biblioteca')),
+      group('character', '👥 Personagens'), group('location', '🏞 Cenários'), group('prop', '📦 Objetos'),
+      false ? h('div', { class: 'chr-pick' }, ...rows.map((ch) => {
         const img = charImage(forge as never, ch);
         return h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, 'data-pick-char': ch.id, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}`,
           onclick: () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); paintChars(); } },
@@ -1198,8 +1276,12 @@ async function renderNew() {
       musicStyle: musicStyle.value.trim() || undefined, musicMode: musicMode.value as 'instrumental' | 'song', musicMinMin: Number(musMin.value) || undefined, musicMaxMin: Number(musMax.value) || undefined, musicTrackSec: Number(musTrack.value) || undefined, waveform: waveform.value as 'line' | 'bar' | 'p2p' | 'cline' | 'dot',
       refScriptFile: refScript, refVideoFile: refVideo, refScriptUse: !!refScript && scriptUse.checked, attachFiles: attachFiles.length ? [...attachFiles] : undefined,
       subtitles: subsSel.value as 'off' | 'srt' | 'burn', audioFirst: audioFirstCb.checked, codeMusic: codeMusicCb.checked || undefined,
-      storyboard: storyCb.checked ? { enabled: true, approval: storyApproveCb.checked } : undefined,
+      storyboard: storyCb.checked ? { enabled: true, approval: storyApproveCb.checked, sketches: storyApproveCb.checked && sketchMode.value ? { mode: sketchMode.value as 'sketch' | 'frame' | 'both', count: Number(sketchCount.value) || 2 } : undefined } : undefined,
       characterIds: pickedChars.size ? [...pickedChars] : undefined,
+      characterVariants: Object.keys(charVariants).length ? Object.fromEntries(Object.entries(charVariants).filter(([id]) => pickedChars.has(id))) : undefined,
+      series: episode?.series as never,
+      styleRef: styleRef?.stylePrompt?.trim() ? styleRef : undefined,
+      h3Speech: h3SpeechCb.checked || undefined,
       skillMix: mixRows.length ? [{ skillId: skill.value, pct: Number(mainPct.value) || 50 }, ...mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 10 }))] : undefined,
       skillMixMode: mixRows.length ? mixMode.value as 'blocks' | 'interleave' : undefined,
       palette: palOn.checked ? { video: palVideo.value(), thumbnail: palThumb.value() } : undefined,
@@ -1231,6 +1313,7 @@ async function renderNew() {
       toast(`Rota ajustada para "${p.route?.name ?? p.routeId}": a skill escolhida gera cenas e a rota anterior não tinha a etapa "Planejar cenas".`, true);
     }
     for (const n of [p.refScript?.note, p.refVideo?.note]) if (n) toast('Referência: ' + n, true);
+    if (episode) void forge['storyEpisodeLink'](episode.storyId, episode.n, p.id).catch(() => {});
     return p;
   };
   const create = h('button', { class: 'primary', id: 'np-create', onclick: () => void guard(async () => { current = await make(); selected = []; go('editor'); }) }, 'Criar projeto');
@@ -1251,8 +1334,10 @@ async function renderNew() {
       })),
       h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Skill (tipo de vídeo) *', skill), h('label', { class: 'grow' }, 'Rota *', route)),
       info,
+      episodeBox,
       mixBox,
       charsBox,
+      styleBox,
       paletteCard,
       foldBox,
       routePlan,
@@ -1288,6 +1373,8 @@ async function renderNew() {
         h('label', { class: 'inline chk', title: 'Trilha sintetizada por código, sem IA e offline, com a duração exata do vídeo e o clima da skill. Vale para qualquer rota; a trilha da rota fica de reserva.' }, codeMusicCb, '🎼 Trilha por código'),
         h('label', { class: 'inline chk', title: 'Depois do plano de cenas, monta o storyboard (um quadro por cena: tempo, ato, visual, câmera, narração e efeitos) em out/storyboard.html.' }, storyCb, '🎞 Criar storyboard'),
         h('label', { class: 'inline chk', title: 'A execução pausa depois do storyboard até você aprovar (a aprovação vale enquanto o plano não mudar). Desmarcado: só cria o storyboard e segue.' }, storyApproveCb, '⏸ Pedir minha aprovação antes de seguir'),
+        h('label', { title: 'Com aprovação: esboços em traço e/ou quadros iniciais por cena para você escolher no storyboard; o quadro escolhido vira a imagem da cena' }, '🎨 Opções no storyboard', h('span', { class: 'row' }, sketchMode, sketchCount)),
+        h('label', { class: 'inline chk', title: 'Com MiniMax H3 na etapa de vídeo da rota: a fala (com a emoção marcada no plano) é gerada junto com o vídeo — voz, entonação e lábios sincronizados; com voz clonada no elenco, ela vira a referência de timbre. Se o vídeo vier sem fala, a narração por TTS entra de reserva.' }, h3SpeechCb, '🗣 Fala gerada pelo MiniMax H3 no vídeo'),
         h('label', { title: 'standard: normal · depth/polished: +1 tentativa · verified: + revisão com nota · ultra: revisão + refaz cenas fracas automaticamente' }, 'Qualidade', quality),
         h('label', { title: FREE_ENGINE_TIP }, '🎞 Vídeo livre', npFreeEngine),
         h('div', { class: 'grow', title: 'Se o provedor de uma etapa falhar (ex.: Ollama), estes assumem, na ordem dos cliques. Começa com as reservas padrão das Configurações → Provedores.' },
@@ -2849,7 +2936,7 @@ function inspectorTabs(content: Record<string, () => Array<HTMLElement | null>>)
 /** Sem projeto aberto: escolha um projeto para editar. */
 function editorPicker() {
   const cards = lastList.map((p) => h('button', { class: 'pcard', 'data-open': p.id, onclick: () => void guard(async () => { current = await forge.getProject(p.id); selected = []; media = await forge.projectMedia(p.id); renderEditor(); }) },
-    frameCell(p), h('strong', {}, p.name), h('span', { class: 'muted' }, `${p.scenes} cena(s) · ${STATUS[p.status ?? 'new']?.[0] ?? ''}`)));
+    frameCell(p), h('strong', {}, p.name, ' ', costBadge(p)), h('span', { class: 'muted' }, `${p.scenes} cena(s) · ${STATUS[p.status ?? 'new']?.[0] ?? ''}`)));
   main.replaceChildren(h('h2', {}, 'Editor'), h('p', { class: 'muted' }, 'Escolha um projeto para editar.'),
     lastList.length ? h('div', { class: 'pgrid' }, ...cards) : h('p', { class: 'muted' }, 'Nenhum projeto ainda. Crie um em Novo projeto.'));
 }
@@ -3091,7 +3178,7 @@ async function render() {
   else if (tab === 'skills') await renderSkills(ctx);
   else if (tab === 'providers') await renderProvidersPage(main, { forge: forge as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>, toast }, helpButton('providers'));
   else if (tab === 'channels') await renderChannelsPage({ forge: forge as unknown as ChannelsCtx['forge'], toast, main, guard });
-  else if (tab === 'characters') await renderCharactersPage({ forge: forge as unknown as CharactersCtx['forge'], toast, main, guard });
+  else if (tab === 'characters') await renderCharactersPage({ forge: forge as unknown as CharactersCtx['forge'], toast, main, guard, openEpisode: (ep) => openEpisodeInNew(ep as never) });
   else if (tab === 'automations') await renderAutomations({ forge: forge as unknown as AutoCtx['forge'], toast, main });
   else if (tab === 'videos') await renderVideosPage({ forge: forge as unknown as VideosCtx['forge'], toast, main, guard, newProject: (idea, skillId, foldId) => { pendingIdea = idea; pendingSkill = skillId; pendingFold = foldId; go('new'); },
     skillFromVideo: (url, ai) => { go('skills'); setTimeout(() => void openSkillFromVideos(ctx, () => go('skills'), [url], ai), 300); },

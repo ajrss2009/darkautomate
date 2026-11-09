@@ -41,8 +41,8 @@ export const KIND_LABEL: Record<string, string> = {
   thumbnail: 'Thumbnail', metadata: 'Descrição/SEO', publish: 'Publicação', stock_media: 'Bancos de mídia', transcribe: 'Transcrição (Whisper)',
   brief: 'Brief do orquestrador', free: 'Vídeo livre (prompt → harness)',
 };
-const CAP_OF: Record<string, string> = { image: 'image', thumbnail: 'image', video: 'video', narration: 'voice', music: 'music' };
-const MEDIA_KINDS = new Set(['image', 'thumbnail', 'video', 'narration', 'music']);
+const CAP_OF: Record<string, string> = { image: 'image', thumbnail: 'image', video: 'video', narration: 'voice', music: 'music', sfx: 'sfx' };
+const MEDIA_KINDS = new Set(['image', 'thumbnail', 'video', 'narration', 'music', 'sfx']);
 const FLOW_KINDS = new Set(['image', 'thumbnail', 'video']);
 const LANGS: Array<[string, string]> = [['pt-BR', 'Português (Brasil)'], ['pt-PT', 'Português (Portugal)'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['es-ES', 'Español'], ['es-MX', 'Español (México)'], ['fr-FR', 'Français'], ['de-DE', 'Deutsch'], ['it-IT', 'Italiano'], ['ja-JP', '日本語'], ['ko-KR', '한국어'], ['zh-CN', '中文']];
 export const LANGUAGES = LANGS;

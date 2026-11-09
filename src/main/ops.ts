@@ -32,7 +32,7 @@ export function saveProjectFile(s: Settings, p: Project, o: { scenes?: boolean }
     id: x.id, title: x.title, narration: x.narration, visualIntent: x.visualIntent,
     kind: x.kind, durationSec: x.durationSec, camera: x.camera, notes: x.notes, sfx: x.sfx, sfxCues: x.sfxCues,
     searchTerms: x.searchTerms, manualDuration: x.manualDuration, effects: x.effects, variation: x.variation,
-    videoPrompt: x.videoPrompt, speaker: x.speaker, userMedia: x.userMedia, clipStart: x.clipStart, clipCrop: x.clipCrop, trimStart: x.trimStart,
+    videoPrompt: x.videoPrompt, speaker: x.speaker, emotion: x.emotion, delivery: x.delivery, userMedia: x.userMedia, clipStart: x.clipStart, clipCrop: x.clipCrop, trimStart: x.trimStart,
   })), null, 2));
 }
 

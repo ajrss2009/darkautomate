@@ -59,7 +59,7 @@ assert.deepEqual(loop3['15']!.inputs['model'], ['24', 0]);
 assert.deepEqual(loop3['16']!.inputs['model'], ['24', 0]);
 // templates Wan2GP: todas as variáveis precisam existir
 /* + as variáveis que o executor Wan2GP preenche (idioma, tempo de fala e o elenco como referência) */
-const known = new Set([...Object.keys(extra), 'resolution', 'language_name', 'language_code', 'language_label', 'speech_seconds', 'ref_images', 'ref_prompt']);
+const known = new Set([...Object.keys(extra), 'resolution', 'language_name', 'language_code', 'language_label', 'speech_seconds', 'ref_images', 'ref_prompt', 'delivery', 'sfx_prompt', 'sfx_seconds']);
 for (const f of fs.readdirSync(dir).filter((x) => x.startsWith('wan2gp-'))) {
   const t = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
   assert.ok(t.model_type && t.settings, `${f}: precisa de model_type e settings`);
