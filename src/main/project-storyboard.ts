@@ -51,7 +51,7 @@ export function buildStoryboard(p: Pick<Project, 'id' | 'name' | 'scenes' | 'tar
     const from = t; t += d;
     const mid = from + d / 2;
     const act = acts.find((a) => mid >= a.from && mid <= a.to)?.name;
-    const image = s.firstFrame ?? s.sketch ?? Object.values(s.artifacts ?? {}).flat().find((f) => IMG.test(f));
+    const image = s.firstFrame ?? s.sketch ?? Object.values(s.artifacts ?? {}).flat().find((f) => IMG.test(f)) ?? s.candidates?.frame?.[0] ?? s.candidates?.sketch?.[0];
     return { id: s.id, index: s.index, title: s.title, from: Math.round(from * 10) / 10, to: Math.round(t * 10) / 10, durationSec: d, act,
       narration: s.narration, visual: s.visualIntent, camera: s.camera, kind: s.kind, sfx: s.sfx?.length ? s.sfx : undefined, image,
       candidates: s.candidates, firstFrame: s.firstFrame, sketch: s.sketch, speaker: s.speaker, emotion: s.emotion,
@@ -155,4 +155,54 @@ export function applyPicks(scenes: Scene[], picks: StoryboardPicks): number {
     if (sketch !== sc.sketch) { if (sketch) sc.sketch = sketch; else delete sc.sketch; n++; }
   }
   return n;
+}
+
+/* ───────── storyboard em IMAGEM (out/storyboard.png) ───────── */
+
+/**
+ * Página do storyboard para virar PNG: largura fixa, grade pela proporção do vídeo, imagens com caminho relativo
+ * (a página fica em out/ e é aberta pelo protocolo das cenas). Mostra o quadro escolhido (ou a 1ª opção), o número de
+ * opções, tempo, ato, quem fala, a fala, a emoção e a câmera. Devolve o HTML e o tamanho da foto.
+ */
+export function storyboardImageHtml(b: Storyboard, aspect: string, projectDir: string): { html: string; w: number; h: number } {
+  const [aw, ah] = aspect.split(':').map(Number);
+  const ratio = (ah || 9) / (aw || 16);
+  const n = Math.max(1, b.panels.length);
+  const cols = Math.min(ratio > 1 ? 4 : 3, n);
+  const W = 1800, pad = 28, gap = 22, head = 96, textH = 120;
+  const cw = Math.floor((W - pad * 2 - gap * (cols - 1)) / cols);
+  const ih = Math.round(cw * ratio);
+  const rows = Math.ceil(n / cols);
+  const H = head + pad + rows * (ih + textH + gap);
+  const outDir = path.join(projectDir, 'out');
+  const rel = (f?: string) => {
+    if (!f) return '';
+    const abs = path.isAbsolute(f) ? f : path.join(projectDir, f);
+    return path.relative(outDir, abs).split(path.sep).map(encodeURIComponent).join('/');
+  };
+  const cards = b.panels.map((x) => {
+    const pick = x.firstFrame ?? x.sketch ?? x.candidates?.frame?.[0] ?? x.candidates?.sketch?.[0] ?? x.image;
+    const opts = (x.candidates?.frame?.length ?? 0) + (x.candidates?.sketch?.length ?? 0);
+    const img = pick ? `<img src="${rel(pick)}" alt="">` : `<div class="ph">${esc(x.kind)}</div>`;
+    const badge = x.firstFrame || x.sketch ? '<span class="ok">✓ escolhido</span>' : opts > 1 ? `<span class="op">${opts} opções</span>` : '';
+    return `<article><div class="frame">${img}<span class="n">${x.index}</span><span class="t">${mmss(x.from)}–${mmss(x.to)}</span>${badge}</div>
+<h3>${esc(x.title)}</h3><p class="nar">${x.speaker ? `<b>${esc(x.speaker)}:</b> ` : ''}“${esc(x.narration)}”</p>
+<p class="meta">${[x.emotion && `🎭 ${esc(x.emotion)}`, x.act && esc(x.act), x.camera && `🎥 ${esc(x.camera)}`].filter(Boolean).join(' · ')}</p></article>`;
+  }).join('\n');
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(b.name)}</title><style>
+html,body{margin:0;background:#111116;color:#ececf1;font:16px/1.35 system-ui,'Segoe UI',sans-serif;width:${W}px}
+header{height:${head}px;padding:22px ${pad}px 0;box-sizing:border-box}h1{margin:0;font-size:30px}.m{color:#9a9aa6;margin-top:4px}
+main{display:grid;grid-template-columns:repeat(${cols},${cw}px);gap:${gap}px;padding:0 ${pad}px ${pad}px}
+article{height:${ih + textH}px;overflow:hidden}
+.frame{position:relative;width:${cw}px;height:${ih}px;border-radius:10px;overflow:hidden;background:#000;display:grid;place-items:center}
+.frame img{width:100%;height:100%;object-fit:cover}.ph{color:#666;text-transform:uppercase;letter-spacing:2px}
+.n{position:absolute;left:8px;top:8px;background:#7c5cff;color:#fff;border-radius:8px;padding:2px 10px;font-weight:700;font-size:20px}
+.t{position:absolute;right:8px;bottom:8px;background:#000b;color:#fff;border-radius:6px;padding:2px 8px;font-size:14px}
+.ok,.op{position:absolute;left:8px;bottom:8px;border-radius:6px;padding:2px 8px;font-size:13px;color:#fff}.ok{background:#16a34a}.op{background:#000b}
+h3{margin:10px 0 4px;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nar{margin:0;font-size:16px;max-height:4.1em;overflow:hidden}.meta{margin:6px 0 0;color:#9a9aa6;font-size:14px;max-height:2.8em;overflow:hidden}
+</style></head><body><header><h1>🎞 ${esc(b.name)}</h1><div class="m">${b.panels.length} cenas · ${mmss(b.totalSec)} · ${esc(aspect)}</div></header><main>
+${cards}
+</main></body></html>`;
+  return { html, w: W, h: H };
 }

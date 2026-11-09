@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld('forge', {
   storyEpisodeLink: (id: string, n: number, projectId: string) => call('story:episode-link', id, n, projectId),
   styleExtract: (o?: unknown) => call('style:extract', o),
   storyboardPick: (id: string, sceneId: string, kind: string, rel: string | null) => call('project:storyboard-pick', id, sceneId, kind, rel),
+  storyboardPng: (id: string) => call('project:storyboard-png', id),
   charactersSave: (c: unknown) => call('characters:save', c),
   charactersDelete: (id: string) => call('characters:delete', id),
   charactersAddImage: (id: string, role: string) => call('characters:add-image', id, role),

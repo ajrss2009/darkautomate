@@ -19,7 +19,7 @@ import { CHANNEL_TYPES, THUMB_STYLES, channelType, parseChannelLink, recreateNot
 import { analyticsLine, analyzeChannel } from './channel-analytics';
 import { channelProductsContext, enginesFromRoute, estimateCost, mergeChannelProducts, normalizeProducts, patchChannelProducts, productsPrompt, projectCost, type CostInput, type CostRates } from './clone-business';
 import { dnaSceneSec } from './channel-dna';
-import { applyPicks, planHash, readStoryboard, writePick, writeStoryboard } from './project-storyboard';
+import { applyPicks, planHash, readStoryboard, storyboardImageHtml, writePick, writeStoryboard } from './project-storyboard';
 import { deleteStory, episodeProject, getStory, importStory, listStories, saveStory } from './story-import';
 import { measurePalette, normalizeStyleRef, styleRequest } from './style-ref';
 import { describeImage } from './vision';
@@ -578,6 +578,20 @@ const DEADLINE_GRACE_MIN = 10;
 /** execuções pausadas esperando o usuário (storyboard): projeto → resposta */
 const approvals = new Map<string, (ok: boolean) => void>();
 
+/** Storyboard em imagem: out/storyboard.png (página de largura fixa fotografada sem janela). */
+async function storyboardPng(id: string): Promise<string> {
+  const dir = projectDirOf(settings, id);
+  const p = ops.readProject(settings, id);
+  const board = readStoryboard(dir) ?? writeStoryboard(p, dir).board;
+  const { html, w, h } = storyboardImageHtml(board, p.aspect ?? '16:9', dir);
+  const page = path.join(dir, 'out', 'storyboard-print.html');
+  fs.mkdirSync(path.dirname(page), { recursive: true });
+  fs.writeFileSync(page, html);
+  const out = path.join(dir, 'out', 'storyboard.png');
+  await snapHtml(page, out, { w, h });
+  return out;
+}
+
 async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok: boolean; error?: string }> {
   if (running.has(id)) return { ok: false, error: 'projeto já em execução' };
   const project: Project = ops.readProject(settings, id);
@@ -653,6 +667,8 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
       ac.signal.addEventListener('abort', onAbort, { once: true });
       approvals.set(id, done);
       emitEvent({ t: 'log', line: `⏸ aguardando sua aprovação (${stepId}) — abra o storyboard e aprove para continuar` });
+      /* storyboard também em IMAGEM (out/storyboard.png) para ver/compartilhar enquanto espera */
+      void storyboardPng(id).then((f) => emitEvent({ t: 'log', line: `🖼 storyboard em imagem: ${f}` })).catch((e) => emitEvent({ t: 'log', line: `storyboard em imagem indisponível (${(e as Error).message.slice(0, 120)})` }));
       /* sem janela (--run-project): a resposta vem por arquivo — out/approve.json com {"ok": true|false} */
       if (headless) {
         const f = path.join(projectDirOf(settings, id), 'out', 'approve.json');
@@ -1222,11 +1238,12 @@ function registerIpc() {
     ops.saveProjectFile(settings, p, { scenes: false });
     return { live: false, approvedHash: p.storyboard.approvedHash };
   });
+  h('project:storyboard-png', async (id: string) => { const f = await storyboardPng(id); return f; });
   h('project:storyboard', (id: string, regenerate?: boolean) => {
     const dir = projectDirOf(settings, id);
     const p = ops.readProject(settings, id);
     const sb = regenerate || !readStoryboard(dir) ? writeStoryboard(p, dir).board : readStoryboard(dir)!;
-    return { board: sb, html: path.join(dir, 'out', 'storyboard.html'), approved: !!p.storyboard?.approvedHash && p.storyboard.approvedHash === planHash(p.scenes), waiting: approvals.has(id), options: p.storyboard };
+    return { board: sb, dir, html: path.join(dir, 'out', 'storyboard.html'), approved: !!p.storyboard?.approvedHash && p.storyboard.approvedHash === planHash(p.scenes), waiting: approvals.has(id), options: p.storyboard };
   });
   h('project:storyboard-set', (id: string, o: { enabled?: boolean; approval?: boolean }) => {
     const p = ops.readProject(settings, id);

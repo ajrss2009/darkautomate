@@ -84,6 +84,7 @@ interface Forge {
   styleExtract(o?: unknown): Promise<unknown>;
   storyEpisodeLink(id: string, n: number, projectId: string): Promise<unknown>;
   storyboardPick(id: string, sceneId: string, kind: 'frame' | 'sketch', rel: string | null): Promise<unknown>;
+  storyboardPng(id: string): Promise<string>;
   channelsGet(): Promise<unknown>;
   /* storyboard do projeto (plano de cenas) e aprovação da execução pausada */
   projectStoryboard(id: string, regenerate?: boolean): Promise<unknown>;
@@ -706,13 +707,14 @@ interface BoardPanel { id: string; index: number; title: string; from: number; t
 let storyboardOpen = '';
 async function openStoryboardModal(projectId: string, waiting = false) {
   if (storyboardOpen === projectId) return;
-  const r = await guard(() => (forge.projectStoryboard(projectId) as Promise<{ board: { name: string; hash: string; totalSec: number; panels: BoardPanel[] }; html: string; approved: boolean; waiting: boolean; options?: { approval?: boolean } }>));
+  const r = await guard(() => (forge.projectStoryboard(projectId) as Promise<{ board: { name: string; hash: string; totalSec: number; panels: BoardPanel[] }; html: string; dir?: string; approved: boolean; waiting: boolean; options?: { approval?: boolean } }>));
   if (!r) return;
   storyboardOpen = projectId;
   const close = () => { storyboardOpen = ''; bg.remove(); };
   const live = waiting || r.waiting;
   const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-  const dir = (await guard(() => forge.getProject(projectId)) as { dir?: string } | undefined)?.dir;
+  /* pasta do projeto: os quadros/opções do storyboard são caminhos relativos a ela */
+  const dir = r.dir ?? lastList.find((x) => x.id === projectId)?.dir;
   const abs = (f: string) => forge.mediaUrl(/^[a-z]:|^\//i.test(f) || !dir ? f : `${dir}/${f}`);
   /* opções geradas (esboço em traço / quadro inicial): clique escolhe; clicar de novo tira a escolha */
   const options = (p: BoardPanel, kind: 'sketch' | 'frame', mainImg: HTMLImageElement | null) => {
@@ -750,6 +752,7 @@ async function openStoryboardModal(projectId: string, waiting = false) {
     grid,
     h('div', { class: 'row actions' },
       h('button', { onclick: () => void guard(() => forge.openPath(r.html)) }, '🌐 Abrir no navegador (imprimir/PDF)'),
+      h('button', { title: 'Salva o storyboard como uma imagem PNG (out/storyboard.png) e abre', onclick: () => void guard(async () => { const f = await forge.storyboardPng(projectId); toast('Storyboard salvo em imagem'); await forge.openPath(f); }) }, '🖼 Salvar como imagem'),
       h('button', { onclick: () => void guard(async () => { close(); await forge.projectStoryboard(projectId, true); void openStoryboardModal(projectId, live); }) }, '↻ Atualizar'),
       h('span', { class: 'sp' }),
       live || !r.approved ? h('button', { class: 'tbtn regen', onclick: () => void answer(false) }, live ? '✗ Reprovar (parar)' : '✗ Fechar sem aprovar') : null,
