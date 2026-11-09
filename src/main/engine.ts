@@ -273,7 +273,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   const h3VideoRoute = () => (planRef?.ordered ?? route.steps).some((st) => st.enabled && st.kind === 'video' && isH3Video(st.bindings[0]));
   /* fala no vídeo: opção do projeto com H3 na rota, ou o 1º executor de vídeo é um H3 com voz clonada */
   /* só no modo CLONAGEM a voz sai do vídeo (o TTS fica de reserva); na DUBLAGEM (padrão) o TTS roda e o H3 dubla os lábios */
-  const speechInVideo = () => h3Mode(project) === 'clone' &&
+  const speechInVideo = () => h3Mode(project) !== 'dub' &&
     ((!!project.h3Speech && h3VideoRoute()) || (planRef?.ordered ?? route.steps).some((st) => st.enabled && st.kind === 'video' && isH3Voice(st.bindings[0])));
   const sceneHasAudio = (sc: Scene) => { try { return fs.readdirSync(path.join(sceneDirOf(projectDir, sc), 'audio')).some((f) => f.startsWith('narration.') && !f.includes('.trim')); } catch { return false; } };
   const plannedScenes = () => project.scenes.filter((s) => !opts.only?.sceneIds || opts.only.sceneIds.includes(s.id));

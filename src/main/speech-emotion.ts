@@ -121,7 +121,13 @@ export function addH3Speech(prompt: string, line: string, audioRef?: string): st
 }
 
 /** Modo da fala do H3: dublagem (padrão) ou clonagem. */
-export const h3Mode = (p: Pick<Project, 'h3SpeechMode'>): 'dub' | 'clone' => p.h3SpeechMode === 'clone' ? 'clone' : 'dub';
+export type H3SpeechMode = 'dub' | 'clone' | 'internal';
+/** dub = TTS + lábios (padrão); clone = voz gerada pelo H3 a partir da voz de referência; internal = voz gerada pelo H3 sem referência (áudio interno). */
+export const h3Mode = (p: Pick<Project, 'h3SpeechMode'>): H3SpeechMode => p.h3SpeechMode === 'clone' || p.h3SpeechMode === 'internal' ? p.h3SpeechMode : 'dub';
+/** O MiniMax H3 (Wan2GP) recusa referência de áudio com menos de 2 s. */
+export const H3_MIN_REF_SEC = 2;
+/** Quanto silêncio somar no fim para a referência chegar ao mínimo (com folga). Função pura. */
+export const refPadSec = (durationSec: number, min = H3_MIN_REF_SEC) => (durationSec > 0 && durationSec < min + 0.05 ? Math.round((min + 0.2 - durationSec) * 100) / 100 : 0);
 
 /**
  * Dublagem: o áudio da fala (TTS com a voz clonada) entra como <Audio 1> COPIADO 1:1 na trilha final do vídeo

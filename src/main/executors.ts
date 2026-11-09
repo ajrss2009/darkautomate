@@ -34,7 +34,7 @@ import { contractProblem, smallModelBudget } from './contract';
 import { voiceAccepted } from '../shared/voices';
 import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt } from './cast';
-import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Mode, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
+import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Mode, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
 import { styleNegative } from './style-ref';
 import { inScene } from './characters';
 import { projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
@@ -767,8 +767,10 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
   /* dublagem (padrão): a narração TTS da cena (voz clonada) é o <Audio 1> copiado na trilha; clonagem: a voz de referência */
   const dubAudio = c.step.kind === 'video' && h3Mode(c.project) === 'dub' && c.sceneDir ? sceneAudio(c.sceneDir) : undefined;
   if (c.step.kind === 'video' && placeholders(wf).includes('ref_audio')) {
-    const v = dubAudio ?? (c.scene?.speaker ? castFor(c.project, c.scene.speaker)?.refAudio : c.project.narrationVoice?.refAudio);
-    if (v && fs.existsSync(v) && h3SpeechScene(c.project, c.scene, b)) {
+    /* áudio interno: o H3 gera a voz sem referência */
+    const v0 = h3Mode(c.project) === 'internal' ? undefined : dubAudio ?? (c.scene?.speaker ? castFor(c.project, c.scene.speaker)?.refAudio : c.project.narrationVoice?.refAudio);
+    const v = v0 && fs.existsSync(v0) ? await h3RefAudio(c, v0) : undefined;
+    if (v && h3SpeechScene(c.project, c.scene, b)) {
       videoVoice = v;
       vars['ref_audio'] = await client.upload(v);
       c.log(dubAudio ? `MiniMax H3: dublagem — a narração da cena (${path.basename(v)}) é o <Audio 1>; o H3 sincroniza os lábios` : `MiniMax H3: voz clonada ${path.basename(v)} como <Audio 1>${c.scene?.speaker ? ` (${c.scene.speaker})` : ' (narrador)'}`);
@@ -814,7 +816,7 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
   }
   /* fala do MiniMax H3: a fala (com emoção) entra no próprio vídeo — "(S1) says: <d>[Idioma] …</d>" */
   /* na dublagem sem áudio para o nó (workflow sem LoadAudio ou cena sem narração), o vídeo sai sem fala e a narração TTS fica */
-  const h3Talk = c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b) && (h3Mode(c.project) === 'clone' || !!(dubAudio && videoVoice));
+  const h3Talk = c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b) && (h3Mode(c.project) !== 'dub' || !!(dubAudio && videoVoice));
   if (h3Talk) {
     const node = Object.values(graph as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>).find((n) => /^MiniMaxH3/i.test(n?.class_type ?? '') && typeof n?.inputs?.['prompt'] === 'string');
     const idx = c.scene!.speaker ? castNames.findIndex((n) => n.toLowerCase() === c.scene!.speaker!.toLowerCase()) + 1 : 0;
@@ -901,12 +903,14 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   /* dublagem (padrão): a narração TTS da cena vira o <Audio 1> copiado 1:1 e o H3 só sincroniza os lábios (modelo Ref2VA);
      sem como passar o áudio, o vídeo sai sem fala e a narração TTS fica. Clonagem: o H3 gera a voz a partir da referência. */
   const dubAudio = c.step.kind === 'video' && h3Mode(c.project) === 'dub' && c.sceneDir && /ref2va/i.test(tpl.model_type) ? sceneAudio(c.sceneDir) : undefined;
-  const h3Talk = c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b) && (h3Mode(c.project) === 'clone' || !!dubAudio);
+  const h3Talk = c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b) && (h3Mode(c.project) !== 'dub' || !!dubAudio);
   if (h3Talk && typeof settings['prompt'] === 'string') {
     const names = String(vars['ref_prompt'] ?? '') ? charactersInScene(c.projectDir, c.scene!, 3).map((ch) => ch.name) : [];
     const idx = c.scene!.speaker ? names.findIndex((n) => n.toLowerCase() === c.scene!.speaker!.toLowerCase()) + 1 : 0;
-    const voice = dubAudio ?? castFor(c.project, c.scene!.speaker)?.refAudio ?? (c.scene!.speaker ? undefined : c.project.narrationVoice?.refAudio);
-    const useAudio = !!voice && fs.existsSync(voice) && /ref2va/i.test(tpl.model_type);
+    const voice0 = h3Mode(c.project) === 'internal' ? undefined : dubAudio ?? castFor(c.project, c.scene!.speaker)?.refAudio ?? (c.scene!.speaker ? undefined : c.project.narrationVoice?.refAudio);
+    const useAudio = !!voice0 && fs.existsSync(voice0) && /ref2va/i.test(tpl.model_type);
+    /* o H3 recusa referência com menos de 2 s: completa com silêncio */
+    const voice = useAudio ? await h3RefAudio(c, voice0!) : voice0;
     settings['prompt'] = addH3Speech(settings['prompt'], sceneSpeech(c.project, c.scene!, idx || undefined), useAudio ? (dubAudio ? h3DubRef(idx || undefined, c.scene!.speaker) : h3AudioRef(idx || undefined, c.scene!.speaker)) : undefined);
     /* prompt exato enviado ao H3 (diagnóstico: o que o modelo pode ter falado) */
     if (c.sceneDir) try { fs.mkdirSync(path.join(c.sceneDir, 'clips'), { recursive: true }); fs.writeFileSync(path.join(c.sceneDir, 'clips', 'h3-prompt.txt'), String(settings['prompt'])); } catch { /* só diagnóstico */ }
@@ -915,7 +919,7 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
       if (!flags.includes('A')) settings['audio_prompt_type'] = `A${flags}`;
       settings['audio_guide'] = voice;
     }
-    c.log(dubAudio ? `MiniMax H3: dublagem — lábios sincronizados com a narração da cena (${path.basename(dubAudio)})` : `MiniMax H3: fala no vídeo${c.scene!.emotion ? ` (emoção: ${c.scene!.emotion})` : ''}${useAudio ? ` com a voz clonada ${path.basename(voice!)}` : ''}`);
+    c.log(dubAudio ? `MiniMax H3: dublagem — lábios sincronizados com a narração da cena (${path.basename(dubAudio)})` : `MiniMax H3: fala no vídeo${c.scene!.emotion ? ` (emoção: ${c.scene!.emotion})` : ''}${useAudio ? ` com a voz clonada ${path.basename(voice!)}` : h3Mode(c.project) === 'internal' ? ' (áudio interno do H3, sem referência)' : ''}`);
   }
   const dest0 = primaryFile(c.step.kind, c);
   const client = Wan2gpClient.get(cfg, path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'wan2gp_bridge.py'));
@@ -931,6 +935,22 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   if (c.step.kind === 'sfx') return { files: [await sceneSfxWav(c, dest)] };
   return { files: [dest] };
 };
+
+/**
+ * Referência de áudio para o MiniMax H3: o modelo recusa áudio com menos de 2 s ("Audio Reference must be at least 2 seconds").
+ * Fala curta (ex.: "O que você disse?") ganha silêncio no fim — na dublagem o áudio é copiado 1:1, então a fala fica igual.
+ */
+async function h3RefAudio(c: ExecContext, file: string): Promise<string> {
+  let dur = 0;
+  try { dur = await ff.duration(c.settings.ffprobe, file); } catch { return file; }
+  const pad = refPadSec(dur);
+  if (!pad) return file;
+  const out = path.join(c.sceneDir ?? path.dirname(file), 'audio', `h3-ref-${path.basename(file).replace(/\.[^.]+$/, '')}.wav`);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', file, '-af', `apad=pad_dur=${pad.toFixed(2)}`, '-ac', '2', '-ar', '44100', out], c.signal);
+  c.log(`MiniMax H3: áudio de referência com ${dur.toFixed(2)} s — completado com ${pad.toFixed(2)} s de silêncio (mínimo de 2 s do H3)`);
+  return out;
+}
 
 /**
  * Fala gerada pelo MiniMax H3 no vídeo: o áudio do clipe vira a narração da cena (scenes/<id>/audio/narration.wav),

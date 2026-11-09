@@ -178,7 +178,10 @@ const settingsAt = (ws: string) => ({ workspace: ws } as unknown as Settings);
 
   await t('dublagem (padrão) e clonagem: modo, áudio copiado 1:1 e duração pela fala', () => {
     const { estimateSpeechSec, h3DubRef, h3Mode } = require('../main/speech-emotion') as typeof import('../main/speech-emotion');
-    assert.equal(h3Mode({}), 'dub'); assert.equal(h3Mode({ h3SpeechMode: 'clone' }), 'clone');
+    assert.equal(h3Mode({}), 'dub'); assert.equal(h3Mode({ h3SpeechMode: 'clone' }), 'clone'); assert.equal(h3Mode({ h3SpeechMode: 'internal' }), 'internal');
+    const { refPadSec } = require('../main/speech-emotion') as typeof import('../main/speech-emotion');
+    assert.equal(refPadSec(1.59), 0.61, 'fala de 1,59 s (o caso do Wan2GP) ganha silêncio até 2,2 s');
+    assert.equal(refPadSec(2.5), 0); assert.equal(refPadSec(0), 0);
     assert.match(h3DubRef(2, 'Ji'), /^<Audio 1> is the complete spoken line of <Subject 2> \(S1\); <Audio 1>: fully_copy - it is reused 1:1 as the target video's complete final audio track/);
     assert.equal(estimateSpeechSec('O que você disse?'), 2.6, 'fala curta: cena curta (não sobra clipe para voz inventada)');
     assert.ok(estimateSpeechSec('Seo-yeon... Essa carta nunca foi escrita para você.') > 3.5);

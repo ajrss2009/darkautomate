@@ -31,4 +31,8 @@ exports.default = async function afterPack(ctx) {
   rs.outputResource(exeObj);
   fs.writeFileSync(exe, Buffer.from(exeObj.generate()));
   console.log(`after-pack: ícone e nome gravados em ${path.basename(exe)}`);
+  /* o Explorer pode ter guardado o ícone do Electron do .exe recém-copiado (antes desta edição): pede para ele reler */
+  if (process.platform === 'win32') {
+    try { require('node:child_process').spawnSync('ie4uinit.exe', ['-show'], { windowsHide: true, timeout: 15000 }); } catch { /* só atualização visual */ }
+  }
 };

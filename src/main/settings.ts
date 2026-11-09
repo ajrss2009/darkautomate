@@ -158,7 +158,7 @@ export interface NewProjectInput {
   /** fala gerada pelo MiniMax H3 no próprio vídeo */
   h3Speech?: boolean;
   /** dublagem (TTS + lábios no H3, padrão) ou clonagem (voz gerada pelo H3) */
-  h3SpeechMode?: 'dub' | 'clone';
+  h3SpeechMode?: 'dub' | 'clone' | 'internal';
   /** várias skills com percentual (a 1ª é a principal e deve ser a skillId) */
   skillMix?: Array<{ skillId: string; pct: number }>;
   skillMixMode?: 'blocks' | 'interleave';
@@ -278,7 +278,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
     series: input.series?.storyId ? { ...input.series, title: String(input.series.title ?? '').slice(0, 120), episode: Math.max(1, Math.round(Number(input.series.episode) || 1)), total: Math.max(1, Math.round(Number(input.series.total) || 1)) } : undefined,
     styleRef: userStyleRef(input.styleRef),
     h3Speech: input.h3Speech ? true : undefined,
-    h3SpeechMode: input.h3SpeechMode === 'clone' ? 'clone' : undefined,
+    h3SpeechMode: input.h3SpeechMode === 'clone' || input.h3SpeechMode === 'internal' ? input.h3SpeechMode : undefined,
     maxProductionMin: input.maxProductionMin && input.maxProductionMin > 0 ? Math.round(input.maxProductionMin) : undefined,
     sceneConcurrency: input.sceneConcurrency && input.sceneConcurrency > 0 ? Math.min(8, Math.round(input.sceneConcurrency)) : undefined,
     agents: orch || workers.length ? JSON.parse(JSON.stringify({ orchestrator: orch, workers })) : undefined,

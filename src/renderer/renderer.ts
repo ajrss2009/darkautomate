@@ -871,7 +871,7 @@ async function renderNew() {
   storyApproveCb.addEventListener('change', paintSketch); sketchMode.addEventListener('change', paintSketch); paintSketch();
   const h3SpeechCb = h('input', { type: 'checkbox', id: 'np-h3-speech' }) as HTMLInputElement;
   const h3ModeSel = h('select', { id: 'np-h3-mode', title: 'Dublagem: a narração é gerada por TTS com a voz clonada (OmniVoice, Fish Audio…) e o H3 só sincroniza os lábios com ela — a cena dura o tempo da fala. Clonagem: o próprio H3 gera a voz a partir da voz de referência (a cena dura o tempo estimado da fala).' },
-    h('option', { value: 'dub' }, '🎙 dublagem (TTS + lábios)'), h('option', { value: 'clone' }, '🧬 clonagem (voz do H3)')) as HTMLSelectElement;
+    h('option', { value: 'dub' }, '🎙 dublagem (TTS + lábios)'), h('option', { value: 'clone' }, '🧬 clonagem (voz do H3 com referência)'), h('option', { value: 'internal' }, '🔊 áudio interno (voz do H3, sem referência)')) as HTMLSelectElement;
   h3ModeSel.disabled = true;
   h3SpeechCb.addEventListener('change', () => { h3ModeSel.disabled = !h3SpeechCb.checked; });
 
@@ -1289,7 +1289,7 @@ async function renderNew() {
       series: episode?.series as never,
       styleRef: styleRef?.stylePrompt?.trim() ? styleRef : undefined,
       h3Speech: h3SpeechCb.checked || undefined,
-      h3SpeechMode: h3SpeechCb.checked && h3ModeSel.value === 'clone' ? 'clone' as const : undefined,
+      h3SpeechMode: h3SpeechCb.checked && (h3ModeSel.value === 'clone' || h3ModeSel.value === 'internal') ? h3ModeSel.value as 'clone' | 'internal' : undefined,
       skillMix: mixRows.length ? [{ skillId: skill.value, pct: Number(mainPct.value) || 50 }, ...mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 10 }))] : undefined,
       skillMixMode: mixRows.length ? mixMode.value as 'blocks' | 'interleave' : undefined,
       palette: palOn.checked ? { video: palVideo.value(), thumbnail: palThumb.value() } : undefined,
