@@ -1,5 +1,5 @@
 {
-  "_doc": "Wan2GP imagem->vídeo com MiniMax H3 FL2VA Pruned PDD 8 passos (instalado e completo): anima a imagem da cena (image_start, image_prompt_type S). Gera também áudio ambiente, que a montagem troca pela narração.",
+  "_doc": "Wan2GP imagem->vídeo com MiniMax H3 FL2VA Pruned PDD 8 passos (instalado e completo): anima a imagem da cena (image_start, image_prompt_type S). Gera também áudio ambiente, que a montagem troca pela narração. Codificador de texto: Qwen3-VL GGUF Q4_K_M (config gguf_q4_k_m, o qwen3vl-32B-MiniMax-H3-Q4_K_M.gguf já baixado).",
   "model_type": "minimax_h3_fl2va_pruned_pdd",
   "megapixels": 0.6,
   "multiple": 32,
@@ -11,7 +11,9 @@
     "seed": "{{seed}}",
     "image_prompt_type": "S",
     "image_start": "{{init_image}}",
-    "num_inference_steps": 8
+    "num_inference_steps": 8,
+    "config": "gguf_q4_k_m",
+    "multi_prompts_gen_type": "FG"
   },
   "label": "Wan2GP · MiniMax H3 imagem → vídeo (8 passos)",
   "capability": "video"

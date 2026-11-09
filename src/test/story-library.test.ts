@@ -148,17 +148,41 @@ const settingsAt = (ws: string) => ({ workspace: ws } as unknown as Settings);
     assert.equal(isH3Video({ type: 'wan2gp', template: 'wan2gp-tts-h3.json' } as never), false);
     assert.equal(isH3Video({ type: 'wan2gp', template: 'wan2gp-image-h3.json' } as never), false);
     const line = h3SpeechLine({ text: 'Eu volto amanhã', language: 'pt-BR', speaker: 'Ji-woo', subjectIndex: 1, emotion: 'triste' });
-    assert.match(line, /^<Subject 1> \(S1\) speaks in a sad, low and slightly trembling tone[\s\S]*<d>\[Portuguese\] Eu volto amanhã\.<\/d>$/);
+    assert.match(line, /^<Subject 1> \(S1\) speaks in a sad, low and slightly trembling tone[\s\S]*<d>\[Portuguese\] Eu volto amanhã\.<\/d> This is the only line; before and after it there is no speech at all/);
     const vo = h3SpeechLine({ text: 'Era uma vez', language: 'en-US' });
     assert.match(vo, /The narrator \(S1\) says in an off-screen voiceover[\s\S]*<d>\[English\] Era uma vez\.<\/d> while every on-screen character's lips remain completely closed\./);
     const base = castRefPrompt('a girl in a cafe', [{ name: 'Ji', look: 'x' }]);
     const out = addH3Speech(base, line, '<Audio 1> is the voice-timbre reference for <Subject 1> (S1).');
     assert.doesNotMatch(out, /No speech/);
     assert.match(out, /subject_definitions:\n\n<Audio 1> is the voice-timbre reference/);
-    assert.match(out, /detailed_description:\n\n[\s\S]*<d>\[Portuguese\] Eu volto amanhã\.<\/d>\n\noverall_soundscape:/);
-    assert.match(addH3Speech('plain prompt', 'X says'), /^plain prompt X says$/);
+    assert.match(out, /detailed_description:\n\n[\s\S]*<d>\[Portuguese\] Eu volto amanhã\.<\/d> This is the only line[^\n]*\n\noverall_soundscape:/);
+    assert.match(addH3Speech('plain prompt', 'X says'), /^plain prompt X says The ONLY spoken words[\s\S]*never be spoken\.$/);
+    assert.match(out, /overall_soundscape:\n\nThe ONLY spoken words/, 'regra "só o <d> é falado" na trilha do H3');
     const sp = sceneSpeech({ language: 'pt-BR', cast: [{ speaker: 'Min', description: 'alto — voz: grave e calma' }] }, { narration: 'Oi', speaker: 'Min', emotion: 'carinho' });
     assert.match(sp, /Min, with a grave e calma voice \(S1\) speaks in a tender/);
+  });
+
+  await t('janela da fala: acha a fala esperada no meio da fala inventada pelo H3', () => {
+    const { speechWindow } = require('../main/speech-emotion') as typeof import('../main/speech-emotion');
+    const W = (s: string, t0 = 0, step = 0.4) => s.split(' ').map((w, i) => ({ w, start: t0 + i * step, end: t0 + i * step + 0.35 }));
+    const after = W('O que você disse? Espeviu a milhãocei andrei. Isso era sua mostra');
+    const a = speechWindow(after, 'O que você disse?')!;
+    assert.equal(a.start, 0); assert.ok(Math.abs(a.end - 1.55) < 1e-6, String(a.end)); assert.equal(a.matched, 4);
+    const before = W('sussurro tremo paralisado quase sem ar. O que você disse?', 0, 0.5);
+    const b = speechWindow(before, 'O que você disse?')!;
+    assert.equal(b.start, 3); assert.equal(b.matched, 4);
+    const misheard = W('Seu Ian, essa carta nunca foi escrita para você.', 0.6);
+    assert.ok(speechWindow(misheard, 'Seo-yeon... Essa carta nunca foi escrita para você.'), 'nome mal transcrito ainda casa');
+    assert.equal(speechWindow(W('nada a ver com isso aqui'), 'O que você disse?'), undefined);
+  });
+
+  await t('dublagem (padrão) e clonagem: modo, áudio copiado 1:1 e duração pela fala', () => {
+    const { estimateSpeechSec, h3DubRef, h3Mode } = require('../main/speech-emotion') as typeof import('../main/speech-emotion');
+    assert.equal(h3Mode({}), 'dub'); assert.equal(h3Mode({ h3SpeechMode: 'clone' }), 'clone');
+    assert.match(h3DubRef(2, 'Ji'), /^<Audio 1> is the complete spoken line of <Subject 2> \(S1\); <Audio 1>: fully_copy - it is reused 1:1 as the target video's complete final audio track/);
+    assert.equal(estimateSpeechSec('O que você disse?'), 2.6, 'fala curta: cena curta (não sobra clipe para voz inventada)');
+    assert.ok(estimateSpeechSec('Seo-yeon... Essa carta nunca foi escrita para você.') > 3.5);
+    assert.equal(estimateSpeechSec(Array(80).fill('palavra').join(' ')), 15, 'limite do H3');
   });
 
   await t('ref2video com voz clonada: workflow ComfyUI, template Wan2GP e queda sem voz', () => {

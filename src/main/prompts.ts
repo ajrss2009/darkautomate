@@ -6,7 +6,7 @@ import { identityPrompt, paletteEnglish, projectPalettePrompt } from './channel-
 import { charactersPrompt } from './characters';
 import { mixPrompt } from './skill-mix';
 import { productCtaPrompt } from './clone-business';
-import { emotionInstruction } from './speech-emotion';
+import { emotionInstruction, h3SpeechScene, isH3Video } from './speech-emotion';
 import { seriesBlock } from './story-import';
 import { styleBlock, styleVisual } from './style-ref';
 import type { ExecContext } from './engine';
@@ -289,7 +289,10 @@ export function visualPrompt(c: ExecContext): string {
   if (c.step?.kind === 'video' && isMusicClip(c.project)) return loopVideoPrompt(c);
   const pal = paletteEnglish(c.project.palette?.video);
   /* cenários/objetos da biblioteca citados na cena: mesma aparência sempre */
-  const lib = (c.project.characters ?? []).some((x) => x.entity) ? charactersPrompt({ characters: (c.project.characters ?? []).filter((x) => x.entity) }, 'image', s) : '';
+  /* com a fala gerada pelo MiniMax H3, o vídeo não leva essas descrições (vêm em português da Biblioteca e o H3 FALAVA
+     o texto); o cenário já está na imagem da cena */
+  const h3Talk = c.step?.kind === 'video' && isH3Video(c.binding) && h3SpeechScene(c.project, s, c.binding);
+  const lib = !h3Talk && (c.project.characters ?? []).some((x) => x.entity) ? charactersPrompt({ characters: (c.project.characters ?? []).filter((x) => x.entity) }, 'image', s) : '';
   return [s?.visualIntent ?? c.project.idea, s?.notes, characterLock(c.projectDir, s?.visualIntent ?? ''), lib, styleVisual(c.project), c.project.videoStyle, pal && `color palette: ${pal}`,
     c.project.styleRef ? '' : vt?.stylePrompt, s?.camera ? `camera: ${s.camera}` : '']
     .filter(Boolean).join('. ');
@@ -1001,7 +1004,7 @@ export function buildPromptMarked(c: ExecContext): string {
         `OBRIGATÓRIO: TODA cena dos tipos stock, mixed, image e video deve ter "searchTerms" com 2–4 palavras em INGLÊS descrevendo exatamente a imagem que combina com o que está sendo narrado naquele trecho. ` +
         `Se o trecho é de ÉPOCA/histórico, ponha a década e "archival" nos termos (ex.: "1930s factory workers archival", "1960s TV studio vintage"); se é espaço, termos como "NASA astronaut spacewalk" — os bancos são consultados por tema (antigo → Internet Archive primeiro; espaço → NASA; museu/natureza → Smithsonian). ` +
         `${mixed ? `Use SOMENTE e de forma equilibrada os tipos ${mixKinds(p)}. ` : ''}${availableKinds}` +
-        (!isLyricVideo(p) && !isMusicClip(p) ? ` EMOÇÃO DA FALA (a voz segue): em toda cena com narração/fala ponha "emotion" = UM destes rótulos: neutro, alegre, triste, raiva, medo, surpresa, carinho, tenso, sussurro, empolgado, ironico, cansado, choro, decidido — e "delivery" = como dizer em até 12 palavras (ritmo, intensidade, pausas; ex.: "devagar, quase sem voz, pausa antes do nome"). Varie conforme a cena pede; narração informativa costuma ser neutro/empolgado.${p.h3Speech ? ' A fala é gerada pelo MiniMax H3 junto com o vídeo: cada cena com fala até 15 s e a fala cabendo na duração.' : ''} ` : '') +
+        (!isLyricVideo(p) && !isMusicClip(p) ? ` EMOÇÃO DA FALA (a voz segue): em toda cena com narração/fala ponha "emotion" = UM destes rótulos: neutro, alegre, triste, raiva, medo, surpresa, carinho, tenso, sussurro, empolgado, ironico, cansado, choro, decidido — e "delivery" = como dizer em até 12 palavras (ritmo, intensidade, pausas; ex.: "devagar, quase sem voz, pausa antes do nome"). Varie conforme a cena pede; narração informativa costuma ser neutro/empolgado.${p.h3Speech ? ' A fala é gerada pelo MiniMax H3 junto com o vídeo: cada cena com fala até 15 s e a fala cabendo na duração; escreva "visualIntent" e "videoPrompt" em INGLÊS (o H3 pode FALAR qualquer texto em outro idioma que esteja fora da fala) e "delivery" curto.' : ''} ` : '') +
         (multi ? ` DIÁLOGO: cada cena tem UMA fala; "speaker" = nome do personagem que fala (o mesmo nome em todas as falas dele${p.cast?.length ? `; elenco: ${p.cast.map((m) => m.speaker).join(', ')}` : ''}); "narration" = só a fala, sem o nome. ` : '') +
         (timing ? ` LYRIC VIDEO: tempos dos versos da canção (out/lyrics-timing.json):\n${timing}\nCrie UMA cena "code" por bloco da letra, na ordem; "narration" = versos do bloco separados por " / "; "durationSec" = fim − início do bloco (a soma deve dar a duração da canção). ` : '') +
         (isMusicClip(p) ? (clip.perTrack

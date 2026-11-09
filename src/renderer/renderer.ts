@@ -867,6 +867,10 @@ async function renderNew() {
   storyCb.addEventListener('change', () => { storyApproveCb.disabled = !storyCb.checked; paintSketch(); });
   storyApproveCb.addEventListener('change', paintSketch); sketchMode.addEventListener('change', paintSketch); paintSketch();
   const h3SpeechCb = h('input', { type: 'checkbox', id: 'np-h3-speech' }) as HTMLInputElement;
+  const h3ModeSel = h('select', { id: 'np-h3-mode', title: 'Dublagem: a narração é gerada por TTS com a voz clonada (OmniVoice, Fish Audio…) e o H3 só sincroniza os lábios com ela — a cena dura o tempo da fala. Clonagem: o próprio H3 gera a voz a partir da voz de referência (a cena dura o tempo estimado da fala).' },
+    h('option', { value: 'dub' }, '🎙 dublagem (TTS + lábios)'), h('option', { value: 'clone' }, '🧬 clonagem (voz do H3)')) as HTMLSelectElement;
+  h3ModeSel.disabled = true;
+  h3SpeechCb.addEventListener('change', () => { h3ModeSel.disabled = !h3SpeechCb.checked; });
 
   /* ── 🖼 estilo a partir de uma imagem de referência ── */
   let styleRef: { file?: string; stylePrompt: string; avoid?: string; tags?: string[]; medium?: string; lighting?: string; palette?: string[]; by?: string; at?: string } | undefined;
@@ -1282,6 +1286,7 @@ async function renderNew() {
       series: episode?.series as never,
       styleRef: styleRef?.stylePrompt?.trim() ? styleRef : undefined,
       h3Speech: h3SpeechCb.checked || undefined,
+      h3SpeechMode: h3SpeechCb.checked && h3ModeSel.value === 'clone' ? 'clone' as const : undefined,
       skillMix: mixRows.length ? [{ skillId: skill.value, pct: Number(mainPct.value) || 50 }, ...mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 10 }))] : undefined,
       skillMixMode: mixRows.length ? mixMode.value as 'blocks' | 'interleave' : undefined,
       palette: palOn.checked ? { video: palVideo.value(), thumbnail: palThumb.value() } : undefined,
@@ -1374,7 +1379,7 @@ async function renderNew() {
         h('label', { class: 'inline chk', title: 'Depois do plano de cenas, monta o storyboard (um quadro por cena: tempo, ato, visual, câmera, narração e efeitos) em out/storyboard.html.' }, storyCb, '🎞 Criar storyboard'),
         h('label', { class: 'inline chk', title: 'A execução pausa depois do storyboard até você aprovar (a aprovação vale enquanto o plano não mudar). Desmarcado: só cria o storyboard e segue.' }, storyApproveCb, '⏸ Pedir minha aprovação antes de seguir'),
         h('label', { title: 'Com aprovação: esboços em traço e/ou quadros iniciais por cena para você escolher no storyboard; o quadro escolhido vira a imagem da cena' }, '🎨 Opções no storyboard', h('span', { class: 'row' }, sketchMode, sketchCount)),
-        h('label', { class: 'inline chk', title: 'Com MiniMax H3 na etapa de vídeo da rota: a fala (com a emoção marcada no plano) é gerada junto com o vídeo — voz, entonação e lábios sincronizados; com voz clonada no elenco, ela vira a referência de timbre. Se o vídeo vier sem fala, a narração por TTS entra de reserva.' }, h3SpeechCb, '🗣 Fala gerada pelo MiniMax H3 no vídeo'),
+        h('label', { class: 'inline chk', title: 'Com MiniMax H3 na etapa de vídeo da rota: a fala (com a emoção marcada no plano) é gerada junto com o vídeo — voz, entonação e lábios sincronizados; com voz clonada no elenco, ela vira a referência de timbre. Se o vídeo vier sem fala, a narração por TTS entra de reserva.' }, h3SpeechCb, '🗣 Fala com MiniMax H3 no vídeo'), h3ModeSel,
         h('label', { title: 'standard: normal · depth/polished: +1 tentativa · verified: + revisão com nota · ultra: revisão + refaz cenas fracas automaticamente' }, 'Qualidade', quality),
         h('label', { title: FREE_ENGINE_TIP }, '🎞 Vídeo livre', npFreeEngine),
         h('div', { class: 'grow', title: 'Se o provedor de uma etapa falhar (ex.: Ollama), estes assumem, na ordem dos cliques. Começa com as reservas padrão das Configurações → Provedores.' },

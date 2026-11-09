@@ -492,6 +492,9 @@ export interface Project {
   styleRef?: StyleRef;
   /** fala gerada pelo próprio vídeo do MiniMax H3 (voz, emoção e lábios no vídeo; a narração por TTS fica de reserva) */
   h3Speech?: boolean;
+  /** como o H3 faz a fala: 'dub' (padrão) = a narração TTS (voz clonada) vira o <Audio 1> e o H3 dubla os lábios;
+   *  'clone' = o H3 gera a voz a partir da voz de referência (a cena dura o tempo estimado da fala) */
+  h3SpeechMode?: 'dub' | 'clone';
   /** paleta escolhida no Novo projeto (vence a do canal e a do formato) */
   palette?: { video?: PaletteSpec; thumbnail?: PaletteSpec };
   /** voz da narração escolhida NESTE projeto (vence a da rota): arquivo da pasta voices (OmniVoice/Wan2GP) e/ou voz de API */

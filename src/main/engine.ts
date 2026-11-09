@@ -12,7 +12,7 @@ import { autoCast } from './cast';
 import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
 import { pluginsRoot } from './plugins';
 import { applyPicks, candidatePlan, needsApproval, readPicks, sketchIntent, writeStoryboard } from './project-storyboard';
-import { isH3Video, isH3Voice, normalizeEmotion } from './speech-emotion';
+import { estimateSpeechSec, h3Mode, isH3Video, isH3Voice, normalizeEmotion } from './speech-emotion';
 import { applySkillMix } from './skill-mix';
 
 export interface ExecContext {
@@ -272,7 +272,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   const ttsFallback = new Set<string>();
   const h3VideoRoute = () => (planRef?.ordered ?? route.steps).some((st) => st.enabled && st.kind === 'video' && isH3Video(st.bindings[0]));
   /* fala no vídeo: opção do projeto com H3 na rota, ou o 1º executor de vídeo é um H3 com voz clonada */
-  const speechInVideo = () => (!!project.h3Speech && h3VideoRoute()) || (planRef?.ordered ?? route.steps).some((st) => st.enabled && st.kind === 'video' && isH3Voice(st.bindings[0]));
+  /* só no modo CLONAGEM a voz sai do vídeo (o TTS fica de reserva); na DUBLAGEM (padrão) o TTS roda e o H3 dubla os lábios */
+  const speechInVideo = () => h3Mode(project) === 'clone' &&
+    ((!!project.h3Speech && h3VideoRoute()) || (planRef?.ordered ?? route.steps).some((st) => st.enabled && st.kind === 'video' && isH3Voice(st.bindings[0])));
   const sceneHasAudio = (sc: Scene) => { try { return fs.readdirSync(path.join(sceneDirOf(projectDir, sc), 'audio')).some((f) => f.startsWith('narration.') && !f.includes('.trim')); } catch { return false; } };
   const plannedScenes = () => project.scenes.filter((s) => !opts.only?.sceneIds || opts.only.sceneIds.includes(s.id));
 
@@ -383,7 +385,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
             emit({ t: 'step.queued', stepId: step.id, sceneId: scene.id });
             const r = await runUnit(step, scene);
             markDone(`${step.id} · ${scene.id}`);
-            if (r.ok) await afterStep(step, scene);
+            /* vídeo que falhou também passa: com a fala no vídeo, a cena precisa da narração por TTS */
+            if (r.ok || step.kind === 'video') await afterStep(step, scene);
             if (!r.ok && (step.onFail ?? 'stop') === 'stop' && !step.optional) {
               failure = `Cena ${scene.index} · etapa "${step.id}" falhou: ${r.reason}`;
             }
@@ -645,6 +648,14 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       emit({ t: 'step.skipped', stepId: step.id, sceneId, reason: 'fala gerada no vídeo pelo MiniMax H3 (a narração por TTS entra só se o vídeo vier sem fala)' });
       return { ok: true };
     }
+    /* clonagem pelo H3: a cena dura o tempo da fala (sem sobra o modelo não inventa voz no resto do clipe) */
+    if (step.kind === 'video' && scene && speechInVideo() && scene.narration?.trim() && !scene.manualDuration) {
+      const sec = estimateSpeechSec(scene.narration, (project.skill?.formatDna?.wpm ?? 156) / 60);
+      if (Math.abs((scene.durationSec ?? 0) - sec) > 0.3) {
+        emit({ t: 'log', stepId: step.id, sceneId, line: `🗣 duração da cena ajustada à fala: ${scene.durationSec ?? '?'} s → ${sec} s` });
+        scene.durationSec = sec;
+      }
+    }
     /* quadro inicial escolhido no storyboard: vira a imagem da cena (não gera de novo) */
     if (step.kind === 'image' && scene?.firstFrame) {
       const f = path.isAbsolute(scene.firstFrame) ? scene.firstFrame : path.join(projectDir, scene.firstFrame);
@@ -809,7 +820,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
           emit({ t: 'step.queued', stepId: st.id, sceneId: scene.id });
           const r = await limit.get(st.id)!(() => runUnit(st, scene));
           markDone(`${st.id} · ${scene.id}`);
-          if (r.ok) await afterStep(st, scene);
+          if (r.ok || st.kind === 'video') await afterStep(st, scene);
+          if (r.ok) { /* segue */ }
           else if ((st.onFail ?? 'stop') === 'stop' && !st.optional) { failure = `Cena ${scene.index} · etapa "${st.id}" falhou: ${r.reason}`; return; }
         }
         emit({ t: 'log', line: `cena ${scene.id} concluída em ${((Date.now() - startedScene) / 1000).toFixed(1)}s (${conc} em paralelo)` });

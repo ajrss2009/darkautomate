@@ -1,5 +1,5 @@
 {
-  "_doc": "Wan2GP vídeo com o ELENCO e a VOZ CLONADA (MiniMax H3 Ref2VA Pruned PDD): retratos/folhas dos personagens em image_refs (video_prompt_type I) e a voz de referência de quem fala em audio_guide (audio_prompt_type A, <Audio 1> no prompt). A fala da cena com a emoção vai no prompt no formato do H3; o áudio do vídeo vira a narração. Sem retrato do elenco na cena, a etapa passa para o próximo provedor; sem voz clonada, gera só com as imagens.",
+  "_doc": "Wan2GP vídeo com o ELENCO e a VOZ CLONADA (MiniMax H3 Ref2VA Pruned PDD): retratos/folhas dos personagens em image_refs (video_prompt_type I) e a voz de referência de quem fala em audio_guide (audio_prompt_type A, <Audio 1> no prompt). A fala da cena com a emoção vai no prompt no formato do H3; o áudio do vídeo vira a narração. Sem retrato do elenco na cena, a etapa passa para o próximo provedor; sem voz clonada, gera só com as imagens. Codificador de texto: Qwen3-VL GGUF Q4_K_M (config gguf_q4_k_m, o qwen3vl-32B-MiniMax-H3-Q4_K_M.gguf já baixado).",
   "model_type": "minimax_h3_ref2va_pruned_pdd",
   "needsRefs": true,
   "megapixels": 0.6,
@@ -13,7 +13,9 @@
     "image_prompt_type": "",
     "video_prompt_type": "I",
     "image_refs": "{{ref_images}}",
-    "num_inference_steps": 8
+    "num_inference_steps": 8,
+    "config": "gguf_q4_k_m",
+    "multi_prompts_gen_type": "FG"
   },
   "label": "Wan2GP · MiniMax H3 vídeo com elenco e voz clonada (fala no vídeo)",
   "capability": "video",

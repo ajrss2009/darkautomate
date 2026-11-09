@@ -653,6 +653,15 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
       ac.signal.addEventListener('abort', onAbort, { once: true });
       approvals.set(id, done);
       emitEvent({ t: 'log', line: `⏸ aguardando sua aprovação (${stepId}) — abra o storyboard e aprove para continuar` });
+      /* sem janela (--run-project): a resposta vem por arquivo — out/approve.json com {"ok": true|false} */
+      if (headless) {
+        const f = path.join(projectDirOf(settings, id), 'out', 'approve.json');
+        emitEvent({ t: 'log', line: `sem janela: grave ${f} com {"ok": true} para aprovar (ou false para reprovar)` });
+        const tick = setInterval(() => {
+          if (!approvals.has(id)) { clearInterval(tick); return; }
+          try { const j = JSON.parse(fs.readFileSync(f, 'utf8')) as { ok?: boolean }; fs.rmSync(f, { force: true }); clearInterval(tick); done(!!j.ok); } catch { /* ainda não respondeu */ }
+        }, 2000);
+      }
     });
     const deps = { settings, emit: emitEvent, approve, executors: createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }) };
     /* skill de link: abre a página da ideia no navegador invisível, lê o conteúdo e grava a rolagem (anexos web/) */

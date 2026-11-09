@@ -1,5 +1,5 @@
 {
-  "_doc": "Wan2GP · MiniMax H3 Voice Clone 20B (instalado e completo): clona a voz do projeto/elenco (audio_guide, audio_prompt_type A). O texto vai no formato 'Speaker 1:' com a direção de fala entre colchetes. Precisa de uma voz de referência: sem ela, a etapa passa para o próximo provedor. Pesado (20B): use quando a fidelidade da voz importa mais que o tempo.",
+  "_doc": "Wan2GP · MiniMax H3 Voice Clone 20B (instalado e completo): clona a voz do projeto/elenco (audio_guide, audio_prompt_type A). O texto vai no formato 'Speaker 1:' com a direção de fala entre colchetes. Precisa de uma voz de referência: sem ela, a etapa passa para o próximo provedor. Pesado (20B): use quando a fidelidade da voz importa mais que o tempo. Codificador de texto: Qwen3-VL GGUF Q4_K_M (config gguf_q4_k_m, o qwen3vl-32B-MiniMax-H3-Q4_K_M.gguf já baixado).",
   "model_type": "minimax_h3_tts_ref2va_pruned",
   "needsRefAudio": true,
   "settings": {
@@ -8,7 +8,8 @@
     "audio_guide": "{{ref_audio}}",
     "duration_seconds": "{{speech_seconds}}",
     "num_inference_steps": 20,
-    "seed": "{{seed}}"
+    "seed": "{{seed}}",
+    "config": "gguf_q4_k_m"
   },
   "label": "Wan2GP · narração com voz clonada (MiniMax H3 Voice Clone)",
   "capability": "voice"
