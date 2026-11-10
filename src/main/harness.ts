@@ -324,7 +324,29 @@ export async function listHarnessModels(cfg: HarnessConfig): Promise<string[]> {
     const r = spawnSync(cmd.command, ['models'], { encoding: 'utf8', timeout: 20000, shell: isWin, windowsHide: true });
     if (r.status === 0) return (r.stdout ?? '').split('\n').map((x) => x.trim()).filter((x) => x.includes('/'));
   }
+  /* Codex não tem "codex models": versões novas expõem o catálogo em "codex debug models" (JSON {models:[{slug}]}). */
+  if (/\bcodex\b/i.test(cfg.command)) {
+    const cmd = resolveHarnessCommand(cfg);
+    if (cmd.found) {
+      const r = spawnSync(cmd.command, ['debug', 'models'], { encoding: 'utf8', timeout: 20000, shell: isWin, windowsHide: true });
+      const list = parseCodexModels(`${r.stdout ?? ''}\n${r.stderr ?? ''}`);
+      if (list.length) return list;
+    }
+  }
   return cfg.models;
+}
+
+/** `codex debug models` devolve {"models":[{"slug":"gpt-6-astra","display_name":"…"}, …]}; aceita também o formato da API (id). */
+export function parseCodexModels(text: string): string[] {
+  const from = text.indexOf('{');
+  if (from < 0) return [];
+  const to = text.lastIndexOf('}');
+  if (to <= from) return [];
+  try {
+    const j = JSON.parse(text.slice(from, to + 1)) as { models?: Array<{ slug?: string; id?: string }> } | Array<{ slug?: string; id?: string }>;
+    const arr = Array.isArray(j) ? j : j.models ?? [];
+    return arr.map((m) => m.slug ?? m.id ?? '').filter((x) => /^[a-z0-9][a-z0-9._:-]*$/i.test(x));
+  } catch { return []; }
 }
 
 export const AUTO_ORDER: HarnessId[] = ['claude', 'antigravity', 'codex', 'opencode', 'deepseek', 'openclaw', 'ollama', 'lmstudio', 'llamacpp'];
