@@ -295,7 +295,13 @@ forge.onEvent((e) => {
   const multi = !!batchState && !batchState.finished && batchState.running.length > 1;
   const where = (x: { stepId?: string; sceneId?: string }) => `${multi && e.projectId ? e.projectId.slice(0, 16) + ' · ' : ''}${x.sceneId ? x.sceneId + ' · ' : ''}${x.stepId ?? ''}`;
   switch (e.t) {
-    case 'run.start': runningIds.add(e.projectId ?? ''); logLines.length = 0; logProject = e.projectId ?? ''; pushLog('muted', `▶ ${e.projectId}`); break;
+    case 'run.start': {
+      /* o mesmo projeto pode anunciar o início mais de uma vez (captura de links → motor): só a primeira limpa o log */
+      const isNew = !runningIds.has(e.projectId ?? '');
+      runningIds.add(e.projectId ?? '');
+      if (isNew) { logLines.length = 0; logProject = e.projectId ?? ''; pushLog('muted', `▶ ${e.projectId}`); }
+      break;
+    }
     case 'step.start': pushLog('', `${where(e)} → ${e.binding}`); break;
     case 'step.attempt': if (e.attempt > 1) pushLog('muted', `${where(e)} tentativa ${e.attempt}`); break;
     case 'step.cache_hit': pushLog('l-ok', `${where(e)} ✓ cache`); break;

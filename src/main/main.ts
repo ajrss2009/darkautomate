@@ -644,6 +644,9 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
   const ac = new AbortController();
   const drain = new AbortController();
   running.set(id, ac);
+  /* indicador imediato: o `run.start` do motor só sai quando a rota começa e, antes disso (captura de links,
+     transcrição dos anexos, pré-checagem), a execução podia passar minutos sem nenhum sinal na tela */
+  emitEvent({ t: 'run.start', projectId: id });
   const limitMin = project.maxProductionMin ?? 0;
   let timedOut = false;
   const limitMsg = `tempo máximo de produção (${limitMin} min) atingido. O que já foi gerado fica em cache: execute de novo para continuar ou aumente o limite.`;
@@ -2017,7 +2020,9 @@ function registerIpc() {
     const dir = path.join(projectDirOf(settings, p.id), 'scenes', sc.id, 'audio');
     const a = fs.existsSync(dir) ? fs.readdirSync(dir).find((x) => x.startsWith('narration.') && !x.includes('.trim')) : undefined;
     const d = a ? await ff.duration(settings.ffprobe, path.join(dir, a)).catch(() => 0) : 0;
-    if (d > 0.2) sc.durationSec = Math.round((d + 0.15) * 1000) / 1000;
+    /* áudio do próprio clipe H3: a cena dura o clipe inteiro (sem a folga de 0,15 s) */
+    const fromVideo = fs.existsSync(path.join(dir, '.from-video'));
+    if (d > 0.2) sc.durationSec = Math.round((fromVideo ? d : d + 0.15) * 1000) / 1000;
   };
   h('scene:trim', async (id: string, sceneId: string, o: { cutStart?: number; cutEnd?: number }) => {
     idle(id); const p = ops.readProject(settings, id);

@@ -25,6 +25,19 @@ function webSession() {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Prazo para uma promessa da página. `executeJavaScript` numa promessa que nunca resolve (um `play()` pendente, um
+ * requestAnimationFrame que não chega numa janela invisível) não tem timeout no Electron: a etapa ficaria "executando"
+ * para sempre e a fila do lote nunca andaria. Com prazo, a captura segue sem aquele pedaço em vez de travar tudo.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`tempo esgotado (${Math.round(ms / 1000)} s) em ${what}`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 const MOBILE_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
 
 /** Esconde banners fixos de cookies/consentimento (não aceita nada) e desliga a rolagem suave. */
@@ -71,7 +84,8 @@ const PLAY_VIDEO = String.raw`(async (i) => {
   const v = (window.__forgeVids || [])[i]; if (!v) return { playing: false };
   v.scrollIntoView({ block: 'center', behavior: 'instant' });
   v.muted = true; v.loop = true; v.playsInline = true;
-  try { await v.play(); } catch (e) { /* reprodução automática bloqueada */ }
+  /* play() pode ficar pendente numa janela invisível: não deixa a promessa sem prazo */
+  try { await Promise.race([v.play(), new Promise((r) => setTimeout(r, 5000))]); } catch (e) { /* reprodução automática bloqueada */ }
   await new Promise((r) => setTimeout(r, 1800));
   const r = v.getBoundingClientRect();
   return { playing: !v.paused && v.currentTime > 0.2, x: r.left / innerWidth, y: r.top / innerHeight, w: r.width / innerWidth, h: r.height / innerHeight };
@@ -85,10 +99,13 @@ async function recordRealtime(wc: Electron.WebContents, shot: () => Promise<Elec
   o: { fps: number; w: number; h: number; out: string; seconds: number; signal?: AbortSignal }): Promise<void> {
   const enc = frameEncoder(ffmpeg, { fps: o.fps, w: o.w, h: o.h, out: o.out, crf: 18 });
   const total = Math.round(o.seconds * o.fps), t0 = Date.now();
+  /* trava de segurança: a gravação é em tempo real, então nunca deve passar de poucas vezes o trecho pedido */
+  const limit = t0 + Math.max(20_000, Math.round(o.seconds * 4000));
   let written = 0;
   try {
     while (written < total) {
       if (o.signal?.aborted) throw new Error('cancelado');
+      if (Date.now() > limit) throw new Error(`gravação do trecho travou (${o.seconds} s pedidos, ${Math.round((Date.now() - t0) / 1000)} s decorridos)`);
       const img = await shot();
       const due = Math.min(total, Math.max(written + 1, Math.floor(((Date.now() - t0) / 1000) * o.fps)));
       while (written < due) { await enc.frame(img); written++; }
@@ -143,11 +160,14 @@ async function recordYouTube(id: string, o: { out: string; w: number; h: number;
     /* o player embutido recusa abrir sem a página de origem (erro 153): manda o link da página como referência */
     await Promise.race([wc.loadURL(url, { httpReferrer: o.referrer }).catch((e: Error) => { if (!/ERR_ABORTED/.test(e.message)) throw e; }), sleep(30_000)]);
     await wc.insertCSS(YT_CSS);
-    const st = await wc.executeJavaScript(YT_PLAY) as { playing: boolean; why?: string; duration?: number; at?: number };
+    const st = await withTimeout(wc.executeJavaScript(YT_PLAY), 90_000, 'dar play no vídeo do YouTube') as { playing: boolean; why?: string; duration?: number; at?: number };
     if (!st.playing) { o.log?.(`vídeo do YouTube ${id} não tocou (${st.why ?? '?'}) — ignorado`); return false; }
     await wc.insertCSS(YT_CSS);   // de novo: o player cria as sobreposições depois do play
     await sleep(1200);
-    const shot = async () => { await wc.executeJavaScript('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))'); return wc.capturePage({ x: 0, y: 0, width: o.w, height: o.h }); };
+    const shot = async () => {
+      await withTimeout(wc.executeJavaScript('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))'), 15_000, 'esperar o quadro do YouTube');
+      return withTimeout(wc.capturePage({ x: 0, y: 0, width: o.w, height: o.h }), 15_000, 'capturar o quadro do YouTube');
+    };
     await recordRealtime(wc, shot, o.ffmpeg, { fps: o.fps, w: o.w, h: o.h, out: o.out, seconds: o.seconds, signal: o.signal });
     o.log?.(`trecho do YouTube gravado a partir de ${Math.round(st.at ?? 0)} s (vídeo de ${Math.round(st.duration ?? 0)} s)`);
     return true;
@@ -174,7 +194,12 @@ export async function captureWebPage(o: { url: string; dir: string; ffmpeg: stri
   wc.setUserAgent(tall ? MOBILE_UA : wc.getUserAgent().replace(/\s(Electron|filmforge)\/\S+/gi, ''));
   const abort = () => { try { win.destroy(); } catch { /* já fechada */ } };
   o.signal?.addEventListener('abort', abort, { once: true });
-  const shot = async () => { await wc.executeJavaScript('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))'); return wc.capturePage({ x: 0, y: 0, width: w, height: h }); };
+  /** script na página com prazo (ver `withTimeout`): nada aqui pode segurar a fila do lote sem fim */
+  const js = <T,>(code: string, ms: number, what: string) => withTimeout(wc.executeJavaScript(code) as Promise<T>, ms, what);
+  const shot = async () => {
+    await js('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))', 15_000, 'esperar o quadro da página');
+    return withTimeout(wc.capturePage({ x: 0, y: 0, width: w, height: h }), 15_000, 'capturar o quadro da página');
+  };
   try {
     o.log?.(`🌐 abrindo o link no navegador invisível: ${o.url}`);
     await Promise.race([wc.loadURL(o.url).catch((e: Error) => { if (!/ERR_ABORTED/.test(e.message)) throw e; }), sleep(45_000)]);
@@ -182,15 +207,15 @@ export async function captureWebPage(o: { url: string; dir: string; ffmpeg: stri
     await sleep(2500);
     await wc.insertCSS(CLEAN_CSS);
     /* desce a página uma vez para carregar imagens "lazy" e volta ao topo */
-    await wc.executeJavaScript(`(async () => { const se = document.scrollingElement || document.documentElement; for (let i = 0; i < 40 && scrollY + innerHeight < se.scrollHeight - 4; i++) { scrollBy(0, innerHeight * 0.9); await new Promise((r) => setTimeout(r, 140)); } scrollTo(0, 0); })()`);
+    await js(`(async () => { const se = document.scrollingElement || document.documentElement; for (let i = 0; i < 40 && scrollY + innerHeight < se.scrollHeight - 4; i++) { scrollBy(0, innerHeight * 0.9); await new Promise((r) => setTimeout(r, 140)); } scrollTo(0, 0); })()`, 60_000, 'carregar as imagens da página');
     await sleep(900);
-    const raw = await wc.executeJavaScript(READ_PAGE) as Omit<PageInfo, 'url'>;
+    const raw = await js<Omit<PageInfo, 'url'>>(READ_PAGE, 45_000, 'ler a página');
     const info: PageInfo = { ...raw, url: wc.getURL() || o.url };
     o.log?.(`página lida: "${info.title}" — ${info.sections.length} seção(ões), ${info.text.length} caracteres, altura ${Math.round(info.maxY + info.viewH)} px`);
     /* prints: topo + até 6 seções */
     const shots: WebCapture['shots'] = [];
     const save = async (y: number, file: string, title: string) => {
-      await wc.executeJavaScript(`scrollTo({ top: ${Math.max(0, Math.round(y))}, behavior: 'instant' })`); await sleep(250);
+      await js(`scrollTo({ top: ${Math.max(0, Math.round(y))}, behavior: 'instant' })`, 15_000, 'rolar a página'); await sleep(250);
       fs.writeFileSync(path.join(o.dir, file), (await shot()).toPNG()); shots.push({ file: `${pre}/${file}`, title });
     };
     await save(0, 'pagina-topo.png', `topo da página — ${info.title}`);
@@ -200,12 +225,19 @@ export async function captureWebPage(o: { url: string; dir: string; ffmpeg: stri
     let embeds: string[] = [];
     if ((o.clips ?? 2) > 0) {
       try {
-        const found = await wc.executeJavaScript(FIND_VIDEOS) as { list: Array<{ i: number; near: string; label: string }>; embeds: string[]; yt: string[] };
+        const found = await js<{ list: Array<{ i: number; near: string; label: string }>; embeds: string[]; yt: string[] }>(FIND_VIDEOS, 60_000, 'ler os vídeos da página');
         embeds = found.embeds;
         if (found.list.length) o.log?.(`a página tem ${found.list.length} vídeo(s) — gravando até ${o.clips ?? 2} trecho(s) de ${o.clipSec ?? 10} s`);
         for (const v of found.list) {
           if (clips.length >= (o.clips ?? 2) || o.signal?.aborted) break;
-          const st = await wc.executeJavaScript(`${PLAY_VIDEO}(${v.i})`) as { playing: boolean; x: number; y: number; w: number; h: number };
+          let st: { playing: boolean; x: number; y: number; w: number; h: number };
+          try {
+            st = await js<{ playing: boolean; x: number; y: number; w: number; h: number }>(`${PLAY_VIDEO}(${v.i})`, 30_000, `dar play no vídeo ${v.i + 1}`);
+          } catch (e) {
+            /* play() travado (janela invisível): este trecho é ignorado, a captura da página continua */
+            o.log?.(`vídeo ${v.i + 1} travou ao tocar (${(e as Error).message.slice(0, 120)}) — ignorado`);
+            continue;
+          }
           if (!st.playing) { o.log?.(`vídeo ${v.i + 1} não tocou sozinho (reprodução bloqueada) — ignorado`); continue; }
           const n = clips.length + 1, raw = path.join(o.dir, `video-${n}.raw.mp4`), file = path.join(o.dir, `video-${n}.mp4`);
           await recordRealtime(wc, shot, o.ffmpeg, { fps, w, h, out: raw, seconds: o.clipSec ?? 10, signal: o.signal });
@@ -217,7 +249,7 @@ export async function captureWebPage(o: { url: string; dir: string; ffmpeg: stri
           clips.push({ file: `${pre}/video-${n}.mp4`, seconds: o.clipSec ?? 10, near: v.near || undefined, label: v.label || undefined });
           o.log?.(`trecho de vídeo gravado: ${pre}/video-${n}.mp4 (${o.clipSec ?? 10} s)`);
         }
-        await wc.executeJavaScript(`(window.__forgeVids || []).forEach((v) => { try { v.pause(); } catch {} }); scrollTo(0, 0)`);
+        await js(`(window.__forgeVids || []).forEach((v) => { try { v.pause(); } catch {} }); scrollTo(0, 0)`, 15_000, 'parar os vídeos da página');
         /* vídeos do YouTube citados pela página (embutidos ou link do post): trecho pelo player embutido */
         const ytIds = [...new Set(found.yt.map(youTubeId).filter((x): x is string => !!x))];
         if (ytIds.length && clips.length < (o.clips ?? 2)) o.log?.(`a página cita ${ytIds.length} vídeo(s) do YouTube — gravando trecho pelo player embutido`);
@@ -240,7 +272,7 @@ export async function captureWebPage(o: { url: string; dir: string; ffmpeg: stri
       let last = -1;
       for (const y of plan.ys) {
         if (o.signal?.aborted) throw new Error('cancelado');
-        if (y !== last) { await wc.executeJavaScript(`scrollTo({ top: ${y}, behavior: 'instant' })`); last = y; }
+        if (y !== last) { await js(`scrollTo({ top: ${y}, behavior: 'instant' })`, 15_000, 'rolar a página'); last = y; }
         await enc.frame(await shot());
       }
       await enc.end();
