@@ -31,6 +31,20 @@ export function flowAccount(s: Settings, id?: string): GoogleAccount {
 }
 
 export const isBrowserUp = async (id: string) => { try { return (await fetch(`http://127.0.0.1:${portFor(id)}/json/version`)).ok; } catch { return false; } };
+/**
+ * Fecha o navegador aberto por ESTE processo para a conta. Não toca em navegador externo
+ * (o do usuário): só no que `ensureFlowBrowser` abriu — é a limpeza que evita órfãos em testes.
+ */
+export function closeFlowBrowser(id: string): boolean {
+  const child = running.get(id);
+  if (!child) return false;
+  running.delete(id);
+  try {
+    if (process.platform === 'win32' && child.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).unref();
+    else child.kill();
+  } catch { /* já fechou */ }
+  return true;
+}
 /** Garante o navegador da conta aberto com a porta de automação; abre se preciso. */
 export async function ensureFlowBrowser(s: Settings, id: string, log: (l: string) => void): Promise<number> {
   const port = portFor(id);

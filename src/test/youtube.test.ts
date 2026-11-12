@@ -84,6 +84,9 @@ async function main() {
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const acc = auto.addAccount(s, 'Teste YouTube');
+  /* porta exclusiva por execução: um navegador órfão de um teste anterior (ou o do app)
+     na mesma porta não é reaproveitado — era o que fazia o seletor de arquivo não aparecer. */
+  (acc as { id: string }).id = `g${50 + Math.floor(Math.random() * 49)}`;
   (auto.config(s) as { youtubeUploadUrl?: string }).youtubeUploadUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/upload`;
   const port = auto.portFor(acc.id);
   try {
@@ -114,6 +117,8 @@ async function main() {
       const { default: WebSocket } = await import('ws'); const sock = new WebSocket(webSocketDebuggerUrl);
       await new Promise((rr) => sock.once('open', rr)); sock.send(JSON.stringify({ id: 1, method: 'Browser.close' })); await new Promise((rr) => setTimeout(rr, 800)); sock.close();
     } catch { /* já fechado */ }
+    /* fecha o processo que este teste abriu (a porta é exclusiva desta execução) */
+    auto.closeFlowBrowser(acc.id);
   }
   console.log('youtube tests: OK');
 }

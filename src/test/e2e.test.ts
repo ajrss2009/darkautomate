@@ -58,36 +58,38 @@ async function main() {
   const port = (server.address() as { port: number }).port;
 
   // ── harness falso
-  const fake = path.join(ws, 'fake-claude.sh');
-  fs.writeFileSync(fake, `#!/bin/sh
-PROMPT=$(cat)
-F=$(printf '%s' "$PROMPT" | sed -n 's/.*Grave o resultado em: \\(.*\\)$/\\1/p' | head -1)
-mkdir -p "$(dirname "$F")"
-case "$F" in
-  *script.md) echo "Gancho forte. Meio do roteiro. Final em loop." > "$F" ;;
-  *scenes.json) cat > "$F" <<'EOT'
-[{"id":"s01","title":"Abertura","narration":"Olá, esta é a primeira cena do vídeo","visualIntent":"um robô acenando","kind":"image"},
- {"id":"s02","title":"Código","narration":"Agora uma cena desenhada por código","visualIntent":"quadrado animado","kind":"code"},
- {"id":"s03","title":"Fallback","narration":"Esta cena força o fallback do ComfyUI","visualIntent":"FAILME robô triste","kind":"image"}]
-EOT
-  ;;
-  *scene.html) cat > "$F" <<'EOT'
-<!doctype html><canvas id="c" width="540" height="960"></canvas><script>
-window.__forge={duration:1.5,fps:10,seek(t){const x=document.getElementById('c').getContext('2d');x.fillStyle='#123';x.fillRect(0,0,540,960);x.fillStyle='#fff';x.fillRect(40+t*200,400,90,90);}};
-</script>
-EOT
-  ;;
-  *metadata.json) echo '{"title":"T","description":"D","tags":["a"]}' > "$F" ;;
-  *) echo "{}" > "$F" ;;
-esac
-echo done
-`, { mode: 0o755 });
+  const fake = path.join(ws, 'fake-claude.js');
+  fs.writeFileSync(fake, String.raw`
+const fs = require('fs'), path = require('path');
+let prompt = '';
+process.stdin.on('data', (d) => { prompt += d; });
+process.stdin.on('end', () => {
+  const m = /Grave o resultado em:\s*(.+)/.exec(prompt);
+  const out = m ? m[1].trim().replace(/\r$/, '') : '';
+  if (!out) { process.stdout.write('{}'); process.exit(0); }
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const scenes = [
+    { id: 's01', title: 'Abertura', narration: 'Olá, esta é a primeira cena do vídeo', visualIntent: 'um robô acenando', kind: 'image' },
+    { id: 's02', title: 'Código', narration: 'Agora uma cena desenhada por código', visualIntent: 'quadrado animado', kind: 'code' },
+    { id: 's03', title: 'Fallback', narration: 'Esta cena força o fallback do ComfyUI', visualIntent: 'FAILME robô triste', kind: 'image' },
+  ];
+  const html = '<!doctype html><html><body><canvas id="c" width="540" height="960"></canvas><script>' +
+    "window.__forge={duration:1.5,fps:10,seek(t){const x=document.getElementById('c').getContext('2d');x.fillStyle='#123';x.fillRect(0,0,540,960);x.fillStyle='#fff';x.fillRect(40+t*200,400,90,90);}};" +
+    '</script></body></html>';
+  const body =
+    /script\.md$/.test(out) ? 'Gancho forte. Meio do roteiro. Final em loop.\n' :
+    /scenes\.json$/.test(out) ? JSON.stringify(scenes) :
+    /scene\.html$/.test(out) ? html :
+    /metadata\.json$/.test(out) ? JSON.stringify({ title: 'T', description: 'D', tags: ['a'] }) :
+    '{}';
+  fs.writeFileSync(out, body);
+  process.stdout.write('done');
+});
+`, 'utf8');
 
   const s = defaultSettings(ws);
-  /* no Windows um .sh não é executável direto: roda pelo bash (Git Bash) */
-  s.harnesses.claude = process.platform === 'win32'
-    ? { command: 'bash', args: [fake.replace(/\\/g, '/')], promptVia: 'stdin', models: [] }
-    : { command: fake, args: [], promptVia: 'stdin', models: [] };
+  /* o harness falso roda no próprio node do sistema — nada de bash, rede ou CLI pago */
+  s.harnesses.claude = { command: process.execPath, args: [fake], promptVia: 'stdin', models: [] };
   s.comfyServers = [{ id: 'local', url: `http://127.0.0.1:${port}` }];
   s.providers = [{ id: 'openai', kind: 'openai', baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: 'test', models: [] }];
 
@@ -99,6 +101,9 @@ echo done
 
   /* legendas são opção do projeto (padrão: não gerar); aqui o teste confere o .srt */
   const p = createProject(s, { name: 'E2E', idea: 'Teste ponta a ponta', videoType: 'cartoon_3d', routeId: 'shorts-autopilot', aspect: '9:16', subtitles: 'srt' });
+  /* hermético: TODA etapa de IA roda no harness falso. Sem isso, um CLI real instalado
+     (ex.: deepseek/dsh) entra na cadeia e o teste passa a depender de saldo externo. */
+  for (const st of p.route!.steps) st.bindings = st.bindings.map((b) => b.type === 'harness' ? { type: 'harness', harness: 'claude' as const } : b);
   const dir = path.join(ws, 'projects', p.id);
   const events: EngineEvent[] = [];
   const deps = () => ({ settings: s, emit: (e: EngineEvent) => events.push(e), sleep: async () => {}, executors });
