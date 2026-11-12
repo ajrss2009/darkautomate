@@ -22,6 +22,7 @@ import { cutWords, estimateWords, readWords, stampWords, transcribe, wordsFresh,
 import { PROJECT_FPS, buildNarrationStem, ensureTimeline, narrationAudio, sceneSeconds as sceneSecondsOf } from './timeline';
 import { checkSync, snapSceneWords, speechSegments, syncQaLine, type Segment } from './subtitle-qa';
 import { avQaLine, checkAv, conformAv } from './av-qa';
+import { checkThumb, thumbQaLine } from './thumb-qa';
 import { getVideoType } from './presets';
 import { ensureWhisper } from './whisper-install';
 import { agyEnvForProject, DEFAULT_FLOW_URL, ensureFlowBrowser, flowAccount, flowProjectOf, setFlowProject } from './automations';
@@ -2250,6 +2251,15 @@ async function frameThumbnail(c: ExecContext): Promise<ExecResult> {
   catch { await ff.run(c.settings.ffmpeg, ['-y', '-ss', t.toFixed(2), '-i', final, '-frames:v', '1', '-vf', scale, dest], c.signal); }
   fs.rmSync(txt, { force: true });
   c.log(`thumbnail do quadro ${t.toFixed(1)}s do vídeo final ("${text}")`);
+  /* QA DA THUMBNAIL: o teste do feed (168×94) + o brief (3 palavras, contraste, foco).
+     Mede e grava; não derruba a execução por padrão. */
+  try {
+    const qa = await checkThumb(c.settings.ffmpeg, { thumb: dest, outDir: c.outDir, title: c.project.titleModel?.chosen || c.project.name, brief: { textOverlay: text }, signal: c.signal });
+    c.log(thumbQaLine(qa));
+  } catch (e) {
+    if (c.signal.aborted) throw e;
+    c.log(`aviso: QA da thumbnail não medido (${(e as Error).message.slice(0, 140)})`);
+  }
   return { files: [dest] };
 }
 

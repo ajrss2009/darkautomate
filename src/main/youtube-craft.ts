@@ -26,7 +26,13 @@ import { ensureYtDlp } from './youtube';
  */
 
 import { RETENTION_RULES, THUMB_RULES, TITLE_RULES } from './youtube-rules';
+import { failedChecks, scoreTitle, type TitleCheck, type TitleVerdict } from './title-score';
+import { scoreThumbBrief, type ThumbScore } from './thumb-qa';
+import { champions } from './title-ab';
+import { findNiche, nicheStructure, nicheVsChannel, type NicheCorpus } from './niche-bench';
 export { RETENTION_RULES, THUMB_RULES, TITLE_RULES };
+export { failedChecks, scoreTitle };
+export type { TitleCheck, TitleVerdict };
 
 
 /* ───────── origem: canal clonado, canal, vídeo, link ou arquivo ───────── */
@@ -114,29 +120,46 @@ export { titleStructure, type TitleStructure };
 
 /* ───────── títulos sugeridos ───────── */
 
-export interface TitleSuggestInput { source: CraftSource; idea: string; language?: string; count?: number; harness?: HarnessId | 'auto'; model?: string }
-export interface TitleSuggestion { title: string; type: 'busca' | 'navegação' | 'híbrido'; formula?: string; why?: string; thumbText?: string }
-export interface TitleSuggestResult { label: string; structure: TitleStructure; pattern: string; titles: TitleSuggestion[] }
+export interface TitleSuggestInput { source: CraftSource; idea: string; language?: string; count?: number; keyword?: string; harness?: HarnessId | 'auto'; model?: string }
+export interface TitleSuggestion { title: string; type: 'busca' | 'navegação' | 'híbrido'; formula?: string; why?: string; thumbText?: string; /** 0–100 (scorer determinístico) */ score?: number; verdict?: TitleVerdict; checks?: TitleCheck[] }
+export interface TitleSuggestResult {
+  label: string; structure: TitleStructure; pattern: string;
+  /** sugestões que passaram do corte (< 50 não aparece), ordenadas pela nota */
+  titles: TitleSuggestion[];
+  /** as 5 melhores de todas — o "5 finalistas" do ciclo */
+  finalists: TitleSuggestion[];
+  stats: { generated: number; approved: number; review: number; rejected: number };
+  /** benchmark de nicho (quando existe um corpus grande) com a comparação canal × mercado */
+  niche?: { label: string; titles: number; channels: number; comparison: string[] };
+}
 
 export async function suggestTitles(s: Settings, input: TitleSuggestInput, log: (l: string) => void, signal?: AbortSignal): Promise<TitleSuggestResult> {
   if (!input.idea?.trim()) throw new Error('escreva a ideia do vídeo para sugerir títulos');
   const ref = await referenceData(s, input.source, log, signal);
   if (!ref.titles.length) throw new Error(`não encontrei títulos em ${ref.label}`);
-  const st = titleStructure(ref.titles);
-  const n = Math.max(3, Math.min(20, input.count ?? 10));
+  /* O BENCHMARK VEM ANTES DA ESTRUTURA: se há corpus de nicho (centenas/milhares de títulos
+     de vários canais), é ele que define o padrão — o canal de referência é só a semente. */
+  const corpus: NicheCorpus | undefined = findNiche(s, input.source);
+  const niche = corpus && corpus.titles.length >= 60 ? nicheStructure(corpus) : undefined;
+  const st = niche ?? titleStructure(ref.titles);
+  const scope = niche ? `nicho (${corpus!.titles.length} títulos de ${corpus!.channels.length} canais)` : `canal (${ref.titles.length} títulos)`;
+  const n = Math.max(3, Math.min(40, input.count ?? 10));
   const lang = input.language || 'pt-BR';
+  const kw = input.keyword?.trim();
   const prompt = `Você é o especialista em títulos do YouTube do FilmForge. Escreva ${n} títulos NOVOS para o vídeo abaixo, seguindo a ESTRUTURA dos títulos da referência (${ref.label}) — o mesmo esqueleto, ritmo, tamanho, uso de números/perguntas/caixa alta/separadores — sem copiar assunto, nomes nem frases.
+${kw ? `\nPalavra-chave principal: "${kw}". Ela aparece nos primeiros 40 caracteres dos títulos de busca; em navegação/sugeridos, a curiosidade vem antes.\n` : ''}
 
 ## Vídeo a ser titulado
 ${input.idea.trim()}
 Idioma dos títulos: ${lang}.
 
-## Estrutura medida nos títulos da referência
+## Estrutura medida no ${scope}
 ${st.summary}
 ${ref.primary ? `Título principal (o vídeo de referência): "${ref.primary}"\n` : ''}${ref.patterns ? `Padrões já identificados na análise do canal: ${ref.patterns}\n` : ''}
 Títulos da referência (do mais visto para o menos visto):
 ${st.examples.map((t) => `- ${t}`).join('\n')}
 ${ref.titles.filter((t) => !st.examples.includes(t.title)).slice(0, 25).map((t) => `- ${t.title}`).join('\n')}
+${(() => { const ch = champions(s, 5); return ch.length ? `\n## Títulos que já venceram no A/B deste app (use o esqueleto, não copie)\n${ch.map((c) => `- ${c.title} (${Math.round(c.ratio * 100)}% da mediana do canal)`).join('\n')}\n` : ''; })()}
 
 ## Regras de CTR
 ${TITLE_RULES}
@@ -151,14 +174,36 @@ Pelo menos 3 de cada tipo. Ordene do mais forte para o mais fraco.`;
   const titles = (Array.isArray(j.titles) ? j.titles : []).filter((t) => t && typeof t.title === 'string' && t.title.trim()).map((t) => ({ ...t, title: t.title.trim() }));
   if (!titles.length) throw new Error('a IA não devolveu títulos');
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignora */ }
-  return { label: ref.label, structure: st, pattern: String(j.pattern ?? ''), titles };
+  /* O SCORER: gerar é barato; o que falta é reprovar antes de o usuário olhar.
+     As seis checagens rodam aqui, sem IA, e decidem o que aparece e em que ordem. */
+  const scored: TitleSuggestion[] = titles.map((t) => {
+    const type = t.type === 'busca' || t.type === 'navegação' || t.type === 'híbrido' ? t.type : 'híbrido';
+    const s = scoreTitle({ title: t.title, keyword: kw, type, thumbText: t.thumbText, promise: input.idea, niche: st });
+    if (s.verdict === 'reprovado') log(`título reprovado (${s.total}/100): ${failedChecks(s).join(', ')} — "${t.title}"`);
+    return { ...t, type, score: s.total, verdict: s.verdict, checks: s.checks };
+  });
+  const byScore = [...scored].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const finalists = byScore.slice(0, 5);
+  const visible = byScore.filter((t) => t.verdict !== 'reprovado');
+  const stats = {
+    generated: scored.length,
+    approved: scored.filter((t) => t.verdict === 'aprovado').length,
+    review: scored.filter((t) => t.verdict === 'revisar').length,
+    rejected: scored.filter((t) => t.verdict === 'reprovado').length,
+  };
+  log(`títulos: ${stats.generated} gerados · ${stats.approved} aprovados · ${stats.review} em revisão · ${stats.rejected} reprovados`);
+  const nicheInfo = niche && corpus
+    ? { label: corpus.label, titles: corpus.titles.length, channels: corpus.channels.length, comparison: nicheVsChannel(titleStructure(ref.titles), niche) }
+    : undefined;
+  if (nicheInfo) log(`benchmark: ${nicheInfo.titles} títulos de ${nicheInfo.channels} canais (${nicheInfo.label})`);
+  return { label: ref.label, structure: st, pattern: String(j.pattern ?? ''), titles: visible.length ? visible : finalists.slice(0, 3), finalists, stats, niche: nicheInfo };
 }
 
 /* ───────── modelagem de thumbnail ───────── */
 
 export interface ThumbModelInput { source: CraftSource; name?: string; harness?: HarnessId | 'auto'; model?: string; note?: string }
 export interface ThumbBrief { focal?: string; textOverlay?: string; palette?: string[]; composition?: string; emotion?: string; mobile?: string; avoid?: string[] }
-export interface ThumbModelResult { template: ThumbnailTemplate; brief: ThumbBrief; variants: Array<{ name: string; change: string; hypothesis?: string }>; refs: string[]; label: string; dir: string }
+export interface ThumbModelResult { template: ThumbnailTemplate; brief: ThumbBrief; variants: Array<{ name: string; change: string; hypothesis?: string }>; refs: string[]; label: string; dir: string; /** nota do brief (no máximo 3 palavras, contraste, foco, evitar) */ briefScore: ThumbScore }
 
 const LAYOUTS = ['impacto', 'explicativo', 'documentario', 'minimal', 'split'] as const;
 
@@ -228,5 +273,7 @@ Grave ${out} (e também imprima) como JSON válido:
     design: designFromBrief(String(j['layout'] ?? ''), brief),
   };
   const variants = (Array.isArray(j['variants']) ? j['variants'] : []) as ThumbModelResult['variants'];
-  return { template, brief, variants, refs, label: ref.label, dir };
+  /* o brief também é medido: 3 palavras, contraste real, foco e o que evitar */
+  const briefScore = scoreThumbBrief({ textOverlay: brief.textOverlay, palette: brief.palette, focal: brief.focal, avoid: brief.avoid });
+  return { template, brief, variants, refs, label: ref.label, dir, briefScore };
 }

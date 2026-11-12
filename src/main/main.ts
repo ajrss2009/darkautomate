@@ -83,7 +83,11 @@ import { prepareReferences } from './references';
 import { importClaudeSkill, type SkillImportInput } from './skill-import';
 import { adaptPlugin, removeAdaptation } from './plugin-adapt';
 import { applyBypass, bypassTargets, replanScenes } from './replan';
-import { modelThumbnail, suggestTitles, type ThumbModelInput, type TitleSuggestInput } from './youtube-craft';
+import { modelThumbnail, scoreTitle, suggestTitles, type ThumbModelInput, type TitleSuggestInput } from './youtube-craft';
+import type { TitleScoreInput } from './title-score';
+import { champions, createAb, listAb, measureAb, patchAb, type CreateAbInput } from './title-ab';
+import { buildNiche, listNiches, nicheStructure, nicheVsChannel, readNiche, type NicheBuildInput } from './niche-bench';
+import { titleStructure } from './youtube-rules';
 import { DATA_DIR_NAME, copyProfile, expand, openPortable, relocate, resolveDataRoot, sealPortable, tokenize } from './portable';
 import * as memory from './memory-integration';
 
@@ -1487,6 +1491,23 @@ function registerIpc() {
   });
   /* títulos no padrão de um canal clonado, canal ou vídeo */
   h('titles:suggest', (input: TitleSuggestInput) => suggestTitles(settings, input, (line) => send({ t: 'log', stepId: 'craft', line } as EngineEvent)));
+  /* nota de um título antes de publicar: as seis checagens, sem IA (mede, não opina) */
+  h('titles:score', (input: TitleScoreInput) => scoreTitle(input));
+  /* A/B: registra o teste, mede views ÷ mediana do canal e devolve os campeões ao banco */
+  h('ab:list', () => ({ tests: listAb(settings), champions: champions(settings) }));
+  h('ab:create', (input: CreateAbInput) => createAb(settings, input));
+  h('ab:measure', (id: string) => measureAb(settings, id, (line) => send({ t: 'log', stepId: 'craft', line } as EngineEvent)));
+  h('ab:patch', (id: string, patch: Record<string, unknown>) => patchAb(settings, id, patch as never));
+  h('ab:champions', () => champions(settings));
+  /* benchmark de nicho: corpus de centenas/milhares de títulos + comparação canal × mercado */
+  h('niche:list', () => listNiches(settings));
+  h('niche:get', (id: string) => readNiche(settings, id));
+  h('niche:build', async (input: NicheBuildInput) => {
+    const corpus = await buildNiche(settings, input, (line) => send({ t: 'log', stepId: 'craft', line } as EngineEvent));
+    const niche = nicheStructure(corpus);
+    const comparison = corpus.seedTitles?.length ? nicheVsChannel(titleStructure(corpus.seedTitles), niche) : undefined;
+    return { corpus, structure: niche, comparison };
+  });
   /* thumbnail modelada de um canal clonado, canal, vídeo ou link → novo template em Configurações */
   h('thumb:model', async (input: ThumbModelInput) => {
     const r = await modelThumbnail(settings, input, (line) => send({ t: 'log', stepId: 'craft', line } as EngineEvent));

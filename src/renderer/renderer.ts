@@ -637,6 +637,7 @@ async function openTitleModal(idea: string, language: string, onPick: (p: TitleP
   const src = await craftSourcePicker('tt', ['clone', 'channel', 'video']);
   const ai = await harnessPicker('tt');
   const ideaIn = h('textarea', { id: 'tt-idea', rows: '2' }) as HTMLTextAreaElement; ideaIn.value = idea;
+  const keywordIn = h('input', { id: 'tt-keyword', class: 'grow', placeholder: 'Palavra-chave principal (opcional): ex. café' }) as HTMLInputElement;
   const log = h('pre', { class: 'pvtext svlog', id: 'tt-log' });
   const out = h('div', { id: 'tt-out' });
   const close = () => bg.remove();
@@ -644,21 +645,44 @@ async function openTitleModal(idea: string, language: string, onPick: (p: TitleP
     let off: (() => void) | undefined;
     try {
       const source = src.value();
-      go.setAttribute('disabled', ''); log.textContent = ''; out.replaceChildren(h('div', { class: 'muted' }, '⏳ Lendo os títulos da referência e escrevendo sugestões…'));
+      go.setAttribute('disabled', ''); log.textContent = ''; out.replaceChildren(h('div', { class: 'muted' }, '⏳ Lendo os títulos da referência, escrevendo e pontuando as sugestões…'));
       off = craftLog(log);
-      const r = (await xapi()['suggestTitles']!({ source, idea: ideaIn.value, language, harness: ai.harness(), model: ai.model() })) as { label: string; pattern: string; structure: { summary: string }; titles: Array<{ title: string; type: string; formula?: string; why?: string; thumbText?: string }> };
-      out.replaceChildren(
-        h('div', { class: 'card' }, h('strong', {}, `📐 Estrutura de ${r.label}`), h('div', { class: 'muted small' }, r.structure.summary), r.pattern ? h('div', {}, h('strong', {}, 'Esqueleto: '), r.pattern) : null),
-        h('div', { class: 'tt-list' }, ...r.titles.map((t) => h('button', { class: 'tcard tt-item', 'data-title': t.title, title: [t.formula, t.why].filter(Boolean).join(' — '), onclick: () => { onPick({ title: t.title, thumbText: t.thumbText, pattern: r.pattern || r.structure.summary, source: r.label }); close(); } },
-          h('strong', {}, t.title), h('span', { class: 'muted small' }, `${t.type} · ${t.title.length} car.${t.thumbText ? ` · thumb: "${t.thumbText}"` : ''}`), t.why ? h('span', { class: 'muted small' }, t.why) : null))));
+      const r = (await xapi()['suggestTitles']!({ source, idea: ideaIn.value, language, keyword: keywordIn.value.trim() || undefined, harness: ai.harness(), model: ai.model() })) as {
+        label: string; pattern: string; structure: { summary: string };
+        titles: Array<{ title: string; type: string; formula?: string; why?: string; thumbText?: string; score?: number; verdict?: string; checks?: Array<{ label: string; ok: boolean; detail: string }> }>;
+        finalists?: Array<{ title: string; type: string; formula?: string; why?: string; thumbText?: string; score?: number }>;
+        stats?: { generated: number; approved: number; review: number; rejected: number };
+        niche?: { label: string; titles: number; channels: number; comparison: string[] };
+      };
+      const tagOf = (v?: string) => v === 'aprovado' ? 'done' : v === 'revisar' ? 'running' : 'failed';
+      const s = r.stats;
+      out.replaceChildren(...([
+        h('div', { class: 'card' }, h('strong', {}, `📐 Estrutura de ${r.label}`), h('div', { class: 'muted small' }, r.structure.summary), r.pattern ? h('div', {}, h('strong', {}, 'Esqueleto: '), r.pattern) : null,
+          s ? h('div', { class: 'small', style: 'margin-top:6px' }, h('strong', {}, '🎯 Scorer: '), `${s.generated} gerados · ${s.approved} aprovados (≥80) · ${s.review} em revisão (50–79) · ${s.rejected} reprovados (<50, não aparecem)`) : null,
+          r.niche ? h('details', { class: 'small', style: 'margin-top:4px' }, h('summary', {}, `📚 Benchmark: ${r.niche.titles} títulos de ${r.niche.channels} canais`), ...r.niche.comparison.map((l) => h('div', { class: 'muted small' }, l))) : null),
+        h('div', { class: 'tt-list' }, ...r.titles.map((t) => {
+          const bad = (t.checks ?? []).filter((c) => !c.ok);
+          return h('button', { class: 'tcard tt-item', 'data-title': t.title, title: [t.formula, t.why, ...bad.map((c) => `reprova: ${c.label} (${c.detail})`)].filter(Boolean).join(' — '), onclick: () => { onPick({ title: t.title, thumbText: t.thumbText, pattern: r.pattern || r.structure.summary, source: r.label }); close(); } },
+            h('span', { class: 'row' }, h('strong', { class: 'grow' }, t.title), h('span', { class: `tag ${tagOf(t.verdict)}`, title: bad.map((c) => `${c.label}: ${c.detail}`).join('\n') || 'passa nas seis checagens' }, `${t.score ?? '–'}/100`)),
+            h('span', { class: 'muted small' }, `${t.type} · ${t.title.length} car.${t.thumbText ? ` · thumb: "${t.thumbText}"` : ''}${bad.length ? ` · reprova: ${bad.map((c) => c.label).join(', ')}` : ''}`),
+            t.why ? h('span', { class: 'muted small' }, t.why) : null);
+        })),
+        r.finalists && r.finalists.length >= 2 ? h('div', { class: 'row' }, h('span', { class: 'sp' }),
+          h('button', { id: 'tt-ab', onclick: () => void guard(async () => {
+            const [a, b] = r.finalists!;
+            await xapi()['abCreate']!({ a: { title: a!.title, thumbText: a!.thumbText, score: a!.score }, b: { title: b!.title, thumbText: b!.thumbText, score: b!.score }, channelId: source.kind === 'clone' ? source.id : undefined, channelUrl: source.kind === 'channel' ? source.url : undefined });
+            toast('Teste A/B criado com os 2 melhores');
+            await openAbModal();
+          }) }, '📊 Testar os 2 melhores (A/B)')) : null,
+      ] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
     } catch (e) { out.replaceChildren(h('div', { class: 'tag failed' }, '⛔ ' + (e as Error).message)); }
     finally { go.removeAttribute('disabled'); off?.(); }
   })() }, '💡 Sugerir títulos');
   const bg = h('div', { class: 'modal-bg', id: 'title-modal', onclick: (e) => { if (e.target === bg) close(); } }, h('div', { class: 'modal pmodal' },
     h('div', { class: 'row' }, h('h3', {}, '💡 Títulos no padrão de um canal ou vídeo'), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
-    h('p', { class: 'muted' }, 'Mede a estrutura dos títulos da referência (tamanho, números, perguntas, separadores, palavras recorrentes, os mais vistos) e escreve títulos novos para a sua ideia no mesmo esqueleto — variantes de busca, navegação e híbridas. Clique num título para usar: ele vira o título do vídeo e a estrutura guia o SEO.'),
-    src.el, h('label', {}, 'Ideia do vídeo', ideaIn), ai.el,
-    h('div', { class: 'row actions pfoot' }, h('span', { class: 'sp' }), go), log, out));
+    h('p', { class: 'muted' }, 'Mede a estrutura dos títulos da referência e escreve títulos novos para a sua ideia no mesmo esqueleto. Antes de mostrar, um scorer determinístico de 100 pontos reprova o que não tem gancho, passa de 60 caracteres, repete a thumbnail, copia o canal ou promete o que o roteiro não entrega — acima de 80 vai para a tela, abaixo de 50 nem aparece. Clique num título para usar.'),
+    src.el, h('label', {}, 'Ideia do vídeo', ideaIn), h('label', {}, 'Palavra-chave', keywordIn), ai.el,
+    h('div', { class: 'row actions pfoot' }, h('span', { class: 'sp' }), h('button', { id: 'tt-nb-open', onclick: () => void openNicheModal() }, '📚 Benchmark'), h('button', { id: 'tt-ab-open', onclick: () => void openAbModal() }, '📊 A/B'), go), log, out));
   document.body.append(bg);
 }
 
@@ -678,10 +702,13 @@ async function openThumbModelModal(onDone: (tpl: ThumbnailTemplate) => void) {
       go.setAttribute('disabled', ''); log.textContent = ''; out.replaceChildren(h('div', { class: 'muted' }, '⏳ Baixando as thumbnails e modelando o estilo…'));
       off = craftLog(log);
       const r = (await xapi()['modelThumbnail']!({ source, name: name.value.trim() || undefined, note: note.value.trim() || undefined, harness: ai.harness(), model: ai.model() })) as {
-        template: ThumbnailTemplate; refs: string[]; label: string; brief: { focal?: string; textOverlay?: string; palette?: string[]; composition?: string; mobile?: string; avoid?: string[] }; variants: Array<{ name: string; change: string; hypothesis?: string }> };
+        template: ThumbnailTemplate; refs: string[]; label: string; brief: { focal?: string; textOverlay?: string; palette?: string[]; composition?: string; mobile?: string; avoid?: string[] }; variants: Array<{ name: string; change: string; hypothesis?: string }>;
+        briefScore?: { score: number; verdict: string; checks: Array<{ label: string; ok: boolean; detail: string }> } };
       const b = r.brief;
+      const bs = r.briefScore;
       out.replaceChildren(h('div', { class: 'card svresult' },
         h('strong', {}, `✓ Template "${r.template.name}" criado a partir de ${r.label}`),
+        bs ? h('div', { class: 'row' }, h('span', { class: `tag ${bs.verdict === 'aprovado' ? 'done' : bs.verdict === 'revisar' ? 'running' : 'failed'}`, title: bs.checks.map((c) => `${c.label}: ${c.detail}`).join('\n') }, `Brief ${bs.score}/100`), h('span', { class: 'muted small' }, bs.checks.filter((c) => !c.ok).map((c) => `${c.label} (${c.detail})`).join(' · ') || 'passa no brief')) : null,
         h('div', { class: 'tm-refs' }, ...r.refs.slice(0, 6).map((f) => h('img', { class: 'tsketch', src: forge.mediaUrl(f), alt: '' }))),
         b.focal ? h('div', {}, h('strong', {}, '🎯 Ponto focal: '), b.focal) : null,
         b.textOverlay ? h('div', {}, h('strong', {}, '🔤 Texto: '), b.textOverlay) : null,
@@ -702,6 +729,108 @@ async function openThumbModelModal(onDone: (tpl: ThumbnailTemplate) => void) {
     src.el, h('div', { class: 'row' }, name, note), ai.el,
     h('div', { class: 'row actions pfoot' }, h('span', { class: 'sp' }), go), log, out));
   document.body.append(bg);
+}
+
+interface AbTestView {
+  id: string; createdAt: string; channelId?: string; channelUrl?: string; changes: string[]; baseline?: number; winner?: string; measuredAt?: string;
+  variants: Array<{ key: string; title: string; thumbText?: string; url?: string; views?: number; ratio?: number; score?: number }>;
+}
+interface AbChampionView { title: string; ratio: number; channel?: string; at: string }
+
+/**
+ * O LOOP, FECHADO: o teste A/B fica registrado, é medido por views ÷ mediana do canal
+ * e o vencedor volta ao banco (entra no prompt das próximas sugestões).
+ */
+async function openAbModal() {
+  const out = h('div', { id: 'ab-out' });
+  const close = () => bg.remove();
+  const paint = () => void (async () => {
+    const r = (await guard(() => xapi()['abList']!())) as { tests: AbTestView[]; champions: AbChampionView[] } | undefined;
+    if (!r) return;
+    const champs = r.champions.length ? h('div', { class: 'card' },
+      h('strong', {}, '🏆 Campeões (voltam ao prompt das próximas gerações)'),
+      ...r.champions.map((c) => h('div', { class: 'small' }, `${Math.round(c.ratio * 100)}% da mediana · ${c.title}`))) : null;
+    const cards = r.tests.length ? r.tests.map((t) => {
+      const inputs = t.variants.map((v) => h('input', { class: 'grow', placeholder: `link do vídeo ${v.key}`, value: v.url ?? '' }) as HTMLInputElement);
+      const measure = h('button', { class: 'primary', onclick: () => void guard(async () => {
+        await xapi()['abPatch']!(t.id, { variants: inputs.map((i) => ({ url: i.value.trim() || undefined })) });
+        const m = (await xapi()['abMeasure']!(t.id)) as AbTestView;
+        toast(m.winner === 'empate' ? 'A/B: empate (diferença < 10%)' : `A/B: venceu ${m.winner}`);
+        await paint();
+      }) }, '📏 Medir');
+      return h('div', { class: 'card' },
+        h('div', { class: 'row' }, h('strong', {}, `A/B ${t.id.slice(-5)}`),
+          t.changes.length > 1 ? h('span', { class: 'tag failed' }, `${t.changes.length} variáveis`) : h('span', { class: 'tag done' }, `1 variável: ${t.changes[0] ?? '—'}`),
+          h('span', { class: 'sp' }),
+          t.winner ? h('span', { class: `tag ${t.winner === 'empate' ? 'running' : 'done'}` }, t.winner === 'empate' ? 'empate' : `venceu ${t.winner}`) : null),
+        ...t.variants.map((v, i) => h('div', { class: 'row small' },
+          h('strong', {}, v.key), h('span', { class: 'grow' }, v.title),
+          h('span', { class: 'muted' }, v.views !== undefined ? `${v.views} views · ${Math.round((v.ratio ?? 0) * 100)}%` : 'não medido'), inputs[i]!)),
+        h('div', { class: 'row' }, h('span', { class: 'muted small' }, t.baseline ? `mediana do canal: ${Math.round(t.baseline)} views` : 'sem mediana: cole o link do canal ou as views'), h('span', { class: 'sp' }), measure));
+    }) : [h('div', { class: 'muted' }, 'nenhum teste A/B ainda — sugira títulos e clique em "Testar os 2 melhores".')];
+    out.replaceChildren(...([champs, ...cards].filter(Boolean) as HTMLElement[]));
+  })();
+  const bg = h('div', { class: 'modal-bg', id: 'ab-modal', onclick: (e) => { if (e.target === bg) close(); } }, h('div', { class: 'modal pmodal' },
+    h('div', { class: 'row' }, h('h3', {}, '📊 A/B de títulos'), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
+    h('p', { class: 'muted' }, 'Um teste muda UMA variável. Publique as duas variantes, cole os links e o app mede views ÷ mediana do canal: vencer exige mais de 10% sobre a segunda (senão é empate). O título vencedor volta ao banco e entra no prompt das próximas sugestões.'),
+    out));
+  document.body.append(bg);
+  await paint();
+}
+
+interface NicheCorpusView {
+  id: string; label: string; query?: string; channelUrl?: string; channelId?: string; builtAt: string;
+  channels: Array<{ url?: string; name?: string; titles: number }>;
+  titles: Array<{ title: string; views?: number }>;
+}
+
+/**
+ * BENCHMARK DE NICHO: em vez de 30 títulos de um canal, o corpus do mercado.
+ * Coleta por busca (vários ângulos) + canais que aparecem, acumulando entre execuções.
+ */
+async function openNicheModal() {
+  const query = h('input', { class: 'grow', id: 'nb-query', placeholder: 'Tema do nicho: ex. café especial' }) as HTMLInputElement;
+  const channel = h('input', { class: 'grow', id: 'nb-channel', placeholder: 'Canal de referência (opcional): https://www.youtube.com/@canal' }) as HTMLInputElement;
+  const target = h('input', { id: 'nb-target', type: 'number', min: '60', max: '5000', value: '1000', style: 'width:90px' }) as HTMLInputElement;
+  const maxCh = h('input', { id: 'nb-channels', type: 'number', min: '0', max: '40', value: '12', style: 'width:70px' }) as HTMLInputElement;
+  const log = h('pre', { class: 'pvtext svlog', id: 'nb-log' });
+  const out = h('div', { id: 'nb-out' });
+  const close = () => bg.remove();
+  const tagOf = (n: number) => n >= 300 ? 'done' : 'running';
+  const existing = h('div', { class: 'muted small' });
+  const paintExisting = () => void (async () => {
+    const list = (await guard(() => xapi()['nicheList']!())) as NicheCorpusView[] | undefined;
+    existing.replaceChildren(...(list?.length ? [h('strong', {}, 'Corpora salvos: '), ...list.map((c) => h('span', { class: `tag ${tagOf(c.titles.length)}`, title: `${c.channels.length} canais` }, `${c.label} · ${c.titles.length} títulos`))] : [h('span', {}, 'nenhum corpus ainda')]));
+  })();
+  const go = h('button', { class: 'primary', id: 'nb-go', onclick: () => void (async () => {
+    let off: (() => void) | undefined;
+    try {
+      if (!query.value.trim() && !channel.value.trim()) throw new Error('informe o tema do nicho (ou um canal de referência)');
+      go.setAttribute('disabled', ''); log.textContent = ''; out.replaceChildren(h('div', { class: 'muted' }, '⏳ Buscando o nicho por vários ângulos e abrindo os canais…'));
+      off = craftLog(log);
+      const r = (await xapi()['nicheBuild']!({ query: query.value.trim() || undefined, channelUrl: channel.value.trim() || undefined, target: Number(target.value) || 1000, maxChannels: Number(maxCh.value) || 12 })) as { corpus: NicheCorpusView; structure: { summary: string }; comparison?: string[] };
+      const c = r.corpus;
+      out.replaceChildren(h('div', { class: 'card' },
+        h('div', { class: 'row' }, h('strong', { class: 'grow' }, `📚 ${c.label}`), h('span', { class: `tag ${tagOf(c.titles.length)}` }, `${c.titles.length} títulos · ${c.channels.length} canais`)),
+        h('div', { class: 'muted small' }, r.structure.summary),
+        r.comparison?.length ? h('details', { open: '' }, h('summary', {}, 'Canal × nicho (o que muda)'), ...r.comparison.map((l) => h('div', { class: 'small' }, l))) : null,
+        h('div', { class: 'muted small' }, `canais: ${c.channels.slice(0, 8).map((x) => x.name ?? x.url ?? '?').join(' · ')}${c.channels.length > 8 ? ` +${c.channels.length - 8}` : ''}`),
+        c.titles.length < 300 ? h('div', { class: 'tag running' }, 'amostra pequena — rode de novo para acumular') : null,
+        h('div', { class: 'muted small' }, 'As próximas sugestões de título usam este corpus automaticamente (a estrutura do nicho substitui a do canal quando há 60+ títulos).')));
+      toast(`Benchmark: ${c.titles.length} títulos de ${c.channels.length} canais`);
+      paintExisting();
+    } catch (e) { out.replaceChildren(h('div', { class: 'tag failed' }, '⛔ ' + (e as Error).message)); }
+    finally { go.removeAttribute('disabled'); off?.(); }
+  })() }, '📚 Coletar');
+  const bg = h('div', { class: 'modal-bg', id: 'niche-modal', onclick: (e) => { if (e.target === bg) close(); } }, h('div', { class: 'modal pmodal' },
+    h('div', { class: 'row' }, h('h3', {}, '📚 Benchmark do nicho'), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
+    h('p', { class: 'muted' }, 'Trinta títulos de um canal é anedota; o nicho pede escala. O app busca o tema por vários ângulos (termo exato, como, por que, dicas, erros, 2026…), abre os canais que aparecem e acumula os títulos entre execuções. A estrutura resultante — e a diferença em pontos percentuais contra o seu canal — é a régua usada nas sugestões.'),
+    h('label', {}, 'Tema do nicho', query), h('label', {}, 'Canal de referência', channel),
+    h('div', { class: 'row' }, h('label', {}, 'Meta de títulos', target), h('label', {}, 'Canais a abrir', maxCh)),
+    existing,
+    h('div', { class: 'row actions pfoot' }, h('span', { class: 'sp' }), go), log, out));
+  document.body.append(bg);
+  await paintExisting();
 }
 
 /**
