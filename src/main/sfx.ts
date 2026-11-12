@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Scene, SfxCue } from '../shared/types';
 import * as ff from './ffmpeg';
+import { sceneSeconds as sceneSecondsOf } from './timeline';
 import type { WordTime } from './whisper';
 
 /**
@@ -182,9 +183,8 @@ export async function applySceneSfx(ffmpeg: string, ffprobe: string, sceneDir: s
   const cues = sceneCues(scene, sceneDir);
   if (!cues.length) { fs.rmSync(out, { force: true }); return 'sem efeitos'; }
   const adir = path.join(sceneDir, 'audio');
-  const narr = fs.existsSync(adir) ? fs.readdirSync(adir).find((x) => x.startsWith('narration.') && !x.includes('.trim')) : undefined;
-  const d = narr ? await ff.duration(ffprobe, path.join(adir, narr)) : 0;
-  const seconds = scene.manualDuration && scene.durationSec ? scene.durationSec : d > 0.2 ? d + 0.15 : scene.durationSec ?? 4;
+  /* a mesma duração da montagem e da legenda (um relógio só) */
+  const seconds = await sceneSecondsOf(ffprobe, scene, sceneDir);
   let words: WordTime[] = [];
   try { words = (JSON.parse(fs.readFileSync(path.join(adir, 'words.json'), 'utf8')) as { words?: WordTime[] }).words ?? []; } catch { /* sem transcrição */ }
   const times = cueTimes(cues, seconds, words);

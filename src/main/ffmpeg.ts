@@ -425,30 +425,55 @@ export function subtitleWords(items: Array<{ scene: Scene; seconds: number; word
 }
 
 /**
- * Tempos de cada palavra do texto a partir das palavras do Whisper: casa pela grafia (sem acento/pontuação, olhando
- * até 4 adiante) e interpola as que não casam entre as vizinhas. Sempre crescente, dentro de [0, seconds]. Função pura.
+ * Tempos de cada palavra do texto a partir das palavras do Whisper, por alinhamento
+ * forçado monótono (LCS/DP) sobre o roteiro: "3" casa com "três", flexão casa por
+ * prefixo e nenhuma palavra é inventada — só as realmente ausentes no áudio são
+ * interpoladas entre as vizinhas casadas. Sempre crescente, dentro de [0, seconds].
+ * Função pura.
  */
 export function alignWords(text: string[], tw: SubWord[], seconds: number): Array<{ start: number; end: number }> {
   const n = text.length, out: Array<{ start: number; end: number } | undefined> = Array(n).fill(undefined);
   if (!n) return [];
   if (!tw.length) { const per = seconds / n; return text.map((_, i) => ({ start: i * per, end: (i + 1) * per })); }
-  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-  let j = 0;
-  text.forEach((w, i) => {
-    const k = norm(w);
-    for (let d = 0; d < 5 && j + d < tw.length; d++) if (k && norm(tw[j + d]!.w) === k) { out[i] = { start: tw[j + d]!.start, end: tw[j + d]!.end }; j += d + 1; return; }
-  });
-  /* sem nenhuma palavra casada: proporção pela contagem */
-  if (!out.some(Boolean)) text.forEach((_, i) => { const a = tw[Math.min(tw.length - 1, Math.floor((i * tw.length) / n))]!; out[i] = { start: a.start, end: a.end }; });
-  /* lacunas: divide o intervalo entre as vizinhas casadas */
-  for (let i = 0; i < n;) {
-    if (out[i]) { i++; continue; }
-    let e = i; while (e < n && !out[e]) e++;
-    const from = i > 0 ? out[i - 1]!.end : Math.max(0, (out[e]?.start ?? seconds) - 0.4 * (e - i));
-    const to = e < n ? out[e]!.start : Math.min(seconds, from + 0.4 * (e - i));
-    const per = Math.max(0.05, (to - from) / (e - i));
-    for (let k = i; k < e; k++) out[k] = { start: from + (k - i) * per, end: from + (k - i + 1) * per };
-    i = e;
+  /* DP monótono: casa o máximo de palavras na ordem em que foram faladas */
+  const score: number[][] = Array.from({ length: n }, () => new Array<number>(tw.length).fill(0));
+  const dp: Float64Array[] = Array.from({ length: n + 1 }, () => new Float64Array(tw.length + 1));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= tw.length; j++) {
+      const s = wordScore(text[i - 1]!, tw[j - 1]!.w);
+      score[i - 1]![j - 1] = s;
+      dp[i]![j] = Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!, s > 0 ? dp[i - 1]![j - 1]! + s : -Infinity);
+    }
+  }
+  let i = n, j = tw.length;
+  while (i > 0 && j > 0) {
+    const s = score[i - 1]![j - 1]!;
+    if (s > 0 && Math.abs(dp[i]![j]! - (dp[i - 1]![j - 1]! + s)) < 1e-9) {
+      out[i - 1] = { start: tw[j - 1]!.start, end: tw[j - 1]!.end };
+      i--; j--;
+    } else if (dp[i - 1]![j]! >= dp[i]![j - 1]!) i--;
+    else j--;
+  }
+  /* sem nenhuma palavra casada: proporção pelo intervalo coberto pelo ASR */
+  if (!out.some(Boolean)) {
+    const from = tw[0]!.start, to = tw[tw.length - 1]!.end;
+    const per = (to - from) / n;
+    text.forEach((_, k) => { out[k] = { start: from + k * per, end: from + (k + 1) * per }; });
+  }
+  /* lacunas: só as palavras que o ASR não falou — divide o intervalo pelas letras */
+  for (let k = 0; k < n;) {
+    if (out[k]) { k++; continue; }
+    let e = k; while (e < n && !out[e]) e++;
+    const from = k > 0 ? out[k - 1]!.end : Math.max(0, (out[e]?.start ?? seconds) - 0.35 * (e - k));
+    const to = e < n ? out[e]!.start : Math.min(seconds, from + 0.35 * (e - k));
+    const weights = text.slice(k, e).map((w) => Math.max(1, w.length));
+    const total = weights.reduce((a, x) => a + x, 0) || 1;
+    let acc = 0;
+    for (let q = k; q < e; q++) {
+      const a = from + ((to - from) * acc) / total; acc += weights[q - k]!;
+      out[q] = { start: a, end: from + ((to - from) * acc) / total };
+    }
+    k = e;
   }
   let last = 0;
   return out.map((t) => {
@@ -456,6 +481,54 @@ export function alignWords(text: string[], tw: SubWord[], seconds: number): Arra
     last = start + 0.01;
     return { start, end };
   });
+}
+
+/** Números por extenso (pt) que o ASR devolve em dígitos, ou o contrário. */
+const PT_NUMBERS: Record<string, number> = {
+  zero: 0, um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9,
+  dez: 10, onze: 11, doze: 12, treze: 13, quatorze: 14, catorze: 14, quinze: 15, dezesseis: 16, dezasseis: 16,
+  dezessete: 17, dezassete: 17, dezoito: 18, dezenove: 19, dezanove: 19, vinte: 20, trinta: 30, quarenta: 40,
+  cinquenta: 50, sessenta: 60, setenta: 70, oitenta: 80, noventa: 90, cem: 100, cento: 100, duzentos: 200,
+  trezentos: 300, quatrocentos: 400, quinhentos: 500, seiscentos: 600, setecentos: 700, oitocentos: 800,
+  novecentos: 900, mil: 1000, milhao: 1000000, milhoes: 1000000, bilhao: 1000000000, bilhoes: 1000000000,
+};
+
+const wordKey = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+/** Forma canônica: sem acento/pontuação; dígitos e "três"/"3" viram o mesmo token. */
+function canonical(s: string): string {
+  const k = wordKey(s);
+  if (!k) return '';
+  if (/^\d{1,3}(\.\d{3})+$/.test(k)) return k.replace(/\./g, '');
+  if (/^\d+,\d+$/.test(k)) return k.replace(',', '.');
+  if (PT_NUMBERS[k] !== undefined) return String(PT_NUMBERS[k]);
+  return k;
+}
+
+/** Distância de edição (só para palavras próximas; barata nas palavras curtas). */
+function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  const prev = new Array<number>(b.length + 1).fill(0).map((_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let last = prev[0]!; prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j]!;
+      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, last + (a[i - 1] === b[j - 1] ? 0 : 1));
+      last = tmp;
+    }
+  }
+  return prev[b.length]!;
+}
+
+/** Quanto duas palavras "são a mesma": exata, número, prefixo/flexão ou 1 letra de diferença. */
+function wordScore(a: string, b: string): number {
+  const x = canonical(a), y = canonical(b);
+  if (!x || !y) return 0;
+  if (x === y) return 3;
+  const min = Math.min(x.length, y.length);
+  if (min >= 4 && (x.startsWith(y) || y.startsWith(x))) return 2;
+  if (min >= 5 && editDistance(x, y) <= 1) return 1.5;
+  return 0;
 }
 
 /** Agrupa as palavras em blocos de legenda (máx. N palavras; quebra em pontuação e em pausas). Função pura. */
@@ -470,6 +543,99 @@ export function subtitleCues(words: SubWord[], max: number): SubWord[][] {
   });
   if (cur.length) cues.push(cur);
   return cues;
+}
+
+/**
+ * Regras de exibição (o que o olho nota antes do número): cue de 0,8 s no mínimo,
+ * no máximo 20 caracteres por segundo, 0,08 s de intervalo entre cues, linha de 42
+ * caracteres e no máximo 2 linhas, nunca sobrepostas.
+ */
+export interface CueRules { maxChars: number; maxLines: number; minSeconds: number; gap: number; maxCps: number }
+export const SUBTITLE_RULES: CueRules = { maxChars: 42, maxLines: 2, minSeconds: 0.8, gap: 0.08, maxCps: 20 };
+
+export interface CueBox { words: SubWord[]; text: string; lines: string[]; start: number; end: number }
+
+/** Quebra o texto em linhas de até `maxChars` caracteres, sem cortar palavra. */
+export function wrapCue(text: string, maxChars = SUBTITLE_RULES.maxChars): string[] {
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of text.split(/\s+/).filter(Boolean)) {
+    if (!cur) cur = w;
+    else if ([...cur].length + 1 + [...w].length <= maxChars) cur += ` ${w}`;
+    else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/** Agrupa por pausa (>0,6 s) e pontuação — a mesma quebra de frase da legenda. */
+function groupCues(words: SubWord[]): SubWord[][] {
+  const cues: SubWord[][] = [];
+  let cur: SubWord[] = [];
+  words.forEach((w, i) => {
+    const prev = cur[cur.length - 1];
+    if (cur.length && prev && w.start - prev.end > 0.6) { cues.push(cur); cur = []; }
+    cur.push(w);
+    if (cur.length >= 2 && /[.!?;:]$/.test(w.w) && i < words.length - 1) { cues.push(cur); cur = []; }
+  });
+  if (cur.length) cues.push(cur);
+  return cues;
+}
+
+/** Divide um grupo em cues que caibam em `maxLines` linhas de `maxChars`. */
+function packCues(group: SubWord[], rules: CueRules): SubWord[][] {
+  const cues: SubWord[][] = [];
+  let cur: SubWord[] = [];
+  for (const w of group) {
+    const next = [...cur, w];
+    if (cur.length && wrapCue(next.map((x) => x.w).join(' '), rules.maxChars).length > rules.maxLines) {
+      cues.push(cur); cur = [w];
+    } else cur = next;
+  }
+  if (cur.length) cues.push(cur);
+  return cues;
+}
+
+/**
+ * Tempos de exibição dos cues: duração mínima, intervalo entre cues, sem sobreposição
+ * e CPS dentro do limite (estende a cue no silêncio seguinte quando possível).
+ * Função pura.
+ */
+export function cueWindows(cues: SubWord[][], rules: Partial<CueRules> = {}): Array<{ start: number; end: number }> {
+  const r = { ...SUBTITLE_RULES, ...rules };
+  const out: Array<{ start: number; end: number }> = [];
+  let prevEnd = -Infinity;
+  for (let i = 0; i < cues.length; i++) {
+    const cue = cues[i]!;
+    const natStart = cue[0]!.start, natEnd = cue[cue.length - 1]!.end;
+    const nextNat = cues[i + 1]?.[0]?.start ?? Infinity;
+    const limit = Number.isFinite(nextNat) ? nextNat - r.gap : Infinity;
+    let start = Math.max(natStart, prevEnd + r.gap);
+    let end = Math.min(natEnd + 0.35, limit);
+    if (end < start + r.minSeconds) end = Math.min(limit, Math.max(start + 0.2, start + r.minSeconds));
+    if (end < start + 0.2) end = start + 0.2;
+    /* CPS: o texto precisa de `chars / 20` segundos — usa o silêncio seguinte, sem invadir o próximo cue */
+    const need = cue.map((w) => w.w).join(' ').length / r.maxCps;
+    if (end - start < need) end = Math.min(limit, Math.max(end, start + need));
+    if (end < start + 0.2) end = start + 0.2;
+    prevEnd = end;
+    out.push({ start: +start.toFixed(3), end: +end.toFixed(3) });
+  }
+  return out;
+}
+
+/**
+ * Cues prontos para exibir: texto quebrado em até 2 linhas de 42 caracteres e tempos
+ * que respeitam as regras de exibição. Função pura.
+ */
+export function layoutCues(words: SubWord[], rules: Partial<CueRules> = {}): CueBox[] {
+  const r = { ...SUBTITLE_RULES, ...rules };
+  const cues = groupCues(words).flatMap((g) => packCues(g, r));
+  const times = cueWindows(cues, r);
+  return cues.map((cw, i) => {
+    const text = cw.map((w) => w.w).join(' ');
+    return { words: cw, text, lines: wrapCue(text, r.maxChars), start: times[i]!.start, end: times[i]!.end };
+  });
 }
 
 const assTime = (s: number) => {
@@ -505,14 +671,22 @@ export function buildAss(words: SubWord[], st: SubtitleStyle, size: { w: number;
     }
   })();
   const max = kind === 'word' ? 1 : kind === 'bold' || kind === 'comic' ? 3 : kind === 'highlight' ? 4 : tall ? 4 : 6;
-  const cues = subtitleCues(words, max), lines: string[] = [];
+  /* tipos de bloco seguem as regras de exibição (2 linhas de 42, 0,8 s, 0,08 s de intervalo);
+     os tipos palavra-por-palavra mantêm o tempo de fala de cada palavra */
+  const block = kind === 'classic' || kind === 'box' || kind === 'minimal' || kind === 'slide' || kind === 'comic' || kind === 'neon';
+  const boxes = block ? layoutCues(words) : undefined;
+  const cues = boxes ? boxes.map((b) => b.words) : subtitleCues(words, max);
+  const windows = block ? cueWindows(cues) : undefined;
+  const cueText = (cue: SubWord[], ci: number) => (boxes ? boxes[ci]!.lines.join('\\N') : cue.map((w) => w.w).join(' '));
+  const lines: string[] = [];
   const up = (s: string) => (kind === 'bold' || kind === 'word' || kind === 'highlight' || kind === 'comic' ? s.toUpperCase() : s);
   /* ponto de ancoragem do texto (para \move): centro horizontal, base/topo/meio conforme a posição */
   const ax = Math.round(W / 2), ay = st.position === 'top' ? marginV : st.position === 'middle' ? Math.round(H / 2) : H - marginV;
   const ms = (x: number) => Math.max(0, Math.round(x * 1000));
   cues.forEach((cue, ci) => {
-    const a = cue[0]!.start, next = cues[ci + 1]?.[0]?.start;
-    const b = Math.max(a + 0.25, Math.min(next ?? Infinity, cue[cue.length - 1]!.end + 0.35));
+    const next = cues[ci + 1]?.[0]?.start;
+    const a = windows ? windows[ci]!.start : cue[0]!.start;
+    const b = windows ? windows[ci]!.end : Math.max(a + 0.25, Math.min(next ?? Infinity, cue[cue.length - 1]!.end + 0.35));
     if (kind === 'bold') {
       /* uma linha por palavra falada: o bloco inteiro na tela, a palavra da vez na cor de destaque e um pouco maior */
       let prevEnd = a;
@@ -550,10 +724,10 @@ export function buildAss(words: SubWord[], st: SubtitleStyle, size: { w: number;
       });
       lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${parts.join(' ')}`);
     } else if (kind === 'comic') {
-      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\frz-3\\fscx60\\fscy60\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${assEsc(up(cue.map((w) => w.w).join(' ')))}`);
+      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\frz-3\\fscx60\\fscy60\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${assEsc(up(cueText(cue, ci)))}`);
     } else if (kind === 'slide') {
       const dy = Math.round(H * 0.045);
-      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\move(${ax},${ay + dy},${ax},${ay},0,220)\\fad(180,140)}${assEsc(cue.map((w) => w.w).join(' '))}`);
+      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\move(${ax},${ay + dy},${ax},${ay},0,220)\\fad(180,140)}${assEsc(cueText(cue, ci))}`);
     } else if (kind === 'karaoke') {
       const txt = cue.map((w, wi) => `{\\kf${Math.max(1, Math.round(((wi < cue.length - 1 ? cue[wi + 1]!.start : w.end) - w.start) * 100))}}${assEsc(w.w)}`).join(' ');
       lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${cue[0]!.start > a ? `{\\k${Math.round((cue[0]!.start - a) * 100)}}` : ''}${txt}`);
@@ -561,11 +735,11 @@ export function buildAss(words: SubWord[], st: SubtitleStyle, size: { w: number;
       lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\fscx70\\fscy70\\t(0,90,\\fscx112\\fscy112)\\t(90,160,\\fscx100\\fscy100)}${assEsc(up(cue[0]!.w))}`);
     } else if (kind === 'neon') {
       /* brilho: camada 0 borrada e grossa na cor de destaque; camada 1 = texto nítido com contorno fino */
-      const t = assEsc(cue.map((w) => w.w).join(' '));
+      const t = assEsc(cueText(cue, ci));
       lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\bord${ol(0.22)}\\blur${Math.max(4, Math.round(fs * 0.18))}\\1a&HFF&\\fad(120,120)}${t}`);
       lines.push(`Dialogue: 1,${assTime(a)},${assTime(b)},Main,,0,0,0,,{\\bord${ol(0.04)}\\blur1\\fad(120,120)}${t}`);
     } else {
-      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${kind === 'minimal' ? '{\\fad(150,150)}' : ''}${assEsc(cue.map((w) => w.w).join(' '))}`);
+      lines.push(`Dialogue: 0,${assTime(a)},${assTime(b)},Main,,0,0,0,,${kind === 'minimal' ? '{\\fad(150,150)}' : ''}${assEsc(cueText(cue, ci))}`);
     }
   });
   return `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n` +
@@ -579,12 +753,11 @@ export async function burnAss(ffmpeg: string, video: string, ass: string, out: s
 }
 
 /** .srt com os mesmos blocos do .ass (para YouTube e players): usa os tempos das palavras quando houver. */
-export function writeSrtFromWords(file: string, words: SubWord[], max = 6) {
-  const cues = subtitleCues(words, max);
-  const out = cues.map((cue, i) => {
-    const a = cue[0]!.start, b = Math.max(a + 0.25, Math.min(cues[i + 1]?.[0]?.start ?? Infinity, cue[cue.length - 1]!.end + 0.35));
-    return `${i + 1}\n${ts(a)} --> ${ts(b)}\n${cue.map((w) => w.w).join(' ')}\n`;
-  }).join('\n');
+export function writeSrtFromWords(file: string, words: SubWord[], _max = 6) {
+  /* as regras de exibição valem para o arquivo que o player mostra: 2 linhas de 42,
+     0,8 s por cue, 0,08 s entre cues, sem sobreposição e CPS ≤ 20 */
+  const cues = layoutCues(words);
+  const out = cues.map((cue, i) => `${i + 1}\n${ts(cue.start)} --> ${ts(cue.end)}\n${cue.lines.join('\n')}\n`).join('\n');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, out + '\n');
 }

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Project } from '../shared/types';
+import { readTimeline } from './timeline';
 
 /*
  * Pasta "publicar" do vídeo: tudo pronto para subir no YouTube/TikTok/Instagram sem abrir JSON —
@@ -130,8 +131,12 @@ export function writePublishKit(projectDir: string, p: Project, durationSec?: nu
   if (thumb) { const t = path.join(dir, `${base} - thumbnail${path.extname(thumb)}`); fs.copyFileSync(thumb, t); files.push(t); }
   const srt = path.join(out, 'subtitles.srt');
   if (fs.existsSync(srt)) { const t = path.join(dir, 'legendas.srt'); fs.copyFileSync(srt, t); files.push(t); }
-  /* tempos reais das cenas (ajustados à duração do vídeo final, que soma as cenas montadas) */
-  const sc = (p.scenes ?? []).map((x) => ({ title: x.title, seconds: Math.max(0.5, x.durationSec ?? 4) }));
+  /* tempos reais das cenas: a MESMA timeline da montagem e das legendas (out/timeline.json);
+     sem timeline (projeto antigo), soma as durações do projeto e ajusta ao final.mp4 */
+  const saved = readTimeline(projectDir);
+  const sc = saved && saved.scenes.length === (p.scenes ?? []).length
+    ? saved.scenes.map((t) => ({ title: t.title, seconds: Math.max(0.5, t.seconds) }))
+    : (p.scenes ?? []).map((x) => ({ title: x.title, seconds: Math.max(0.5, x.durationSec ?? 4) }));
   const sum = sc.reduce((q, x) => q + x.seconds, 0), k = durationSec && sum > 0 && Math.abs(durationSec / sum - 1) < 0.05 ? durationSec / sum : 1;
   for (const [name, text] of Object.entries(publishTexts(p, meta, durationSec, sc.map((x) => ({ ...x, seconds: x.seconds * k }))))) { const f = path.join(dir, name); fs.writeFileSync(f, '﻿' + text, 'utf8'); files.push(f); }
   return { dir, video, files };

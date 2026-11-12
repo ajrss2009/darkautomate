@@ -63,6 +63,7 @@ import { APP_NAME } from '../shared/brand';
 import * as tle from './timeline-edit';
 import { exportForEditor } from './nle-export';
 import { writePublishKit } from './publish-kit';
+import { sceneSeconds as sceneSecondsOf } from './timeline';
 import { autoFrameTime, bestFrameTime, grabFrame, projectThumbDesign, renderThumb, thumbSize, thumbText } from './thumb-render';
 import type { ThumbDesign } from '../shared/thumbdesign';
 import { LANGUAGE_KINDS, extractJson, fitSceneSfx, llmJson, rewriteScenes, translateProject } from './editor';
@@ -2017,12 +2018,9 @@ function registerIpc() {
   const realLen = async (p: Project, sceneId: string) => {
     const sc = p.scenes.find((x) => x.id === sceneId);
     if (!sc || sc.manualDuration) return;
-    const dir = path.join(projectDirOf(settings, p.id), 'scenes', sc.id, 'audio');
-    const a = fs.existsSync(dir) ? fs.readdirSync(dir).find((x) => x.startsWith('narration.') && !x.includes('.trim')) : undefined;
-    const d = a ? await ff.duration(settings.ffprobe, path.join(dir, a)).catch(() => 0) : 0;
-    /* áudio do próprio clipe H3: a cena dura o clipe inteiro (sem a folga de 0,15 s) */
-    const fromVideo = fs.existsSync(path.join(dir, '.from-video'));
-    if (d > 0.2) sc.durationSec = Math.round((fromVideo ? d : d + 0.15) * 1000) / 1000;
+    /* mesma regra de duração da montagem, da legenda e dos capítulos */
+    const d = await sceneSecondsOf(settings.ffprobe, sc, path.join(projectDirOf(settings, p.id), 'scenes', sc.id));
+    if (d > 0.2) sc.durationSec = Math.round(d * 1000) / 1000;
   };
   h('scene:trim', async (id: string, sceneId: string, o: { cutStart?: number; cutEnd?: number }) => {
     idle(id); const p = ops.readProject(settings, id);

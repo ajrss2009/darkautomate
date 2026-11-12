@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Transcreve um áudio com faster-whisper e grava palavras com tempo.
-Uso: python whisper_words.py AUDIO OUT.json [--model small] [--device auto] [--language pt]
+Uso: python whisper_words.py AUDIO OUT.json [--model small] [--device auto] [--language pt] [--no-vad] [--prompt "texto do roteiro"]
 Requer: pip install faster-whisper"""
 import argparse, json, sys
 
@@ -20,6 +20,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("audio"); ap.add_argument("out")
     ap.add_argument("--model", default="small"); ap.add_argument("--device", default="auto"); ap.add_argument("--language", default=None)
+    # --no-vad: o filtro de silêncio do faster-whisper corta pausas e desloca os tempos do
+    # arquivo original. Com ele desligado, o tempo das palavras é o tempo do áudio que vai ao ar.
+    ap.add_argument("--no-vad", action="store_true")
+    # --prompt: o roteiro como texto inicial (grafia, pontuação e nomes do texto, não do ASR).
+    ap.add_argument("--prompt", default=None)
     a = ap.parse_args()
     try:
         from faster_whisper import WhisperModel
@@ -31,13 +36,23 @@ def main():
     compute = "int8" if device == "cpu" else "default"
     model = WhisperModel(a.model, device=device, compute_type=compute)
     lang = (a.language or "").split("-")[0] or None
-    segs, info = model.transcribe(a.audio, word_timestamps=True, language=lang, vad_filter=True)
+    prompt = (a.prompt or "").strip() or None
+    segs, info = model.transcribe(
+        a.audio,
+        word_timestamps=True,
+        language=lang,
+        vad_filter=not a.no_vad,
+        initial_prompt=prompt,
+        condition_on_previous_text=prompt is None,
+    )
     words, text = [], []
     for s in segs:
         text.append(s.text.strip())
         for w in (s.words or []):
             words.append({"w": w.word.strip(), "start": round(w.start, 3), "end": round(w.end, 3)})
-    json.dump({"language": info.language, "text": " ".join(text), "words": words, "source": "faster-whisper"}, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump({"language": info.language, "text": " ".join(text), "words": words,
+               "source": "faster-whisper", "vad": not a.no_vad, "prompt": bool(prompt)},
+              open(a.out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return 0
 
 if __name__ == "__main__":

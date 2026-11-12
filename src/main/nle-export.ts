@@ -5,6 +5,7 @@ import * as ff from './ffmpeg';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { projectDirOf } from './settings';
 import { sceneAudio, sceneVisual } from './executors';
+import { sceneSeconds as sceneSecondsOf } from './timeline';
 import { readWords, wordsPath } from './whisper';
 
 /*
@@ -50,13 +51,10 @@ export function fcpXml(name: string, size: { w: number; h: number }, t: Timeline
     `<audio>\n${aTracks}\n</audio></media></sequence>\n</xmeml>\n`;
 }
 
-/** Duração de cada cena na montagem (mesma regra do "assemble", sem transições). */
+/** Duração de cada cena na montagem: a mesma regra da timeline (um relógio só). */
 async function lenOf(s: Settings, p: Project, i: number): Promise<number> {
   const sc = p.scenes[i]!;
-  if (sc.manualDuration && sc.durationSec) return sc.durationSec;
-  const a = sceneAudio(path.join(projectDirOf(s, p.id), 'scenes', sc.id));
-  const d = a ? await ff.duration(s.ffprobe, a).catch(() => 0) : 0;
-  return d > 0.2 ? d + 0.15 : sc.durationSec ?? 4;
+  return sceneSecondsOf(s.ffprobe, sc, path.join(projectDirOf(s, p.id), 'scenes', sc.id));
 }
 
 /** Áudio de cada cena colado no tempo da timeline (silêncio onde não há), um arquivo só do tamanho do vídeo. */

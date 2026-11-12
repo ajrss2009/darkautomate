@@ -3,8 +3,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { ApiBinding, Aspect, Binding, ComfyBinding, FlowBinding, HarnessBinding, HarnessConfig, ReasoningEffort, Scene, SceneEffects, StockBinding, Wan2gpBinding } from '../shared/types';
+import type { ApiBinding, ApiCategory, Aspect, Binding, ComfyBinding, FlowBinding, HarnessBinding, HarnessConfig, ReasoningEffort, Scene, SceneEffects, StockBinding, Wan2gpBinding } from '../shared/types';
 import { termsText } from '../shared/types';
+import { resolveApiModel } from '../shared/api-models';
 import type { ExecContext, ExecResult, Executor } from './engine';
 import { isHttpHarness, resolveHarness, runHarness } from './harness';
 import { ComfyClient, applyVariables, collectOutputs, isUiFormat, placeholders } from './comfyui';
@@ -17,7 +18,9 @@ import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
 import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
 import { fetchForScene } from './stock';
 import { orderStockSources } from '../shared/stock-sources';
-import { estimateWords, readWords, transcribe, wordsPath, type WordTime } from './whisper';
+import { cutWords, estimateWords, readWords, stampWords, transcribe, wordsFresh, wordsPath, type WordTime } from './whisper';
+import { buildNarrationStem, ensureTimeline, narrationAudio, sceneSeconds as sceneSecondsOf } from './timeline';
+import { checkSync, snapSceneWords, speechSegments, syncQaLine, type Segment } from './subtitle-qa';
 import { getVideoType } from './presets';
 import { ensureWhisper } from './whisper-install';
 import { agyEnvForProject, DEFAULT_FLOW_URL, ensureFlowBrowser, flowAccount, flowProjectOf, setFlowProject } from './automations';
@@ -34,7 +37,7 @@ import { contractProblem, smallModelBudget } from './contract';
 import { voiceAccepted } from '../shared/voices';
 import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt } from './cast';
-import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Mode, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
+import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Language, h3Mode, h3SpokenText, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
 import { styleNegative } from './style-ref';
 import { inScene } from './characters';
 import { projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
@@ -110,6 +113,9 @@ async function trimNarration(c: ExecContext, file: string): Promise<string> {
     if (fs.existsSync(tmp) && fs.statSync(tmp).size > 0) {
       try { fs.renameSync(tmp, file); }
       catch { fs.copyFileSync(tmp, file); fs.rmSync(tmp, { force: true }); }
+      /* o áudio mudou: os tempos das palavras e a timeline medidos no arquivo antigo não valem mais */
+      fs.rmSync(path.join(path.dirname(file), 'words.json'), { force: true });
+      fs.rmSync(path.join(c.projectDir, 'out', 'timeline.json'), { force: true });
     }
   } catch (e) { c.log(`silence-trim ignorado: ${(e as Error).message}`); fs.rmSync(tmp, { force: true }); }
   return file;
@@ -593,15 +599,23 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
   }
 };
 
-const apiExec = (_o: ExecutorOptions): Executor => async (c) => {
+const apiExec = (o: ExecutorOptions): Executor => async (c) => {
   const b = c.binding as ApiBinding;
   const p = c.settings.providers.find((x) => x.id === b.provider);
   if (!p) throw new Error(`provider "${b.provider}" não configurado (Configurações → providers)`);
   if (!p.apiKey && (/openai\.com/.test(p.baseUrl) || p.kind !== 'openai')) throw new Error(`provider "${p.id}" sem chave de API`);
   const file = primaryFile(c.step.kind, c);
   const k = c.step.kind;
+  /* modelo padrão do provedor (Configurações → APIs): usado quando a etapa não escolhe um modelo */
+  const cat: ApiCategory = k === 'image' || k === 'thumbnail' ? 'image'
+    : k === 'video' ? 'video'
+      : k === 'narration' ? 'voice'
+        : k === 'music' ? 'music' : 'text';
+  const model = resolveApiModel(p, cat, b.model);
+  if (!model) throw new Error(`provider "${p.id}" sem modelo para ${cat} — carregue um modelo ou defina o "Modelo padrão" em Configurações → APIs`);
+  if (!b.model && model) c.log(`modelo da API: ${model} (padrão do provedor para ${cat})`);
   if (TEXT_KINDS.includes(k)) {
-    const text = await prov.chat(p, b.model, buildPrompt(c), c.signal);
+    const text = await prov.chat(p, model, buildPrompt(c), c.signal);
     ensureDir(file);
     fs.writeFileSync(file, k === 'script' || k === 'asset_design' ? text : prov.stripFences(text));
     validateText(k, file);
@@ -611,34 +625,38 @@ const apiExec = (_o: ExecutorOptions): Executor => async (c) => {
     const aspect = c.project.aspect;      // thumbnail no formato do projeto (capa 9:16 nos shorts)
     const prompt = k === 'thumbnail' ? thumbnailPrompt(c) : visualPrompt(c);
     if (p.kind === 'snapgen') {
-      await prov.snapgenImage(p, b.model, prompt, { aspect, resolution: '1K', dest: file, signal: c.signal, log: c.log });
+      await prov.snapgenImage(p, model, prompt, { aspect, resolution: '1K', dest: file, signal: c.signal, log: c.log });
       return { files: [file] };
     }
     const { w, h } = ff.resolution(aspect);
     const size = w === h ? '1024x1024' : h > w ? '1024x1536' : '1536x1024';
-    await prov.image(p, b.model, prompt, size, file, c.signal);
+    await prov.image(p, model, prompt, size, file, c.signal);
     return { files: [file] };
   }
   if (k === 'video' && p.kind === 'snapgen') {
     const img = c.scene?.artifacts['image']?.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
-    await prov.snapgenVideo(p, b.model, visualPrompt(c), { imagePath: img, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
+    /* Muse/Meta AI fala: a linha entra no prompt e a voz sai no próprio clipe (sem TTS) */
+    const museTalk = /^(meta-ai|muse)/i.test(model) && !!c.scene?.narration?.trim();
+    const prompt = museTalk ? museSpeechPrompt(c) : visualPrompt(c);
+    await prov.snapgenVideo(p, model, prompt, { imagePath: img, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
+    if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
     return { files: [file] };
   }
   if (k === 'video' && p.kind === 'seedance') {
     const img = c.scene?.artifacts['image']?.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
-    await prov.seedanceVideo(p, b.model, visualPrompt(c), { imagePath: img, seconds: clamp(c.scene?.durationSec ?? 5, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
+    await prov.seedanceVideo(p, model, visualPrompt(c), { imagePath: img, seconds: clamp(c.scene?.durationSec ?? 5, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
     return { files: [file] };
   }
   if (k === 'narration' && c.scene) {
     const member = castFor(c.project, c.scene.speaker);
     /* voz do projeto só se o provedor a oferece (nomes de voz mudam entre OpenAI e Gemini) */
-    const projVoice = c.project.narrationVoice?.apiVoice && voiceAccepted(p.kind, b.model, p.voices, c.project.narrationVoice.apiVoice) ? c.project.narrationVoice.apiVoice : undefined;
+    const projVoice = c.project.narrationVoice?.apiVoice && voiceAccepted(p.kind, model, p.voices, c.project.narrationVoice.apiVoice) ? c.project.narrationVoice.apiVoice : undefined;
     const castVoice = member ? castApiVoice(p.kind, c.project.cast ?? [], member) : undefined;
-    const memberVoice = castVoice && voiceAccepted(p.kind, b.model, p.voices, castVoice) ? castVoice : undefined;
+    const memberVoice = castVoice && voiceAccepted(p.kind, model, p.voices, castVoice) ? castVoice : undefined;
     const voice = memberVoice || projVoice || b.voice || (p.kind === 'gemini' ? 'Kore' : p.kind === 'fish' ? '' : 'alloy');
     if (memberVoice) c.log(`voz de ${member!.speaker}: ${voice}`);
     if (p.kind === 'fish' && !voice) c.log('Fish Audio: nenhuma voz escolhida — usando a voz padrão da conta (escolha a voz na etapa de narração)');
-    const written = await prov.tts(p, b.model, voice, c.scene.narration, file, c.signal, narrationInstructions(c.project, c.scene));
+    const written = await prov.tts(p, model, voice, c.scene.narration, file, c.signal, narrationInstructions(c.project, c.scene));
     /* Gemini grava .wav: remove narrações antigas com outra extensão para a cena não ter duas */
     if (written !== file) try { fs.rmSync(file, { force: true }); } catch { /* ok */ }
     await trimNarration(c, written);
@@ -965,9 +983,13 @@ async function keepVideoSpeech(c: ExecContext, video: string, toolsDir?: string)
     await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', video, '-vn', '-ac', '2', '-ar', '44100', out], c.signal);
     if (!fs.existsSync(out) || fs.statSync(out).size < 2000) throw new Error('clipe sem áudio');
     for (const f of fs.readdirSync(dir)) if (f.startsWith('narration.') && f !== 'narration.wav') fs.rmSync(path.join(dir, f), { force: true });
+    /* marca que o áudio veio do clipe: a cena usa a duração exata do vídeo (sem a folga de 0,15 s,
+       que fazia o clipe repetir o começo no fim) */
+    fs.writeFileSync(path.join(dir, '.from-video'), '1');
     c.log('MiniMax H3: a fala do vídeo virou a narração da cena');
-  } catch (e) { fs.rmSync(out, { force: true }); c.log(`MiniMax H3: não deu para usar o áudio do vídeo (${(e as Error).message.slice(0, 120)}) — a cena será narrada por TTS`); return; }
-  /* fala curta num clipe de 5 s: o H3 inventa fala antes/depois — o Whisper acha a fala esperada e a cena é cortada nela */
+  } catch (e) { fs.rmSync(out, { force: true }); fs.rmSync(path.join(dir, '.from-video'), { force: true }); c.log(`MiniMax H3: não deu para usar o áudio do vídeo (${(e as Error).message.slice(0, 120)}) — a cena será narrada por TTS`); return; }
+  /* fala curta num clipe de 5 s: o H3 inventa fala antes/depois — o Whisper acha a fala esperada
+     e o resto do áudio é silenciado. A duração do clipe NÃO muda (antes o corte encolhia a cena). */
   if (!c.scene?.narration?.trim() || !toolsDir) return;
   try {
     const cfg = c.settings.whisper ?? { python: 'python', model: 'small', device: 'cpu' };
@@ -976,16 +998,66 @@ async function keepVideoSpeech(c: ExecContext, video: string, toolsDir?: string)
     const win = speechWindow(w.words, c.scene.narration);
     if (!win || total <= 0) { c.log(`MiniMax H3: a fala esperada não foi reconhecida no áudio ("${w.text.slice(0, 80)}") — cena mantida inteira`); return; }
     const from = Math.max(0, win.start - 0.35), to = Math.min(total, win.end + 0.5);
-    if (from < 0.25 && total - to < 0.4) return;   // a fala já ocupa o clipe
-    const tmp = `${video}.cut.mp4`;
-    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-ss', from.toFixed(3), '-i', video, '-t', (to - from).toFixed(3), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', tmp], c.signal);
+    if (from < 0.25 && total - to < 0.4) { c.log('MiniMax H3: a fala já ocupa o clipe — áudio mantido'); return; }
+    /* mantém a janela da fala esperada e preenche o resto com silêncio, sem mexer na duração do vídeo */
+    const ms = Math.round(from * 1000);
+    const pad = Math.max(0, total - to);
+    const af = [
+      `atrim=start=${from.toFixed(3)}:end=${to.toFixed(3)}`, 'asetpts=PTS-STARTPTS',
+      ...(ms > 0 ? [`adelay=${ms}|${ms}`] : []),
+      ...(pad > 0.001 ? [`apad=pad_dur=${pad.toFixed(3)}`] : []),
+    ].join(',');
+    const clean = `${out}.clean.wav`;
+    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', out, '-af', af, '-ac', '2', '-ar', '44100', clean], c.signal);
+    fs.copyFileSync(clean, out); fs.rmSync(clean, { force: true });
+    /* o áudio embutido no clipe também perde a fala inventada (o vídeo continua com a mesma duração) */
+    const tmp = `${video}.audio.mp4`;
+    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', video, '-i', out, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-shortest', tmp], c.signal);
     fs.copyFileSync(tmp, video); fs.rmSync(tmp, { force: true });
-    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', video, '-vn', '-ac', '2', '-ar', '44100', out], c.signal);
-    /* tempos das palavras no novo início (as legendas usam) — só as palavras da fala esperada */
-    const kept = w.words.filter((x) => x.start >= from - 0.01 && x.end <= to + 0.01).map((x) => ({ ...x, start: Math.max(0, x.start - from), end: Math.max(0, x.end - from) }));
+    /* tempos das palavras (as legendas usam) — a fala ficou na posição original do clipe, então os tempos não mudam */
+    const kept = w.words.filter((x) => x.start >= from - 0.01 && x.end <= to + 0.01);
     fs.writeFileSync(wordsPath(c.sceneDir), JSON.stringify({ ...w, words: kept, text: kept.map((x) => x.w).join(' ') }, null, 1));
-    c.log(`MiniMax H3: fala "${c.scene.narration.slice(0, 60)}" de ${win.start.toFixed(2)} a ${win.end.toFixed(2)} s — cena cortada para ${(to - from).toFixed(2)} s (sem a fala inventada pelo modelo)`);
-  } catch (e) { c.log(`MiniMax H3: corte pela transcrição indisponível (${(e as Error).message.slice(0, 120)}) — cena mantida inteira`); }
+    c.log(`MiniMax H3: fala "${c.scene.narration.slice(0, 60)}" de ${win.start.toFixed(2)} a ${win.end.toFixed(2)} s — clipe mantido em ${total.toFixed(2)} s (resto do áudio em silêncio)`);
+  } catch (e) { c.log(`MiniMax H3: limpeza do áudio pela transcrição indisponível (${(e as Error).message.slice(0, 120)}) — cena mantida inteira`); }
+}
+
+/** Prompt do Muse/Meta AI com a fala: o modelo gera a voz no clipe (10 s), sem TTS. */
+function museSpeechPrompt(c: ExecContext): string {
+  const s = c.scene!;
+  const lang = h3Language(c.project.language);
+  const how = deliveryEnglish(s);
+  return `${visualPrompt(c)}\n\nDialogue — the only spoken words in this video: ${s.speaker ?? 'the narrator'} speaks in ${lang}, in a ${how} tone, and says: "${h3SpokenText(s.narration)}" Lips move naturally with the words; there is no other speech before or after this line.`;
+}
+
+/**
+ * Voz gerada pelo próprio vídeo (Muse/Meta AI): o áudio do clipe vira a narração da cena,
+ * como no MiniMax H3, mas sem silenciar nada (o clipe já traz a ambiência).
+ */
+async function keepVideoAudio(c: ExecContext, video: string, toolsDir?: string, label = 'Muse AI'): Promise<void> {
+  if (!c.sceneDir) return;
+  const dir = path.join(c.sceneDir, 'audio');
+  fs.mkdirSync(dir, { recursive: true });
+  const out = path.join(dir, 'narration.wav');
+  try {
+    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', video, '-vn', '-ac', '2', '-ar', '44100', out], c.signal);
+    if (!fs.existsSync(out) || fs.statSync(out).size < 2000) throw new Error('clipe sem áudio');
+    for (const f of fs.readdirSync(dir)) if (f.startsWith('narration.') && f !== 'narration.wav') fs.rmSync(path.join(dir, f), { force: true });
+    fs.writeFileSync(path.join(dir, '.from-video'), '1');
+    c.log(`${label}: a voz do vídeo virou a narração da cena`);
+  } catch (e) {
+    fs.rmSync(out, { force: true });
+    fs.rmSync(path.join(dir, '.from-video'), { force: true });
+    c.log(`${label}: o vídeo veio sem áudio (${(e as Error).message.slice(0, 120)}) — a cena fica sem fala`);
+    return;
+  }
+  /* tempos das palavras para as legendas (o áudio não é cortado) */
+  if (!c.scene?.narration?.trim() || !toolsDir) return;
+  try {
+    const cfg = c.settings.whisper ?? { python: 'python', model: 'small', device: 'cpu' };
+    const w = await transcribe(cfg, path.join(toolsDir, 'whisper_words.py'), out, wordsPath(c.sceneDir), c.project.language, c.signal);
+    fs.writeFileSync(wordsPath(c.sceneDir), JSON.stringify(w, null, 1));
+    c.log(`${label}: palavras do áudio para as legendas (${w.words.length})`);
+  } catch (e) { c.log(`${label}: tempos das palavras indisponíveis (${(e as Error).message.slice(0, 100)})`); }
 }
 
 /** Efeitos gerados por IA viram scenes/<id>/audio/sfx.wav (estéreo 44,1 kHz, no tamanho da cena) — o formato que a montagem mistura. */
@@ -1133,16 +1205,11 @@ export function autoMotion(s: Scene, params: Record<string, unknown>): SceneEffe
   return Object.keys(e).length ? e : undefined;
 }
 
-export function sceneAudio(sceneDir: string): string | undefined {  const dir = path.join(sceneDir, 'audio');
-  if (!fs.existsSync(dir)) return undefined;
-  const f = fs.readdirSync(dir).find((x) => x.startsWith('narration.') && !x.includes('.trim'));
-  return f ? path.join(dir, f) : undefined;
-}
+/** Narração da cena (definida em `timeline.ts`: um só lugar para o relógio e o áudio). */
+export const sceneAudio = narrationAudio;
+/** Duração da cena: sempre a regra da timeline (montagem, legenda, capítulos e thumb leem o mesmo número). */
 async function sceneSeconds(c: ExecContext, s: Scene, dir: string): Promise<number> {
-  if (s.manualDuration && s.durationSec) return s.durationSec;
-  const a = sceneAudio(dir);
-  const d = a ? await ff.duration(c.settings.ffprobe, a) : 0;
-  return d > 0.2 ? d + 0.15 : s.durationSec ?? 4;
+  return sceneSecondsOf(c.settings.ffprobe, s, dir);
 }
 
 const FALLBACK_16BIT_HTML = String.raw`<!doctype html>
@@ -1715,9 +1782,11 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     if (tool === 'whisper') {
       const script = path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'whisper_words.py');
       let cfg = c.settings.whisper ?? { python: 'python', model: 'small', device: 'cpu' };
+      const prompt = (c.scene.subtitle?.trim() || c.scene.narration || '').trim();
       let w;
       try {
-        w = await transcribe(cfg, script, audio, out, c.project.language, c.signal);
+        /* sem VAD e com o roteiro como prompt: o tempo é o do áudio e a grafia vem do texto */
+        w = await transcribe(cfg, script, audio, out, c.project.language, c.signal, { prompt, noVad: true });
       } catch (e) {
         const msg = (e as Error).message;
         /* primeira execução sem faster-whisper: instala num venv isolado e tenta de novo */
@@ -1725,9 +1794,12 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
         c.log(`Whisper indisponível (${msg.slice(0, 140)}) → instalando faster-whisper…`);
         const inst = await ensureWhisper(c.settings, { log: c.log, signal: c.signal });
         cfg = { ...cfg, python: inst.python, device: 'cpu' };
-        w = await transcribe(cfg, script, audio, out, c.project.language, c.signal);
+        w = await transcribe(cfg, script, audio, out, c.project.language, c.signal, { prompt, noVad: true });
       }
-      c.log(`whisper: ${w.words.length} palavras`);
+      /* grava com a marca do áudio: se a narração mudar, o arquivo é inválido */
+      const stamped = stampWords(w, audio, await ff.duration(c.settings.ffprobe, audio));
+      fs.writeFileSync(out, JSON.stringify(stamped, null, 1));
+      c.log(`whisper: ${w.words.length} palavras (sem VAD, roteiro como prompt)`);
     } else {
       const dur = await ff.duration(c.settings.ffprobe, audio);
       fs.writeFileSync(out, JSON.stringify(estimateWords(c.scene.narration, dur > 0 ? dur : c.scene.durationSec ?? 4), null, 1));
@@ -1742,10 +1814,76 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       c.log('legendas desligadas neste projeto (ligue no editor, cartão "Legendas", e use "Renderizar final")');
       return { files: [] };
     }
+    /* UM RELÓGIO SÓ: a duração de cada cena vem da timeline (a mesma que a montagem usa) */
+    const timeline = await ensureTimeline(c.settings, c.projectDir, c.project);
+    const pairs = timeline.scenes
+      .map((ts) => ({ ts, scene: scenes.find((s) => s.id === ts.id) }))
+      .filter((x): x is { ts: typeof timeline.scenes[number]; scene: Scene } => !!x.scene);
     const items: Array<{ scene: Scene; seconds: number; words?: ff.SubWord[] }> = [];
-    for (const s of scenes) items.push({ scene: s, seconds: await sceneSeconds(c, s, dirOf(s)), words: readWords(wordsPath(dirOf(s)))?.words });
+    if (isLyricVideo(c.project)) {
+      for (const { ts, scene } of pairs) items.push({ scene, seconds: ts.seconds });
+      const file = primaryFile('subtitles', c);
+      ff.writeSrt(file, items);
+      return { files: [file] };
+    }
+    /* WHISPER NO STEM FINAL: transcreve a narração concatenada (a mesma que entra no vídeo)
+       uma vez, sem VAD e com o roteiro como prompt, e recorta as palavras por cena pela timeline.
+       O stem também é o áudio do QA de sincronia. */
+    const byScene = new Map<string, ff.SubWord[]>();
+    let stem: string | undefined;
+    let segs: Segment[] = [];
+    if (pairs.some(({ ts }) => ts.audio)) {
+      try {
+        stem = await buildNarrationStem(c.settings, c.projectDir, c.project, timeline, c.signal);
+        segs = await speechSegments(c.settings.ffmpeg, stem, c.signal);
+      } catch (e) {
+        if (c.signal.aborted) throw e;
+        c.log(`aviso: stem de narração indisponível (${(e as Error).message.slice(0, 140)})`);
+      }
+    }
+    const cfg = c.settings.whisper;
+    const fresh = pairs.length > 0 && pairs.every(({ ts, scene }) => {
+      const dir = dirOf(scene);
+      return wordsFresh(readWords(wordsPath(dir)), sceneAudio(dir), ts.seconds);
+    });
+    if (cfg && stem && pairs.length && !fresh) {
+      try {
+        const script = path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'whisper_words.py');
+        const prompt = pairs.map(({ scene }) => (scene.subtitle?.trim() || scene.narration || '').trim()).filter(Boolean).join('\n');
+        const outFile = path.join(c.outDir, 'narration.stem.words.json');
+        let useCfg = cfg;
+        let w;
+        try {
+          w = await transcribe(useCfg, script, stem, outFile, c.project.language, c.signal, { prompt, noVad: true });
+        } catch (e) {
+          const msg = (e as Error).message;
+          if (useCfg.autoInstall === false || !/faster-whisper|No module|ModuleNotFound|não foi possível executar|ENOENT|python/i.test(msg)) throw e;
+          c.log(`Whisper indisponível (${msg.slice(0, 140)}) → instalando faster-whisper…`);
+          const inst = await ensureWhisper(c.settings, { log: c.log, signal: c.signal });
+          useCfg = { ...useCfg, python: inst.python, device: 'cpu' };
+          w = await transcribe(useCfg, script, stem, outFile, c.project.language, c.signal, { prompt, noVad: true });
+        }
+        for (const { ts, scene } of pairs) {
+          const dir = dirOf(scene);
+          /* recorta pela timeline e ancora o início/fim da cena na fala real do stem */
+          const cut = snapSceneWords(cutWords(w.words, ts.start, ts.start + ts.seconds), segs, ts.start, ts.seconds);
+          byScene.set(ts.id, cut);
+          const target = wordsPath(dir);
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          const data = stampWords({
+            language: w.language, text: (scene.subtitle?.trim() || scene.narration || '').trim(),
+            words: cut, source: 'align', sceneStart: ts.start,
+          }, sceneAudio(dir), ts.seconds);
+          fs.writeFileSync(target, JSON.stringify(data, null, 1));
+        }
+        c.log(`whisper no stem final: ${w.words.length} palavras (sem VAD, roteiro como prompt) · recortadas em ${pairs.length} cena(s) pela timeline`);
+      } catch (e) {
+        if (c.signal.aborted) throw e;
+        c.log(`aviso: whisper no stem falhou (${(e as Error).message.slice(0, 160)}) — usando as palavras por cena`);
+      }
+    }
+    for (const { ts, scene } of pairs) items.push({ scene, seconds: ts.seconds, words: byScene.get(ts.id) ?? readWords(wordsPath(dirOf(scene)))?.words });
     const file = primaryFile('subtitles', c);
-    if (isLyricVideo(c.project)) { ff.writeSrt(file, items); return { files: [file] }; }
     /* tempos reais das palavras (Whisper) quando houver; .ass com o tipo e a posição escolhidos no editor */
     const words = ff.subtitleWords(items);
     const st = c.project.subtitleStyle ?? { burn: false, position: 'bottom' as const, size: 46, color: '#ffffff', box: true };
@@ -1754,6 +1892,17 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     const ass = file.replace(/\.srt$/i, '.ass');
     fs.writeFileSync(ass, ff.buildAss(words, st, size));
     c.log(`legendas: ${words.length} palavras · tipo ${ff.subtitleKind(st)} · ${st.position === 'top' ? 'em cima' : st.position === 'middle' ? 'no meio' : 'embaixo'}`);
+    /* QA DE SINCRONIA: mede o início de cada cue no stem de narração (o áudio que vai ao ar) */
+    if (stem && words.length) {
+      try {
+        const qa = await checkSync(c.settings.ffmpeg, stem, words, timeline, c.outDir, c.signal, segs);
+        c.log(syncQaLine(qa));
+        if (!qa.ok && c.step.params.qaStrict === true) throw new Error(`QA de sincronia reprovado (limite ${qa.limit} s): ${syncQaLine(qa)}`);
+      } catch (e) {
+        if (c.signal.aborted || (e as Error).message.startsWith('QA de sincronia')) throw e;
+        c.log(`aviso: QA de sincronia não medido (${(e as Error).message.slice(0, 140)})`);
+      }
+    }
     return { files: [file, ass] };
   }
   if (tool === 'library-music') {
@@ -1774,13 +1923,15 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
   }
   if (tool === 'assemble') {
     const params = (c.step.params ?? {}) as Record<string, unknown>;
+    /* a montagem lê a MESMA timeline que as legendas, os capítulos e a thumb */
+    const timeline = await ensureTimeline(c.settings, c.projectDir, c.project);
     const segDir = path.join(c.outDir, 'segments');
     try { fs.rmSync(segDir, { recursive: true, force: true }); } catch { /* arquivos imutáveis: sobrescreve com -y */ }
     fs.mkdirSync(segDir, { recursive: true });
     const segs: Array<{ file: string; seconds: number; transition?: SceneEffects['transition']; transitionSec?: number }> = [];
     for (const s of scenes) {
       const dir = dirOf(s);
-      const seconds = await sceneSeconds(c, s, dir);
+      const seconds = timeline.scenes.find((x) => x.id === s.id)?.seconds ?? await sceneSeconds(c, s, dir);
       let visual = sceneVisual(dir, s.kind);
       if (!visual) {
         visual = await fallbackCard(c.settings.ffmpeg, s, c.project.aspect, c.signal);
@@ -2053,12 +2204,13 @@ async function frameThumbnail(c: ExecContext): Promise<ExecResult> {
   const final = primaryFile('edit', c);
   if (!fs.existsSync(final)) throw new Error('final.mp4 ainda não existe');
   const total = await ff.duration(c.settings.ffprobe, final);
-  // quadro do meio da cena visual mais longa (vídeo/imagem), senão 35% do vídeo
-  let t = total * 0.35, acc = 0, best = -1;
-  for (const s of c.project.scenes) {
-    const d = s.durationSec ?? 4;
-    if ((s.kind === 'video' || s.kind === 'image' || s.kind === 'stock') && d > best) { best = d; t = acc + d / 2; }
-    acc += d;
+  // quadro do meio da cena visual mais longa (vídeo/imagem) — nos tempos da timeline, senão 35% do vídeo
+  const timeline = await ensureTimeline(c.settings, c.projectDir, c.project);
+  let t = total * 0.35, best = -1;
+  for (const ts of timeline.scenes) {
+    const s = c.project.scenes.find((x) => x.id === ts.id);
+    if (!s) continue;
+    if ((s.kind === 'video' || s.kind === 'image' || s.kind === 'stock') && ts.seconds > best) { best = ts.seconds; t = ts.start + ts.seconds / 2; }
   }
   t = clamp(t, 0, Math.max(0, total - 0.1));
   let text = c.project.name.split(/\s+/).slice(0, 3).join(' ').toUpperCase();

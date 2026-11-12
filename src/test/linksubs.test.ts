@@ -2,7 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildAss, subtitleCues, subtitleWords, subtitleKind, writeSrtFromWords } from '../main/ffmpeg';
+import { alignWords, buildAss, layoutCues, subtitleCues, subtitleWords, subtitleKind, writeSrtFromWords } from '../main/ffmpeg';
 import { findLink, pageDoc, scrollPlan } from '../main/weblink';
 import { attachmentsText } from '../main/attachments';
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
@@ -40,6 +40,20 @@ async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-subs-'));
   writeSrtFromWords(path.join(dir, 's.srt'), words, 6);
   assert.match(fs.readFileSync(path.join(dir, 's.srt'), 'utf8'), /^1\n00:00:00,100 --> /);
+
+  /* alinhamento forçado: "3" casa com "três" e "casa" com "casas" — sem interpolar */
+  const forced = alignWords(['3', 'casa'], [{ w: 'três', start: 0.2, end: 0.5 }, { w: 'casas', start: 0.6, end: 0.9 }], 2);
+  assert.deepEqual(forced.map((t) => [t.start, t.end]), [[0.2, 0.5], [0.6, 0.9]], 'número e flexão casam pelo DP');
+
+  /* regras de exibição: até 2 linhas de 42, cue ≥ 0,8 s, intervalo ≥ 0,08 s, sem sobrepor */
+  const longText = 'uma frase bem longa para testar a quebra em duas linhas e o limite de caracteres por linha da legenda';
+  const boxes = layoutCues(subtitleWords([{ scene: sc('s03', longText), seconds: 8 }]));
+  assert.ok(boxes.length >= 2, 'texto longo vira mais de uma cue');
+  assert.ok(boxes.every((b) => b.lines.length <= 2 && b.lines.every((l) => [...l].length <= 42)), 'no máximo 2 linhas de 42');
+  boxes.forEach((b, i) => {
+    assert.ok(b.end - b.start >= 0.79, `cue ${i + 1} tem pelo menos 0,8 s`);
+    if (i) assert.ok(b.start >= boxes[i - 1]!.end + 0.08 - 0.001, `intervalo de 0,08 s antes da cue ${i + 1}`);
+  });
 
   /* ── skill de link ── */
   assert.equal(findLink('explique https://exemplo.com/produto?id=3, por favor.'), 'https://exemplo.com/produto?id=3');
