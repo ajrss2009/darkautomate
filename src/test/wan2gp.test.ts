@@ -12,6 +12,9 @@ import * as ops from '../main/ops';
 import type { EngineEvent, Route, RouteStep } from '../shared/types';
 
 async function main() {
+  /* o teste da ponte precisa de um python real; sem nenhum no PATH, pula como os de ffmpeg */
+  const py = ['python3', 'python', 'py'].find((c) => { try { execFileSync(c, ['-V'], { stdio: 'ignore' }); return true; } catch { return false; } });
+  if (!py) { console.log('(sem python: teste do Wan2GP pulado)'); return; }
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-wan-'));
   const root = path.join(ws, 'Wan2GP');
   fs.mkdirSync(path.join(root, 'shared'), { recursive: true });
@@ -47,7 +50,7 @@ def init(root=None, output_dir=None, cli_args=None, console_output=True, **kw): 
   Object.assign(process.env, { FAKE_PNG: png, FAKE_MP3: mp3, FAKE_LOG: log });
 
   const s = defaultSettings(ws);
-  s.wan2gp = { root, python: 'python3', cliArgs: ['--attention', 'sdpa'] };
+  s.wan2gp = { root, python: py, cliArgs: ['--attention', 'sdpa'] };
   const executors = createExecutors({ workflowsDir: path.resolve(__dirname, '../../workflows'), toolsDir: path.resolve(__dirname, '../../tools') });
   const p = createProject(s, { name: 'W', idea: 'ideia', videoType: 'custom', routeId: 'shorts-autopilot', aspect: '9:16' });
   ops.addScene(s, p, null, { title: 'A', narration: 'Olá mundo', visualIntent: 'um gato astronauta', durationSec: 4 });
@@ -98,7 +101,7 @@ def init(root=None, output_dir=None, cli_args=None, console_output=True, **kw): 
   assert.ok(failed.some((f) => f.reason.includes('boom do modelo')), 'mensagem do Wan2GP propagada');
 
   // wan2gp não configurado
-  const s2 = { ...s, wan2gp: { root: '', python: 'python3', cliArgs: [] } };
+  const s2 = { ...s, wan2gp: { root: '', python: py, cliArgs: [] } };
   const r4 = await runRoute({ project: p, route: mk('image', 'image', 'wan2gp-image.json'), projectDir: dir, signal: new AbortController().signal,
     deps: { settings: s2, emit: () => {}, sleep: async () => {}, executors }, only: { sceneIds: [p.scenes[0]!.id] }, noCache: true });
   assert.equal(r4.ok, false);
