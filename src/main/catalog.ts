@@ -10,7 +10,7 @@ export interface Catalog {
   workflows: CatalogItem[];
   wan2gpTemplates: CatalogItem[];
   wan2gpModels: Array<{ kind: string; model: string }>;
-  apis: Array<{ provider: string; kind: string; categories: ApiCategory[]; models: string[]; modelCategories?: Record<string, ApiCategory>; voices: string[]; voiceLabels?: Record<string, string> }>;
+  apis: Array<{ provider: string; kind: string; categories: ApiCategory[]; models: string[]; modelCategories?: Record<string, ApiCategory>; defaultModels?: Partial<Record<ApiCategory, string>>; voices: string[]; voiceLabels?: Record<string, string> }>;
   harnesses: Array<{ id: string; models: string[]; defaultModel?: string }>;
   stock: StockSource[];
   builtinTools: string[];
@@ -41,7 +41,7 @@ export function buildCatalog(s: Settings, workflowsDir: string): Catalog {
   return {
     workflows, wan2gpTemplates: wan,
     wan2gpModels: s.wan2gpModels ?? [],
-    apis: s.providers.map((p) => ({ provider: p.id, kind: p.kind, categories: p.categories ?? ['text', 'image', 'voice'], models: p.models, modelCategories: p.modelCategories, voices: p.voices ?? [], voiceLabels: p.voiceLabels })),
+    apis: s.providers.map((p) => ({ provider: p.id, kind: p.kind, categories: p.categories ?? ['text', 'image', 'voice'], models: p.models, modelCategories: p.modelCategories, defaultModels: p.defaultModels, voices: p.voices ?? [], voiceLabels: p.voiceLabels })),
     harnesses: Object.entries(s.harnesses).map(([id, c]) => ({ id, models: c.models, defaultModel: c.defaultModel })),
     stock: ['pexels', 'pixabay', 'wikipedia'],
     builtinTools: ['silence-trim', 'subtitles', 'assemble', 'library-music', 'whisper', 'estimate-words', 'clip-musical', 'lyric-song', 'lyric-words', 'frame-thumbnail', 'sfx-code', 'music-code', 'youtube-upload', 'wan2gp-showrunner'],

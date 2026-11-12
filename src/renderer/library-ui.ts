@@ -27,7 +27,7 @@ export interface Ctx {
 interface Catalog {
   workflows: Array<{ file: string; label: string; capability: string }>;
   wan2gpTemplates: Array<{ file: string; label: string; capability: string; modelType?: string }>;
-  apis: Array<{ provider: string; kind: string; categories: string[]; models: string[]; modelCategories?: Record<string, string>; voices: string[]; voiceLabels?: Record<string, string> }>;
+  apis: Array<{ provider: string; kind: string; categories: string[]; models: string[]; modelCategories?: Record<string, string>; defaultModels?: Partial<Record<string, string>>; voices: string[]; voiceLabels?: Record<string, string> }>;
   harnesses: Array<{ id: string; models: string[]; defaultModel?: string }>;
   wan2gpModels: Array<{ kind: string; model: string }>;
   stock: StockSource[]; builtinTools: string[]; comfyServers: string[];
@@ -307,7 +307,7 @@ function defaultBinding(type: string, kind: string, cat: Catalog): Binding {
     case 'harness': return { type: 'harness', harness: 'auto', model: 'auto' };
     case 'comfyui': return { type: 'comfyui', server: cat.comfyServers[0] ?? 'local', workflow: wfFor(kind, cat)[0]?.file ?? '' };
     case 'wan2gp': return { type: 'wan2gp', template: tplFor(kind, cat)[0]?.file ?? '' };
-    case 'api': { const cap = CAP_OF[kind] ?? 'text'; const a = cat.apis.find((x) => x.categories.includes(cap)) ?? cat.apis[0]; return { type: 'api', provider: a?.provider ?? '', model: a?.models[0] ?? '', ...(cap === 'voice' && a?.voices[0] ? { voice: a.voices[0] } : {}) }; }
+    case 'api': { const cap = CAP_OF[kind] ?? 'text'; const a = cat.apis.find((x) => x.categories.includes(cap)) ?? cat.apis[0]; return { type: 'api', provider: a?.provider ?? '', model: '', ...(cap === 'voice' && a?.voices[0] ? { voice: a.voices[0] } : {}) }; }
     case 'stock': return { type: 'stock', sources: ['pexels', 'pixabay', 'wikipedia', 'openverse', 'nasa'], media: 'both' };
     case 'builtin': return { type: 'builtin', tool: kind === 'transcribe' ? 'whisper' : kind === 'subtitles' ? 'subtitles' : kind === 'edit' ? 'assemble' : kind === 'sfx' ? 'sfx-code' : 'estimate-words' };
     case 'flow': return { type: 'flow' };
@@ -556,8 +556,9 @@ function bindingEditor(c: Ctx, st: RouteStep, b: Binding, bi: number, cat: Catal
       };
       const prov = cat.apis.filter((a) => a.categories.includes(cap) || cap === 'text');
       const cur = cat.apis.find((a) => a.provider === b.provider);
-      fields.push(h('label', {}, 'Provedor', sel(c, (prov.length ? prov : cat.apis).map((a) => [a.provider, `${a.provider} (${a.kind})`] as [string, string]), b.provider, (v) => { b.provider = v; const np = cat.apis.find((a) => a.provider === v); b.model = modelsFor(np)[0] ?? ''; if (cap === 'voice') b.voice = np?.voices[0]; redraw(); }, { 'data-field': 'provider' })),
-        h('label', {}, 'Modelo', selModel(c, modelsFor(cur), b.model, (v) => { b.model = v; }, { 'data-field': 'model' })),
+      const apiDefault = cur?.defaultModels?.[cap as ApiCategory];
+      fields.push(h('label', {}, 'Provedor', sel(c, (prov.length ? prov : cat.apis).map((a) => [a.provider, `${a.provider} (${a.kind})`] as [string, string]), b.provider, (v) => { b.provider = v; const np = cat.apis.find((a) => a.provider === v); b.model = ''; if (cap === 'voice') b.voice = np?.voices[0]; redraw(); }, { 'data-field': 'provider' })),
+        h('label', {}, 'Modelo', selModel(c, modelsFor(cur), b.model, (v) => { b.model = v; }, { 'data-field': 'model' }, [['', apiDefault ? `(padrão da API: ${apiDefault})` : '(padrão da API)']])),
         cap === 'voice' ? h('label', {}, 'Voz', selModel(c, apiVoices(cur), b.voice ?? '', (v) => { b.voice = v; }, { 'data-field': 'voice' })) : null);
       break;
     }
@@ -1332,11 +1333,17 @@ export async function renderSettings(c: Ctx, reload = true) {
       const prev = apiResults.get(p.id);
       const out = h('span', {}, prev ? res(prev.ok, prev.message, h) : null);
       const tab = cfgTab as ApiCategory;
-      const apiMl = modelList(c, providerModelsFor(p, tab), (n) => { setProviderModelsFor(p, tab, n); }, { field: 'api-models' });
+      const defBox = h('span', {});
+      const paintDef = () => defBox.replaceChildren(selModel(c, providerModelsFor(p, tab), p.defaultModels?.[tab] ?? '', (v) => {
+        p.defaultModels = { ...(p.defaultModels ?? {}) };
+        if (v) p.defaultModels[tab] = v; else delete p.defaultModels[tab];
+      }, { 'data-field': 'api-default-model' }, [['', '(primeiro da lista)']]));
+      paintDef();
+      const apiMl = modelList(c, providerModelsFor(p, tab), (n) => { setProviderModelsFor(p, tab, n); paintDef(); }, { field: 'api-models' });
       /* ▶ ouve a voz: gera uma amostra com o executor real da API (cacheada por voz + idioma) */
       const mediaUrl = (x: string) => (forge.mediaUrl as unknown as (y: string) => string)(x);
       let audio: HTMLAudioElement | undefined;
-      const voiceModel = () => providerModelsFor(p, 'voice')[0] ?? p.models[0] ?? 's2.1-pro-free';
+      const voiceModel = () => p.defaultModels?.voice ?? providerModelsFor(p, 'voice')[0] ?? p.models[0] ?? 's2.1-pro-free';
       const playVoice = (v: string, btn: HTMLElement) => void guard(async () => {
         const before = btn.textContent;
         btn.textContent = '…'; btn.setAttribute('disabled', '');
@@ -1368,6 +1375,7 @@ export async function renderSettings(c: Ctx, reload = true) {
         p.kind === 'snapgen' ? h('div', { class: 'muted' }, 'Snapgen.AI usa o header x-api-key. O botão Testar consulta o saldo (/uapi/v1/account) e carrega os modelos de imagem e vídeo de /api/service-prices, cada um na sua aba. Grok e sd-2 ainda não são suportados no adaptador.') : null,
         p.kind === 'fish' ? h('div', { class: 'muted' }, 'Fish Audio: a voz é um reference_id (id de um modelo de voz da sua conta ou da biblioteca). O botão Testar valida a chave e carrega as vozes da sua conta + as mais usadas da biblioteca pública (licenciadas pelo Fish) no idioma do app. O ▶ de cada voz gera uma amostra. Também dá para colar o id ou o link fish.audio/m/<id> em "Vozes carregadas". Modelos: s2.1-pro-free (grátis), s2.1-pro, s2-pro, s1, drama-3.') : null,
         h('div', { class: 'row' }, h('div', { class: 'grow' }, h('strong', {}, 'Modelos carregados'), apiMl.el),
+          h('label', { title: 'Modelo que as rotas usam nesta categoria quando o executor não escolhe um modelo.' }, 'Modelo padrão', defBox),
           cfgTab === 'voice' ? h('div', { class: 'grow' }, h('strong', {}, 'Vozes carregadas'), voiceMl.el) : null),
         h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Categorias:'), ...cats,
           h('button', { 'data-act': 'api-test', onclick: () => void guard(async () => {

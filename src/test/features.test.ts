@@ -18,6 +18,7 @@ import { createMcpServer, mcpClientConfig } from '../main/mcp';
 import * as http from 'node:http';
 import { effectFilters, filterPath, makeSegment, subtitleForceStyle, burnSubtitles } from '../main/ffmpeg';
 import { prepareReferences, subtitleToText } from '../main/references';
+import { providerModelsForCategory, resolveApiModel } from '../shared/api-models';
 import type { EngineEvent, Project, Route, RouteStep, Scene } from '../shared/types';
 import type { ExecContext } from '../main/engine';
 
@@ -27,6 +28,17 @@ const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: '
 async function main() {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-feat-'));
   const s = defaultSettings(ws);
+
+  // 0. modelo padrão por categoria nas APIs (o executor sem modelo herda o padrão do provedor)
+  const apiProv = {
+    models: ['img-a', 'img-b', 'vid-a', 'voice-a'],
+    modelCategories: { 'img-a': 'image', 'img-b': 'image', 'vid-a': 'video', 'voice-a': 'voice' },
+    categories: ['image', 'video', 'voice'], defaultModels: { video: 'vid-a' },
+  } as never;
+  assert.deepEqual(providerModelsForCategory(apiProv, 'video'), ['vid-a'], 'só modelos de vídeo na aba');
+  assert.equal(resolveApiModel(apiProv, 'video'), 'vid-a', 'padrão da categoria');
+  assert.equal(resolveApiModel(apiProv, 'video', 'vid-b'), 'vid-b', 'modelo explícito vence o padrão');
+  assert.equal(resolveApiModel(apiProv, 'image'), 'img-a', 'sem padrão: primeiro da categoria');
 
   // 1. skill "vídeo livre" + rota livre; skill mista com vídeo IA
   const free = lib.getSkill(s, 'video-livre')!;

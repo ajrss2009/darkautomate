@@ -581,6 +581,8 @@ export interface ProviderConfig {
   id: string; kind: 'openai' | 'gemini' | 'seedance' | 'snapgen' | 'fish'; baseUrl: string; apiKey: string; models: string[];
   /** Categoria de cada modelo carregado (separa imagem/vídeo nas abas e nas rotas). */
   modelCategories?: Record<string, ApiCategory>;
+  /** Modelo padrão por categoria: a rota usa este quando o executor não indica um modelo. */
+  defaultModels?: Partial<Record<ApiCategory, string>>;
   categories?: ApiCategory[]; voices?: string[];
   /** Nome amigável de cada voz (ex.: Fish Audio: reference_id → título do modelo de voz). */
   voiceLabels?: Record<string, string>;

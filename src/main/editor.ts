@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Binding, Project, Route, Scene, Settings } from '../shared/types';
 import { bindingLabel } from '../shared/types';
+import { resolveApiModel } from '../shared/api-models';
 import { resolveHarness, runHarness } from './harness';
 import { activeAgyEnv } from './automations';
 import * as prov from './providers';
@@ -54,7 +55,7 @@ export async function llmJson(
       if (b.type === 'api') {
         const p = settings.providers.find((x) => x.id === b.provider);
         if (!p) throw new Error(`provider "${b.provider}" não configurado`);
-        return { json: extractJson(await prov.chat(p, b.model, prompt, signal)), binding: bindingLabel(b) };
+        return { json: extractJson(await prov.chat(p, resolveApiModel(p, 'text', b.model), prompt, signal)), binding: bindingLabel(b) };
       }
     } catch (e) {
       last = `${bindingLabel(b)}: ${(e as Error).message}`;

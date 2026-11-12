@@ -403,7 +403,7 @@ function snapgenVideoSpec(model: string): {
   if (/^minimax/.test(m)) return { path: '/video-gen/minimax', aspectField: 'aspect_ratio', imageField: 'ref_images', duration: fiveOrTen };
   if (/^flux/.test(m)) return { path: '/video-gen/flux', aspectField: 'aspect_ratio', imageField: 'ref_images', duration: fiveOrTen };
   if (/^vela/.test(m)) return { path: '/video-gen/vela', aspectField: 'orientation', imageField: 'files', duration: fiveOrTen };
-  if (/^(meta-ai|muse)/.test(m)) return { path: '/video-gen/meta', aspectField: 'orientation', imageField: 'image', duration: fiveOrTen };
+  if (/^(meta-ai|muse)/.test(m)) return { path: '/video-gen/meta', aspectField: 'orientation', imageField: 'image', duration: () => 10 };
   return {
     path: '/video-gen/veo',
     aspectField: 'aspect_ratio',
@@ -420,7 +420,10 @@ export async function snapgenVideo(p: ProviderConfig, model: string, prompt: str
   if (!p.apiKey) throw new Error('Snapgen: sem chave de API');
   const spec = snapgenVideoSpec(model);
   const duration = spec.duration(o.seconds);
-  const aspect = spec.path === '/video-gen/veo' && /veo-3\.1/i.test(model) ? '16:9' : o.ratio === '9:16' ? '9:16' : '16:9';
+  const aspect = spec.path === '/video-gen/veo' && /veo-3\.1/i.test(model) ? '16:9'
+    : spec.aspectField === 'orientation'
+      ? (o.ratio === '9:16' ? 'portrait' : o.ratio === '1:1' ? 'square' : o.ratio === '4:5' ? 'portrait' : 'landscape')
+      : o.ratio === '9:16' ? '9:16' : '16:9';
 
   const form = new FormData();
   form.append('prompt', prompt);

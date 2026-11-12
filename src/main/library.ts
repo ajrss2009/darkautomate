@@ -79,7 +79,7 @@ export function validateRoute(r: Route): string[] {
     for (const b of st.bindings ?? []) {
       if (b.type === 'comfyui' && !b.workflow) errs.push(`tarefa "${st.id}": ComfyUI sem workflow`);
       if (b.type === 'wan2gp' && !b.template) errs.push(`tarefa "${st.id}": Wan2GP sem template`);
-      if (b.type === 'api' && (!b.provider || !b.model)) errs.push(`tarefa "${st.id}": API sem provedor/modelo`);
+      if (b.type === 'api' && !b.provider) errs.push(`tarefa "${st.id}": API sem provedor configurado`);
       if (b.type === 'stock' && (!b.sources || b.sources.length === 0)) errs.push(`tarefa "${st.id}": banco de mídia sem fontes`);
     }
   }

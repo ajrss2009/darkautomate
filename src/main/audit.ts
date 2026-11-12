@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Route, RouteStep, Settings, Skill } from '../shared/types';
 import { checkSkillRoute } from '../shared/compat';
+import { resolveApiModel } from '../shared/api-models';
 import { listRoutes, listSkills, validateRoute } from './library';
 import { getVideoType } from './presets';
 
@@ -32,7 +33,10 @@ export function auditRoute(s: Settings, r: Route, workflowsDir: string): Array<O
         if (!p) err(`etapa "${st.id}": provedor de API "${b.provider}" não configurado`);
         else {
           if (!p.apiKey && p.kind !== 'openai') warn(`etapa "${st.id}": provedor "${b.provider}" sem chave de API (vai cair na reserva)`);
-          if (b.model && p.models.length && !p.models.includes(b.model)) warn(`etapa "${st.id}": modelo ${b.model} não está na lista do provedor "${b.provider}"`);
+          const cat = st.kind === 'image' || st.kind === 'thumbnail' ? 'image' : st.kind === 'video' ? 'video' : st.kind === 'narration' ? 'voice' : st.kind === 'music' ? 'music' : 'text';
+          const model = resolveApiModel(p, cat, b.model);
+          if (!model) err(`etapa "${st.id}": provedor "${b.provider}" sem modelo para ${cat} — carregue um modelo ou defina o "Modelo padrão"`);
+          else if (p.models.length && !p.models.includes(model)) warn(`etapa "${st.id}": modelo ${model} não está na lista do provedor "${b.provider}"`);
           if (st.kind === 'narration' && b.voice && p.voices?.length && !p.voices.includes(b.voice)) warn(`etapa "${st.id}": voz "${b.voice}" não está na lista do provedor "${b.provider}"`);
         }
       }

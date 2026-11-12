@@ -648,12 +648,12 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       emit({ t: 'step.skipped', stepId: step.id, sceneId, reason: 'fala gerada no vídeo pelo MiniMax H3 (a narração por TTS entra só se o vídeo vier sem fala)' });
       return { ok: true };
     }
-    /* clonagem pelo H3: a cena dura o tempo da fala (sem sobra o modelo não inventa voz no resto do clipe) */
+    /* clonagem/áudio interno do H3: a cena mantém a duração do plano.
+       O áudio fora da fala esperada é silenciado depois (keepVideoSpeech), sem encolher o clipe. */
     if (step.kind === 'video' && scene && speechInVideo() && scene.narration?.trim() && !scene.manualDuration) {
       const sec = estimateSpeechSec(scene.narration, (project.skill?.formatDna?.wpm ?? 156) / 60);
-      if (Math.abs((scene.durationSec ?? 0) - sec) > 0.3) {
-        emit({ t: 'log', stepId: step.id, sceneId, line: `🗣 duração da cena ajustada à fala: ${scene.durationSec ?? '?'} s → ${sec} s` });
-        scene.durationSec = sec;
+      if (Math.abs((scene.durationSec ?? 0) - sec) > 0.8) {
+        emit({ t: 'log', stepId: step.id, sceneId, line: `🗣 fala estimada em ${sec} s para uma cena de ${scene.durationSec ?? '?'} s — a cena mantém a duração do plano (o áudio fora da fala é silenciado)` });
       }
     }
     /* quadro inicial escolhido no storyboard: vira a imagem da cena (não gera de novo) */
@@ -846,7 +846,12 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       }
       return;
     }
+    /* a narração por TTS substitui o áudio que veio do clipe: a folga de 0,15 s volta a valer */
+    if (step.kind === 'narration') fs.rmSync(path.join(sceneDirOf(projectDir, scene), 'audio', '.from-video'), { force: true });
     if (step.kind !== 'narration' || scene.manualDuration) return;
+    /* clonagem/áudio interno: a duração é a do plano (ou a do clipe H3); o TTS é só reserva
+       e não pode encolher a cena planejada */
+    if (speechInVideo()) return;
     const a = scene.artifacts[step.id]?.find((f) => /\.(mp3|wav|m4a|ogg|flac)$/i.test(f));
     if (!a) return;
     const d = await probeDuration(deps.settings.ffprobe, a);
