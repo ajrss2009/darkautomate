@@ -71,11 +71,18 @@ export function listNiches(s: Settings): NicheCorpus[] {
   } catch { return []; }
 }
 
+/** Normaliza a URL do canal para comparar "@canal", "youtube.com/@canal" e a URL completa. */
+const normUrl = (u?: string): string =>
+  (u ?? '').trim().toLowerCase().replace(/\/+$/, '').replace(/^https?:\/\/(www\.)?/, '').replace(/^youtube\.com\//, '');
+
 /** O corpus do nicho que corresponde à referência (canal clonado, URL do canal ou termo). */
 export function findNiche(s: Settings, src: { kind: string; id?: string; url?: string }): NicheCorpus | undefined {
   const all = listNiches(s);
   if (src.kind === 'clone' && src.id) return all.find((c) => c.channelId === src.id);
-  if (src.kind === 'channel' && src.url) return all.find((c) => c.channelUrl === src.url);
+  if (src.kind === 'channel' && src.url) {
+    const want = normUrl(src.url);
+    return all.find((c) => c.channelUrl && normUrl(c.channelUrl) === want);
+  }
   return all.find((c) => c.query && (src.kind === 'video' || src.kind === 'link'));
 }
 
