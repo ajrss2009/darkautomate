@@ -7,6 +7,8 @@ import * as ops from '../main/ops';
 import * as ff from '../main/ffmpeg';
 import { insertClip, rippleDeleteSegments, rippleSegments, sceneAt, splitScene, trimScene } from '../main/timeline-edit';
 import { exportForEditor, fcpXml, pathUrl } from '../main/nle-export';
+import { PROJECT_FPS, framesOf, secondsOf } from '../main/timeline';
+import { checkAv, probeStreams } from '../main/av-qa';
 import type { Scene } from '../shared/types';
 
 /** Ferramentas da timeline (cortar, dividir, inserir com ripple), volume da narração e exportação para Resolve/CapCut. */
@@ -117,6 +119,32 @@ async function main() {
   const cc = await exportForEditor(s, p2, 'capcut');
   const files = fs.readdirSync(cc.dir);
   assert.ok(files.some((f) => /^001 - /.test(f)) && files.includes('narracao.wav') && files.includes('legendas.srt') && files.includes('COMO-IMPORTAR.txt'), files.join(', '));
+
+  /* RELÓGIO EM QUADROS: 3,72 s fecha em 112 quadros (3,733…), e o áudio acompanha */
+  assert.equal(framesOf(3.72), 112);
+  assert.equal(secondsOf(112), 3.733333);
+  assert.equal(framesOf(3.72, 3.74), 113, 'nunca corta a fala: sobe um quadro se o áudio passar');
+  const qws = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-av-'));
+  const avSegs: string[] = [];
+  const sceneFrames = framesOf(3.72, 3.72);
+  for (let i = 0; i < 3; i++) {
+    const visual = path.join(qws, `v${i}.png`);
+    await ff.run(s.ffmpeg, ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', visual]);
+    const audio = path.join(qws, `a${i}.wav`);
+    await ff.run(s.ffmpeg, ['-y', '-f', 'lavfi', '-i', `sine=frequency=${300 + i * 100}:duration=3.72`, '-ac', '2', audio]);
+    const segFile = path.join(qws, `s${i}.mp4`);
+    await ff.makeSegment(s.ffmpeg, { visual, audio, seconds: secondsOf(sceneFrames), frames: sceneFrames, fps: PROJECT_FPS }, segFile, '16:9');
+    const meta = await probeStreams(s.ffprobe, segFile);
+    assert.equal(meta.frames, sceneFrames, `segmento ${i + 1} fecha em ${sceneFrames} quadros`);
+    assert.ok(Math.abs(meta.audio - secondsOf(sceneFrames)) < 0.03, `áudio do segmento ${i + 1} tem a duração do vídeo (${meta.audio} s)`);
+    avSegs.push(segFile);
+  }
+  const joined = path.join(qws, 'join.mp4');
+  await ff.concat(s.ffmpeg, avSegs, joined);
+  const qa = await checkAv(s.ffprobe, joined);
+  assert.ok(qa.ok, `A/V do arquivo emendado: Δ ${qa.delta} s`);
+  assert.ok(Math.abs(qa.video - 3 * secondsOf(sceneFrames)) < 0.001, `a emenda não soma erro (${qa.video} s)`);
+  console.log(`A/V em quadros: 3 cenas de 3,72 s → vídeo ${qa.video} s, áudio ${qa.audio} s (Δ ${qa.delta} s)`);
   console.log('timeline tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

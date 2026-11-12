@@ -11,7 +11,13 @@ import * as ff from './ffmpeg';
  * out/timeline.json) — o +0,15 s existe aqui, uma vez só.
  */
 
+/** O app monta, legenda e mede a 30 fps: a duração se escreve em quadros. */
+export const PROJECT_FPS = 30;
+
 export interface SceneTiming {
+  /** duração em quadros — é este número que manda */
+  frames: number;
+  /** derivado de `frames` (só para ler) */
   seconds: number;
   audio?: string;
   audioSeconds: number;
@@ -29,6 +35,8 @@ export interface TimelineScene {
   start: number;
   /** duração no vídeo final (s) — a mesma usada pela montagem */
   seconds: number;
+  /** duração em quadros (a fonte; `seconds = frames / fps`) */
+  frames: number;
   source: SceneTiming['source'];
   fromVideo: boolean;
   audio?: string;
@@ -39,6 +47,7 @@ export interface TimelineScene {
 
 export interface Timeline {
   version: 1;
+  fps: number;
   builtAt: string;
   total: number;
   scenes: TimelineScene[];
@@ -56,6 +65,20 @@ export function narrationAudio(sceneDir: string): string | undefined {
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
+/**
+ * Quantiza a duração em quadros: é o único jeito de o arquivo, a legenda e o áudio
+ * fecharem no mesmo instante. Nunca corta a fala — se o áudio passar da conta, sobe
+ * um quadro.
+ */
+export function framesOf(seconds: number, audioSeconds = 0, fps = PROJECT_FPS): number {
+  const bySeconds = Math.round(Math.max(0.05, seconds) * fps);
+  const byAudio = audioSeconds > 0 ? Math.ceil(audioSeconds * fps - 1e-6) : 0;
+  return Math.max(1, bySeconds, byAudio);
+}
+
+/** Segundos a partir dos quadros (a leitura do relógio). */
+export const secondsOf = (frames: number, fps = PROJECT_FPS) => +(frames / fps).toFixed(6);
+
 /** Duração de UMA cena — a regra que a montagem, as legendas e os capítulos usam. */
 export async function sceneTiming(ffprobe: string, scene: Scene, sceneDir: string): Promise<SceneTiming> {
   const audio = narrationAudio(sceneDir);
@@ -64,10 +87,15 @@ export async function sceneTiming(ffprobe: string, scene: Scene, sceneDir: strin
   let st: fs.Stats | undefined;
   try { if (audio) st = fs.statSync(audio); } catch { /* arquivo sumiu */ }
   const fp = { audio, audioSeconds, fromVideo, mtimeMs: st?.mtimeMs, bytes: st?.size };
-  if (scene.manualDuration && scene.durationSec) return { seconds: scene.durationSec, source: 'manual', ...fp };
+  const timing = (raw: number, source: SceneTiming['source'], guardAudio = false): SceneTiming => {
+    /* a duração manual manda; a guarda de áudio só vale quando a cena é definida pelo áudio */
+    const frames = framesOf(raw, guardAudio ? audioSeconds : 0);
+    return { frames, seconds: secondsOf(frames), source, ...fp };
+  };
+  if (scene.manualDuration && scene.durationSec) return timing(scene.durationSec, 'manual');
   /* áudio extraído do próprio clipe H3: a cena dura o clipe inteiro (sem a folga de 0,15 s) */
-  if (audioSeconds > 0.2) return { seconds: fromVideo ? audioSeconds : audioSeconds + 0.15, source: fromVideo ? 'video-audio' : 'audio', ...fp };
-  return { seconds: scene.durationSec ?? 4, source: 'planned', ...fp };
+  if (audioSeconds > 0.2) return timing(fromVideo ? audioSeconds : audioSeconds + 0.15, fromVideo ? 'video-audio' : 'audio', fromVideo);
+  return timing(scene.durationSec ?? 4, 'planned');
 }
 
 /** Atalho: só a duração (para sfx/exportação, que não precisam do resto). */
@@ -78,20 +106,20 @@ export async function sceneSeconds(ffprobe: string, scene: Scene, sceneDir: stri
 /** Calcula a timeline inteira (uma leitura de ffprobe por cena) e grava out/timeline.json. */
 export async function projectTimeline(settings: Pick<Settings, 'ffprobe'>, projectDir: string, project: Project, opts: { write?: boolean } = {}): Promise<Timeline> {
   const scenes: TimelineScene[] = [];
-  let t = 0;
+  let acc = 0;
   for (const s of project.scenes) {
     const timing = await sceneTiming(settings.ffprobe, s, path.join(projectDir, 'scenes', s.id));
     scenes.push({
       id: s.id, index: s.index, title: s.title ?? `Cena ${s.index}`,
-      start: round(t), seconds: round(timing.seconds),
+      start: secondsOf(acc), seconds: secondsOf(timing.frames), frames: timing.frames,
       source: timing.source, fromVideo: timing.fromVideo,
       audio: timing.audio ? path.basename(timing.audio) : undefined,
       audioSeconds: round(timing.audioSeconds),
       audioMtimeMs: timing.mtimeMs, audioBytes: timing.bytes,
     });
-    t += timing.seconds;
+    acc += timing.frames;
   }
-  const timeline: Timeline = { version: 1, builtAt: new Date().toISOString(), total: round(t), scenes };
+  const timeline: Timeline = { version: 1, fps: PROJECT_FPS, builtAt: new Date().toISOString(), total: secondsOf(acc), scenes };
   if (opts.write !== false) writeTimeline(projectDir, timeline);
   return timeline;
 }
@@ -115,10 +143,12 @@ export function sceneStarts(t: Timeline): number[] { return t.scenes.map((s) => 
 
 /** A timeline gravada ainda descreve o projeto (mesmas cenas e mesmo áudio)? */
 function timelineFresh(projectDir: string, project: Project, t: Timeline | undefined): t is Timeline {
-  if (!t || t.scenes.length !== project.scenes.length) return false;
+  if (!t || t.fps !== PROJECT_FPS || t.scenes.length !== project.scenes.length) return false;
   for (let i = 0; i < t.scenes.length; i++) {
     const ts = t.scenes[i]!, s = project.scenes[i]!;
     if (ts.id !== s.id) return false;
+    /* a duração tem que ser exatamente um número inteiro de quadros */
+    if (!Number.isInteger(ts.frames) || ts.frames < 1 || Math.abs(ts.seconds - secondsOf(ts.frames)) > 1e-6) return false;
     const dir = path.join(projectDir, 'scenes', s.id);
     const audio = narrationAudio(dir);
     const fromVideo = fs.existsSync(path.join(dir, 'audio', '.from-video'));
@@ -158,7 +188,7 @@ export async function buildNarrationStem(settings: Pick<Settings, 'ffmpeg'>, pro
     const dir = path.join(projectDir, 'scenes', ts.id);
     const audio = narrationAudio(dir);
     const trim = scene?.trimStart && scene.trimStart > 0 ? scene.trimStart : 0;
-    const dur = Math.max(0.05, ts.seconds).toFixed(3);
+    const dur = Math.max(0.05, ts.seconds).toFixed(6);
     if (audio) args.push(...(trim > 0 ? ['-ss', trim.toFixed(3)] : []), '-i', audio);
     else args.push('-f', 'lavfi', '-t', dur, '-i', 'anullsrc=r=48000:cl=stereo');
     chains.push(`[${i}:a]aformat=sample_rates=48000:channel_layouts=stereo,apad,atrim=duration=${dur},asetpts=PTS-STARTPTS[a${i}]`);

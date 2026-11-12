@@ -19,8 +19,9 @@ import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestruc
 import { fetchForScene } from './stock';
 import { orderStockSources } from '../shared/stock-sources';
 import { cutWords, estimateWords, readWords, stampWords, transcribe, wordsFresh, wordsPath, type WordTime } from './whisper';
-import { buildNarrationStem, ensureTimeline, narrationAudio, sceneSeconds as sceneSecondsOf } from './timeline';
+import { PROJECT_FPS, buildNarrationStem, ensureTimeline, narrationAudio, sceneSeconds as sceneSecondsOf } from './timeline';
 import { checkSync, snapSceneWords, speechSegments, syncQaLine, type Segment } from './subtitle-qa';
+import { avQaLine, checkAv, conformAv } from './av-qa';
 import { getVideoType } from './presets';
 import { ensureWhisper } from './whisper-install';
 import { agyEnvForProject, DEFAULT_FLOW_URL, ensureFlowBrowser, flowAccount, flowProjectOf, setFlowProject } from './automations';
@@ -1931,7 +1932,10 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     const segs: Array<{ file: string; seconds: number; transition?: SceneEffects['transition']; transitionSec?: number }> = [];
     for (const s of scenes) {
       const dir = dirOf(s);
-      const seconds = timeline.scenes.find((x) => x.id === s.id)?.seconds ?? await sceneSeconds(c, s, dir);
+      /* a montagem usa os QUADROS da timeline: o arquivo fecha na mesma duração que a legenda lê */
+      const ts = timeline.scenes.find((x) => x.id === s.id);
+      const seconds = ts?.seconds ?? await sceneSeconds(c, s, dir);
+      const frames = ts?.frames ?? Math.max(1, Math.round(seconds * PROJECT_FPS));
       let visual = sceneVisual(dir, s.kind);
       if (!visual) {
         visual = await fallbackCard(c.settings.ffmpeg, s, c.project.aspect, c.signal);
@@ -1948,7 +1952,7 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       const sfxOk = sfx.validWav(sfxFile);
       if (!sfxOk && fs.existsSync(sfxFile)) c.log(`aviso: ${s.id}/audio/sfx.wav inválido (vazio ou corrompido) — cena montada sem efeitos sonoros; refaça "Efeitos sonoros" nesta cena para recuperá-los`);
       const effects = autoMotion(s, params);
-      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: c.project.sfxVolume ?? SFX_DEFAULT_VOLUME, trimStart: s.trimStart, narrationVolume: c.project.narrationVolume }, out, c.project.aspect, c.signal);
+      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, frames, fps: PROJECT_FPS, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: c.project.sfxVolume ?? SFX_DEFAULT_VOLUME, trimStart: s.trimStart, narrationVolume: c.project.narrationVolume }, out, c.project.aspect, c.signal);
       segs.push({ file: out, seconds, transition: effects?.transition, transitionSec: effects?.transitionSec });
       c.log(`segmento ${s.index}/${scenes.length} ok`);
     }
@@ -1993,7 +1997,7 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     /* Masterização YouTube: -14 LUFS, true peak -1 dB. */
     try {
       const norm = path.join(c.outDir, 'final.norm.mp4');
-      await ff.run(c.settings.ffmpeg, ['-y', '-i', final, '-c:v', 'copy', '-af', 'loudnorm=I=-14:TP=-1:LRA=11,aresample=48000', '-ar', '48000', '-ac', '2', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', norm], c.signal);
+      await ff.run(c.settings.ffmpeg, ['-y', '-i', final, '-c:v', 'copy', '-af', `loudnorm=I=-14:TP=-1:LRA=11,aresample=48000,atrim=duration=${timeline.total.toFixed(6)}`, '-ar', '48000', '-ac', '2', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', norm], c.signal);
       try { fs.renameSync(norm, final); }
       catch { fs.copyFileSync(norm, final); fs.rmSync(norm, { force: true }); }
       c.log('áudio masterizado para -14 LUFS (YouTube)');
@@ -2016,6 +2020,23 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
           c.log(`Wan2GP: vídeo final pós-processado (${path.basename(pp)})`);
         } catch (e) { if (c.signal.aborted) throw e; c.log(`⚠ pós-processamento do Wan2GP ignorado: ${(e as Error).message.slice(0, 200)}`); }
       }
+    }
+    /* QA DE A/V: o teste que fecha o loop — mede o arquivo que vai ao ar, não a conta */
+    try {
+      let qa = await checkAv(c.settings.ffprobe, final, c.outDir, c.signal);
+      if (!qa.ok) {
+        c.log(avQaLine(qa));
+        /* áudio fora da duração do vídeo: conserta só o áudio (preenche ou corta) e mede de novo */
+        if (await conformAv(c.settings.ffmpeg, final, qa.video, c.signal)) {
+          qa = await checkAv(c.settings.ffprobe, final, c.outDir, c.signal);
+          c.log('A/V corrigido: áudio reescrito para a duração do vídeo');
+        }
+      }
+      c.log(avQaLine(qa));
+      if (!qa.ok && c.step.params.qaStrict === true) throw new Error(`QA de A/V reprovado: ${avQaLine(qa)}`);
+    } catch (e) {
+      if (c.signal.aborted || (e as Error).message.startsWith('QA de A/V')) throw e;
+      c.log(`aviso: QA de A/V não medido (${(e as Error).message.slice(0, 140)})`);
     }
     return { files: [final] };
   }
