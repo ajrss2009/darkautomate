@@ -2228,7 +2228,7 @@ function registerIpc() {
     batch = new BatchRunner((id) => startRun(id, only), (e) => send(e), (id) => running.get(id)?.abort());
     try { return await batch.run(ids, concurrency, Math.max(0, Math.min(3, settings.batchRetries ?? 1))); } finally { batch = null; }
   });
-  h('batch:cancel', () => { batch?.cancel([...running.keys()]); return true; });
+  h('batch:cancel', () => { batch?.cancel(); return true; });
 }
 
 /**

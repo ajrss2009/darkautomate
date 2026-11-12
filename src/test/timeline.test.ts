@@ -145,6 +145,15 @@ async function main() {
   assert.ok(qa.ok, `A/V do arquivo emendado: Δ ${qa.delta} s`);
   assert.ok(Math.abs(qa.video - 3 * secondsOf(sceneFrames)) < 0.001, `a emenda não soma erro (${qa.video} s)`);
   console.log(`A/V em quadros: 3 cenas de 3,72 s → vídeo ${qa.video} s, áudio ${qa.audio} s (Δ ${qa.delta} s)`);
+  /* clipe curto com `loop:false`: mesmo sem repetir pelo chamador, a duração em quadros
+     manda e o segmento fecha em N quadros (senão o erro voltaria a somar por cena) */
+  const shortClip = path.join(qws, 'short.mp4');
+  await ff.run(s.ffmpeg, ['-y', '-f', 'lavfi', '-i', 'testsrc=s=160x90:d=0.4:r=24', '-pix_fmt', 'yuv420p', '-r', '24', shortClip]);
+  const shortSeg = path.join(qws, 'short-seg.mp4');
+  await ff.makeSegment(s.ffmpeg, { visual: shortClip, seconds: 1, frames: 30, fps: PROJECT_FPS, loop: false }, shortSeg, '16:9');
+  const sm = await probeStreams(s.ffprobe, shortSeg);
+  assert.equal(sm.frames, 30, `clipe de 0,4 s com 30 quadros pedidos fecha em 30 (saiu ${sm.frames})`);
+  assert.ok(Math.abs(sm.audio - 1) < 0.05, `áudio do clipe curto acompanha 1 s (${sm.audio} s)`);
   console.log('timeline tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -10,6 +10,8 @@ export interface BatchJob { id: string; ok?: boolean; error?: string; tries?: nu
 export class BatchRunner {
   private cancelled = false;
   private cancelOne?: (id: string) => void;
+  /** ids que ESTE lote está executando agora (não os de execuções manuais) */
+  private active = new Set<string>();
   constructor(
     private runOne: (id: string) => Promise<{ ok: boolean; error?: string }>,
     private emit: (e: EngineEvent) => void,
@@ -21,6 +23,7 @@ export class BatchRunner {
     const running = new Set<string>();
     let done = 0, failed = 0;
     this.cancelled = false;
+    this.active.clear();
     const update = (finished = false) =>
       this.emit({ t: 'batch.update', total: ids.length, done, failed, running: [...running], finished });
     update();
@@ -29,13 +32,13 @@ export class BatchRunner {
       const worker = async () => {
         while (!this.cancelled && next < queue.length) {
           const job = queue[next++]!;
-          running.add(job.id); update();
+          this.active.add(job.id); running.add(job.id); update();
           job.tries = (job.tries ?? 0) + 1;
           try {
             const r = await this.runOne(job.id);
             job.ok = r.ok; job.error = r.error;
           } catch (e) { job.ok = false; job.error = (e as Error).message; }
-          running.delete(job.id);
+          this.active.delete(job.id); running.delete(job.id);
           if (job.tries === 1) done++;
           if (job.ok && job.tries > 1) failed--;
           else if (!job.ok && job.tries === 1) failed++;
@@ -55,8 +58,14 @@ export class BatchRunner {
     return jobs;
   }
 
-  cancel(activeIds: string[] = []) {
+  /**
+   * Cancela o lote: interrompe só os projetos que ele mesmo está rodando.
+   * `activeIds` existe para o chamador que sabe exatamente quem abortar; sem ele,
+   * usa o conjunto interno — nunca o mapa global de execuções (isso derrubaria
+   * também um projeto iniciado à mão).
+   */
+  cancel(activeIds?: string[]) {
     this.cancelled = true;
-    for (const id of activeIds) this.cancelOne?.(id);
+    for (const id of activeIds ?? [...this.active]) this.cancelOne?.(id);
   }
 }

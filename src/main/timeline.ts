@@ -147,6 +147,8 @@ function timelineFresh(projectDir: string, project: Project, t: Timeline | undef
   for (let i = 0; i < t.scenes.length; i++) {
     const ts = t.scenes[i]!, s = project.scenes[i]!;
     if (ts.id !== s.id) return false;
+    /* título mudou (capítulos, publish kit e thumbnail leem daqui) */
+    if (ts.title !== (s.title ?? `Cena ${s.index}`)) return false;
     /* a duração tem que ser exatamente um número inteiro de quadros */
     if (!Number.isInteger(ts.frames) || ts.frames < 1 || Math.abs(ts.seconds - secondsOf(ts.frames)) > 1e-6) return false;
     const dir = path.join(projectDir, 'scenes', s.id);
@@ -155,6 +157,8 @@ function timelineFresh(projectDir: string, project: Project, t: Timeline | undef
     if ((ts.audio ?? '') !== (audio ? path.basename(audio) : '')) return false;
     if (ts.fromVideo !== fromVideo) return false;
     if (s.manualDuration && s.durationSec && Math.abs(ts.seconds - s.durationSec) > 0.001) return false;
+    /* cena sem áudio definida por duração (plano): a duração editada também invalida */
+    if (!audio && s.durationSec && Math.abs(ts.seconds - s.durationSec) > 0.02) return false;
     if (audio) {
       try {
         const st = fs.statSync(audio);

@@ -26,7 +26,7 @@ export const thumbSize = (aspect: Project['aspect']) => (aspect === '16:9' || !a
 export function thumbText(projectDir: string, p: Project, d?: ThumbDesign): string {
   if (d?.text?.trim()) return d.text.trim();
   try { const m = JSON.parse(fs.readFileSync(path.join(projectDir, 'out', 'metadata.json'), 'utf8')) as { thumbnailText?: string }; if (m.thumbnailText?.trim()) return m.thumbnailText.trim(); } catch { /* sem SEO */ }
-  return (p.titleModel?.thumbText || p.name).split(/\s+/).slice(0, 4).join(' ');
+  return (p.titleModel?.thumbText || p.name).split(/\s+/).slice(0, 3).join(' ');
 }
 
 /** Instante "bom" para o fundo: meio da cena visual mais longa, senão 35% do vídeo. */

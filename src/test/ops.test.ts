@@ -150,6 +150,18 @@ async function main() {
   const br2 =new BatchRunner(async () => { br2.cancel(); return { ok: true }; }, () => {});
   const j2 = await br2.run(['a', 'b', 'c'], 1);
   assert.equal(j2.filter((j) => j.ok !== undefined).length, 1);
+  /* cancelar o lote aborta SÓ os projetos dele — um projeto iniciado à mão não cai junto */
+  const aborted: string[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const br4 = new BatchRunner(async () => { await gate; return { ok: true }; }, () => {}, (id) => aborted.push(id));
+  const p4 = br4.run(['a', 'b', 'c'], 2);
+  await new Promise((r) => setTimeout(r, 20));
+  br4.cancel();
+  release();
+  const j4 = await p4;
+  assert.deepEqual([...aborted].sort(), ['a', 'b'], 'aborta só os ativos do lote (a e b), não o resto');
+  assert.equal(j4.find((j) => j.id === 'c')!.ok, undefined, 'o que não começou não roda');
 
   console.log('ops/editor/batch tests: OK');
 }

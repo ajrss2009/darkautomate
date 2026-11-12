@@ -157,7 +157,8 @@ export async function buildNiche(s: Settings, input: NicheBuildInput, log: (l: s
 
   const addChannel = (url: string | undefined, name: string | undefined, n: number) => {
     if (!url) return;
-    const cur = corpus.channels.find((c) => c.url === url);
+    const key = normUrl(url);
+    const cur = corpus.channels.find((c) => c.url && normUrl(c.url) === key);
     if (cur) cur.titles = Math.max(cur.titles, n);
     else corpus.channels.push({ url, name, titles: n });
   };
@@ -197,8 +198,12 @@ export async function buildNiche(s: Settings, input: NicheBuildInput, log: (l: s
     }
   }
 
-  /* abre os canais que mais apareceram: cada um rende ~30 títulos e mostra o padrão do nicho */
-  const toOpen = corpus.channels.filter((c) => c.url && c.url !== corpus.channelUrl).slice(0, maxChannels);
+  /* abre os canais que ainda não foram abertos primeiro: numa segunda execução, o corpus
+     cresce em diversidade em vez de reabrir sempre os mesmos (a lista é estável) */
+  const toOpen = corpus.channels
+    .filter((c) => c.url && normUrl(c.url) !== normUrl(corpus.channelUrl))
+    .sort((a, b) => (a.titles > 0 ? 1 : 0) - (b.titles > 0 ? 1 : 0))
+    .slice(0, maxChannels);
   for (const ch of toOpen) {
     if (corpus.titles.length >= target || signal?.aborted) break;
     const r = await channel(ch.url!);

@@ -350,7 +350,14 @@ export async function makeSegment(ffmpeg: string, seg: SegmentInput, out: string
   const isVideo = !!seg.visual && /\.(mp4|webm|mov|mkv|gif)$/i.test(seg.visual);
   const ss = seg.trimStart && seg.trimStart > 0 ? ['-ss', seg.trimStart.toFixed(3)] : [];
   if (!seg.visual) args.push('-f', 'lavfi', '-i', `color=c=black:s=${w}x${h}:r=${fps}`);
-  else if (isVideo) { if (seg.loop !== false) args.push('-stream_loop', '-1'); args.push(...ss, '-i', seg.visual); }
+  else if (isVideo) {
+    /* Quando a duração vem em QUADROS, repetir o clipe é o que garante o arquivo com
+       exatamente N quadros: se o clipe termina antes (fps de origem ≠ 30, trim perto do
+       fim), `-frames:v N` não inventa quadros e a cena sairia curta — o erro voltaria a
+       somar na emenda. Se o clipe for mais longo, o corte em N quadros para antes de repetir. */
+    if (seg.loop !== false || seg.frames !== undefined) args.push('-stream_loop', '-1');
+    args.push(...ss, '-i', seg.visual);
+  }
   else args.push('-loop', '1', '-framerate', String(fps), '-i', seg.visual);
   if (seg.audio) args.push(...ss, '-i', seg.audio); else args.push('-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo');
   /* volume da narração (slider do editor) */
