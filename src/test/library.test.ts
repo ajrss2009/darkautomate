@@ -287,9 +287,12 @@ async function main() {
   assert.ok(fs.existsSync(path.join(rdir, 'out', 'thumbnail.png')), 'capa vertical gerada');
   assert.match(thumbnailPrompt({ ...ctx, project: r3 }), /vertical Shorts\/Reels cover|9:16/);
 
-  // Whisper: estimativa + script python com módulo falso
-  const fakeMod = path.join(ws, 'fakepy'); fs.mkdirSync(fakeMod);
-  fs.writeFileSync(path.join(fakeMod, 'faster_whisper.py'), `
+  // Whisper: estimativa + script python com módulo falso (pulado se não há python no PATH)
+  const py = ['python3', 'python', 'py'].find((c) => { try { execFileSync(c, ['-V'], { stdio: 'ignore' }); return true; } catch { return false; } });
+  if (!py) console.log('(sem python: teste do Whisper pulado)');
+  else {
+    const fakeMod = path.join(ws, 'fakepy'); fs.mkdirSync(fakeMod);
+    fs.writeFileSync(path.join(fakeMod, 'faster_whisper.py'), `
 class _W: 
     def __init__(s,w,start,end): s.word=w; s.start=start; s.end=end
 class _S:
@@ -301,14 +304,16 @@ class WhisperModel:
     def transcribe(s,audio,**k): return [_S()], _I()
 __version__='0.0-fake'
 `);
-  const wav = path.join(ws, 'a.wav');
-  execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1', wav], { stdio: 'pipe' });
-  process.env['PYTHONPATH'] = fakeMod;
-  const wout = path.join(ws, 'w.json');
-  const wf = await transcribe({ python: 'python3', model: 'small', device: 'cpu' }, path.resolve(__dirname, '../../tools/whisper_words.py'), wav, wout, 'pt-BR', new AbortController().signal);
-  assert.deepEqual(wf.words.map((x) => x.w), ['ola', 'mundo']); assert.equal(wf.source, 'faster-whisper');
-  delete process.env['PYTHONPATH'];
-  await assert.rejects(transcribe({ python: 'python3', model: 'small', device: 'cpu' }, path.resolve(__dirname, '../../tools/whisper_words.py'), wav, wout, undefined, new AbortController().signal), /whisper saiu|faster-whisper/);
+    const wav = path.join(ws, 'a.wav');
+    execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1', wav], { stdio: 'pipe' });
+    const wout = path.join(ws, 'w.json');
+    try {
+      process.env['PYTHONPATH'] = fakeMod;
+      const wf = await transcribe({ python: py, model: 'small', device: 'cpu' }, path.resolve(__dirname, '../../tools/whisper_words.py'), wav, wout, 'pt-BR', new AbortController().signal);
+      assert.deepEqual(wf.words.map((x) => x.w), ['ola', 'mundo']); assert.equal(wf.source, 'faster-whisper');
+    } finally { delete process.env['PYTHONPATH']; }
+    await assert.rejects(transcribe({ python: py, model: 'small', device: 'cpu' }, path.resolve(__dirname, '../../tools/whisper_words.py'), wav, wout, undefined, new AbortController().signal), /whisper saiu|faster-whisper/);
+  }
 
   // ───────── cronômetro e primeiro frame
   const pp = recordRun(s2, r3.id, 1000, 66000, true);
