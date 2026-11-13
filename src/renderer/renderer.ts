@@ -3827,7 +3827,8 @@ async function render() {
   else if (tab === 'automations') await renderAutomations({ forge: forge as unknown as AutoCtx['forge'], toast, main });
   else if (tab === 'videos') await renderVideosPage({ forge: forge as unknown as VideosCtx['forge'], toast, main, guard, newProject: (idea, skillId, foldId) => { pendingIdea = idea; pendingSkill = skillId; pendingFold = foldId; go('new'); },
     skillFromVideo: (url, ai) => { go('skills'); setTimeout(() => void openSkillFromVideos(ctx, () => go('skills'), [url], ai), 300); },
-    openSkills: () => go('skills'), openRoutes: () => go('routes') });
+    openSkills: () => go('skills'), openRoutes: () => go('routes'),
+    openProject: (id) => void guard(async () => { current = await forge.getProject(id); media = await forge.projectMedia(id); selected = []; go('editor'); }) });
   else if (tab === 'plugins') await renderPluginsPage({ forge: forge as unknown as PluginsCtx['forge'], toast, main, guard, useInProject: (id, style) => { pendingPlugin = { id, style }; go('new'); } });
   else if (tab === 'agents') await renderAgents(ctx);
   else await renderSettings(ctx);

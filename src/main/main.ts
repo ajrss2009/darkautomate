@@ -71,6 +71,7 @@ import * as sfx from './sfx';
 import { STOCK_SOURCES } from '../shared/stock-sources';
 import { auditLibrary } from './audit';
 import { findOutliers, type FinderQuery } from './finder';
+import { analyzeGaps, cachedCollection, collectFrontier, depthPlan, gapToProjectInput, listFrontiers, loadGaps, makeFrontier, researchRoot, saveCachedCollection, saveResearch, type Frontier, type Gap } from './research';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
@@ -1367,6 +1368,51 @@ function registerIpc() {
   });
 
   h('finder:search', (q: FinderQuery) => findOutliers(settings, q, { log: (line) => send({ t: 'log', line: `vídeos: ${line}` } as EngineEvent) }));
+  /* ───────── Lacunas: a fronteira ocupa o lugar do termo; a tabela responde "quantos estão servindo isso?" ───────── */
+  const frontierOf = (input: { market?: unknown; category?: unknown; windowDays?: unknown; maxSubs?: unknown; languages?: unknown }): Frontier => {
+    const days = Math.round(Number(input.windowDays));
+    return makeFrontier({
+      market: String(input.market ?? 'pt-BR').slice(0, 16),
+      category: String(input.category ?? '').trim().slice(0, 64) || 'curiosidades',
+      windowDays: Number.isFinite(days) ? Math.max(7, Math.min(365, days)) : 90,
+      maxSubs: Math.max(0, Math.min(10_000_000, Number(input.maxSubs) || 100_000)),
+      languages: Array.isArray(input.languages) ? input.languages.filter((x): x is string => typeof x === 'string').slice(0, 6) : ['pt', 'en', 'es'],
+    });
+  };
+  h('research:frontiers', () => listFrontiers(settings.workspace));
+  h('research:gaps', (id: string) => loadGaps(settings.workspace, String(id ?? '')));
+  /** Colhe a amostra da fronteira (Finder por baixo: API ou yt-dlp) e devolve os formatos ranqueados. */
+  h('research:collect', async (input: { market?: unknown; category?: unknown; windowDays?: unknown; maxSubs?: unknown; languages?: unknown; refresh?: boolean; depth?: string }) => {
+    const frontier = frontierOf(input);
+    const depth = input.depth === 'rapida' || input.depth === 'profunda' ? input.depth : 'padrao' as const;
+    const plan = depthPlan(depth);
+    /* cache de 24 h: repetir a mesma fronteira/profundidade no mesmo dia não gasta outra coleta */
+    const cached = input.refresh ? undefined : cachedCollection(settings.workspace, frontier, depth);
+    const collection = cached ?? await collectFrontier(frontier, async (q) => {
+      const r = await findOutliers(settings, { query: q.query, languages: q.languages, period: q.period, perLanguage: q.perLanguage, maxSubs: q.maxSubs, format: 'any' }, { log: (line) => send({ t: 'log', line: `lacunas: ${line}` } as EngineEvent) });
+      return { videos: r.videos.map((v) => ({ id: v.id, title: v.title, channel: v.channel, views: v.views, subs: v.subs, publishedAt: v.publishedAt, ageDays: v.ageDays, durationSec: v.durationSec, language: v.searchLang, url: v.url })), warnings: r.warnings };
+    }, { maxSeeds: plan.seeds, perLanguage: plan.perLanguage, log: (line) => send({ t: 'log', line: `lacunas: ${line}` } as EngineEvent) });
+    const gaps = analyzeGaps(frontier, collection.videos);
+    saveCachedCollection(settings.workspace, frontier, collection, depth);
+    saveResearch(settings.workspace, frontier, collection, gaps);
+    return { frontier, gaps, sample: collection.videos.length, cached: !!cached, depth, warnings: [...new Set(collection.warnings)].slice(0, 6) };
+  });
+  /** Projeto a partir da lacuna: a ideia é o formato, a skill/rota vêm da sugestão e os números viram memória. */
+  h('research:create-project', (input: { frontier: Frontier; gap: Gap }) => {
+    const g = input.gap, f = input.frontier;
+    if (!g?.format || !f?.market) throw new Error('lacuna inválida');
+    const seed = gapToProjectInput(f, g);
+    let p;
+    try { p = createProject(settings, { ...seed, videoType: 'custom' }); }
+    catch {
+      /* sugestão sem par skill/rota instalado: cai no formato vertical padrão em vez de falhar */
+      p = createProject(settings, { ...seed, skillId: 'shorts-viral', routeId: 'shorts-autopilot', aspect: '9:16', targetDurationSec: Math.min(60, seed.targetDurationSec), videoType: 'custom' });
+    }
+    p.memories = [...p.memories, ...seed.memories];
+    ops.saveProjectFile(settings, p);
+    return p;
+  });
+  h('research:remove', (id: string) => { const dir = path.join(researchRoot(settings.workspace), String(id ?? '').replace(/[^\w-]/g, '')); if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true }); return listFrontiers(settings.workspace); });
   /** Traduz a pesquisa para cada idioma com a IA de texto (harness automático); sem IA, devolve a mesma. */
   h('finder:translate', async (query: string, langs: string[], ai?: { harness?: string; model?: string }) => {
     const out: Record<string, string> = Object.fromEntries(langs.map((l) => [l, query]));

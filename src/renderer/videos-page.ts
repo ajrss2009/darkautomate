@@ -1,6 +1,7 @@
 import { YT_VIDEO_TYPES, ytTypeKeyword, ytVideoType } from '../shared/yt-video-types';
 import { askConfirm, showMessage } from './dialogs';
 import { modelingCoverage } from '../shared/modeling';
+import { renderGapsPage } from './gaps-page';
 
 /* Aba PESQUISAR: YouTube (vídeos que arrebentam, com pontuação e motivos) e TikTok, Instagram, Facebook e Kwai (sem API, pela página de busca). */
 
@@ -26,6 +27,8 @@ export interface VideosCtx {
   skillFromVideo: (url: string, ai?: { harness: string; model: string }) => void;
   openSkills: () => void;
   openRoutes: () => void;
+  /** abre um projeto já criado (a lacuna cria o projeto e leva direto para o editor) */
+  openProject?: (id: string) => void;
 }
 interface Parts { outlier: number; velocity: number; engagement: number; small: number; young: number; language: number }
 interface Video {
@@ -57,6 +60,8 @@ const SITES: Record<Platform, { label: string; icon: string; note: string }> = {
 };
 const SEARCHABLE: Platform[] = ['youtube', 'tiktok', 'instagram', 'facebook'];
 let tab: Platform = 'youtube';
+/** Aba Lacunas (a fronteira ocupa o lugar do termo). */
+let gapsMode = false;
 const lastBy: Partial<Record<Platform, Result>> = {};
 let last: Result | undefined;
 const platOf = (v: { platform?: Platform }) => v.platform ?? 'youtube';
@@ -81,12 +86,19 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
   const { main } = c;
   /* Kwai fora da pesquisa: as páginas públicas dele nunca devolvem vídeos (continua como plataforma de canal) */
   const tabs = h('div', { class: 'vf-tabs' }, ...(Object.keys(SITES) as Platform[]).filter((id) => SEARCHABLE.includes(id)).map((id) =>
-    h('button', { class: `vf-tab${tab === id ? ' on' : ''}`, 'data-tab-v': id, onclick: () => {
-      if (id === tab) return;
+    h('button', { class: `vf-tab${!gapsMode && tab === id ? ' on' : ''}`, 'data-tab-v': id, onclick: () => {
+      if (id === tab && !gapsMode) return;
       if (last) lastBy[tab] = last;
+      gapsMode = false;
       tab = id; last = lastBy[id]; insights = undefined;
       void renderVideosPage(c);
-    } }, `${SITES[id].icon} ${SITES[id].label}`)));
+    } }, `${SITES[id].icon} ${SITES[id].label}`)),
+    h('button', { class: `vf-tab${gapsMode ? ' on' : ''}`, 'data-tab-v': 'gaps', title: 'Pesquisa por fronteira: quantos estão servindo cada formato, com que confiança e por quê', onclick: () => {
+      if (last) lastBy[tab] = last;
+      gapsMode = true;
+      void renderVideosPage(c);
+    } }, '🧩 Lacunas'));
+  if (gapsMode) { await renderGapsPage(c, tabs); return; }
   const site = SITES[tab];
   const yt = tab === 'youtube';
   favs = ((await c.guard(() => c.forge['finderFavorites']())) as Video[] | undefined) ?? [];

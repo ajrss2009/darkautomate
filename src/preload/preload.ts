@@ -68,6 +68,12 @@ contextBridge.exposeInMainWorld('forge', {
   testFfmpeg: () => call('ffmpeg:test'),
   openUrl: (url: string) => call('shell:open-url', url),
   finderSearch: (q: unknown) => call('finder:search', q),
+  /* Lacunas: pesquisa por fronteira (formato é a saída) */
+  researchFrontiers: () => call('research:frontiers'),
+  researchCollect: (input: unknown) => call('research:collect', input),
+  researchGaps: (id: string) => call('research:gaps', id),
+  researchCreateProject: (input: unknown) => call('research:create-project', input),
+  researchRemove: (id: string) => call('research:remove', id),
   finderFavorites: () => call('finder:favorites'),
   finderFavoritesRemove: (ids: string[]) => call('finder:favorites-remove', ids),
   finderInsights: (input: unknown, ai?: unknown) => call('finder:insights', input, ai),
