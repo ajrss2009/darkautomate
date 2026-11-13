@@ -1300,8 +1300,9 @@ async function renderNew() {
   let npVoice: NarrationVoice = {};
   /* motor da narração escolhido aqui (modelo local ou API/modelo): vira o executor da etapa de narração */
   let npEngine: Binding | undefined;
-  const voiceBox = voicePicker({ forge: forge as unknown as Parameters<typeof voicePicker>[0]['forge'], guard, route: undefined, language: 'pt-BR', value: npVoice, onChange: (v) => { npVoice = v; },
-    voices: meta.voices ?? [], apis: npCatalog.apis, onEngine: (b) => { npEngine = b; } }) as HTMLElement & { repaint: (r?: Route, l?: string) => void };
+  let refreshSums: () => void = () => {};
+  const voiceBox = voicePicker({ forge: forge as unknown as Parameters<typeof voicePicker>[0]['forge'], guard, route: undefined, language: 'pt-BR', value: npVoice, onChange: (v) => { npVoice = v; refreshSums(); },
+    voices: meta.voices ?? [], apis: npCatalog.apis, onEngine: (b) => { npEngine = b; refreshSums(); } }) as HTMLElement & { repaint: (r?: Route, l?: string) => void; reset?: () => void };
   /* a voz segue a rota JÁ com o perfil/provedores escolhidos (a narração pode ter mudado de motor) */
   const effectiveRoute = (): Route | undefined => {
     const r = meta.routes.find((x) => x.id === route.value);
@@ -1582,6 +1583,7 @@ async function renderNew() {
   paintMode();
 
   let guided: HTMLElement | null = null;
+  let voiceHome: HTMLElement | null = null;
   function openGuided() {
     guided?.remove();
     let step = 0;
@@ -1621,6 +1623,7 @@ async function renderNew() {
     const paint = () => {
       paintReview();
       paintPrev();
+      if (voiceHome && step !== 2 && voiceBox.parentElement !== voiceHome) voiceHome.append(voiceBox);
       next.replaceChildren(step >= 4 ? 'Criar projeto' : 'Avançar');
       next.disabled = step === 0 ? (!name.value.trim() || !idea.value.trim() || !skill.value) : step === 1 ? !route.value : false;
       def.style.display = step === 2 || step === 3 ? '' : 'none';
@@ -1657,8 +1660,10 @@ async function renderNew() {
               h('strong', {}, ch.name), h('span', { class: 'muted small' }, (ch.look ?? '').slice(0, 60)),
             ], () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); repaintChars(); paint(); });
           })) : h('div', { class: 'muted' }, 'Biblioteca vazia — a voz da skill vale.'),
-          h('div', { class: 'card' }, h('strong', {}, 'Voz'), h('div', { class: 'muted small' }, `em uso: ${npVoice.apiVoice || npVoice.refAudio ? 'a escolhida na gaveta Elenco e voz' : 'a voz da skill (OmniVoice/Wan2GP/API da rota)'}`)),
+          h('div', { class: 'card' }, h('strong', {}, 'Voz'), h('div', { class: 'muted small' }, `em uso: ${npVoice.apiVoice || npVoice.refAudio ? 'a escolhida abaixo' : 'a voz da skill (OmniVoice/Wan2GP/API da rota)'}`)),
           h('p', { class: 'muted small' }, '“Usar o padrão” limpa o elenco fixo e volta à voz da skill.'));
+        /* o seletor real de vozes (arquivos da pasta voices + vozes de API) entra aqui, o mesmo da gaveta */
+        body.append(h('div', { class: 'muted small' }, 'Voz da narração'), voiceBox);
       } else if (step === 3) {
         body.replaceChildren(
           h('h3', {}, '04 · Áudio e estilo'), h('p', { class: 'muted' }, 'Trilha, efeitos e legendas. Tudo com padrão.'),
@@ -1678,7 +1683,7 @@ async function renderNew() {
     };
     const goStep = (d: number) => { step = Math.max(0, Math.min(4, step + d)); paint(); };
     let bg: HTMLElement | undefined;
-    const close = () => { bg?.remove(); guided = null; };
+    const close = () => { voiceHome?.append(voiceBox); bg?.remove(); guided = null; };
     next.addEventListener('click', () => void guard(async () => {
       if (step < 4) { goStep(1); return; }
       const p = await make();
@@ -1687,7 +1692,7 @@ async function renderNew() {
     }));
     back.addEventListener('click', () => goStep(-1));
     def.addEventListener('click', () => {
-      if (step === 2) { pickedChars.clear(); repaintChars(); npVoice = {}; npEngine = undefined; paintVoice(); }
+      if (step === 2) { pickedChars.clear(); repaintChars(); voiceBox.reset?.(); paintVoice(); }
       else if (step === 3) { codeMusicCb.checked = false; subsSel.value = cfg?.defaults?.subtitles ?? 'off'; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true; }
       for (const p of sums) p(); paint();
     });
@@ -1723,6 +1728,8 @@ async function renderNew() {
       drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
       review,
       create.closest('.row') as HTMLElement);
+    voiceHome = voiceBox.parentElement as HTMLElement | null;
+    refreshSums = () => { for (const p of sums) p(); };
     form.addEventListener('input', () => { for (const p of sums) p(); });
     form.addEventListener('change', () => { for (const p of sums) p(); });
     main.replaceChildren(

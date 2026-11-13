@@ -2,6 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Project, Settings } from '../shared/types';
 import * as ff from './ffmpeg';
+import { measurePalette, normalizeStyleRef, styleRequest } from './style-ref';
+import { describeImage } from './vision';
+import { normalizePalette } from './channel-setup';
 import { transcribe } from './whisper';
 
 const TEXT_EXT = /\.(txt|md|markdown|srt|vtt|json|csv|html?)$/i;
@@ -68,6 +71,43 @@ export async function prepareReferences(s: Settings, p: Project, projectDir: str
         catch { if (d <= 0) break; }
       }
       if (!p.refVideo.frames.length) p.refVideo.note = 'não foi possível extrair quadros (ffmpeg)';
+      /* A APARÊNCIA DO VÍDEO VIRA O ESTILO DO PROJETO: paleta medida nos quadros + descrição
+         (visão local, se houver). Sem isso o vídeo só era citado no prompt e o modelo de
+         imagem nunca via a aparência dele. Um estilo escolhido à mão pelo usuário vence. */
+      if (p.refVideo.frames.length && !p.styleRef) {
+        const frame = p.refVideo.frames[Math.floor(p.refVideo.frames.length / 2)]!;
+        const measured = await measurePalette(s.ffmpeg, frame);
+        let raw: Record<string, unknown> | undefined;
+        let by = 'vídeo de referência (paleta medida)';
+        try {
+          const ollama = s.providers.find((x) => /ollama/i.test(x.id))?.baseUrl?.replace(/\/v1\/?$/, '');
+          const timeout = new Promise<undefined>((r) => { const t = setTimeout(() => r(undefined), 12_000); t.unref?.(); });
+          const txt = await Promise.race([describeImage(frame, styleRequest(path.basename(frame), measured), ollama).catch(() => undefined), timeout]);
+          if (txt) { const a = txt.indexOf('{'), b = txt.lastIndexOf('}'); if (a >= 0 && b > a) { try { raw = JSON.parse(txt.slice(a, b + 1)) as Record<string, unknown>; by = 'vídeo de referência (visão local)'; } catch { /* fica a paleta */ } } }
+        } catch { /* sem visão: fica a paleta */ }
+        let style: Project['styleRef'] | undefined;
+        if (raw) { try { style = normalizeStyleRef(raw, measured, frame, by); } catch { /* JSON sem stylePrompt */ } }
+        if (!style) {
+          style = {
+            file: frame, palette: measured.slice(0, 6), by, at: new Date().toISOString(),
+            stylePrompt: `Cinematic look inspired by the reference video: color palette ${measured.join(', ') || 'measured from its frames'}. Match its contrast, lighting, framing and color treatment; keep one consistent look across every scene; no text, logos or characters from the reference.`,
+          };
+        }
+        p.styleRef = style;
+        /* a imagem de referência do estilo vai junto (assets/user) e a paleta vira a do vídeo */
+        try {
+          const ud = path.join(projectDir, 'assets', 'user');
+          fs.mkdirSync(ud, { recursive: true });
+          const rel = `style-reference${path.extname(style.file ?? frame).toLowerCase() || '.jpg'}`;
+          fs.copyFileSync(style.file ?? frame, path.join(ud, rel));
+          p.styleRef = { ...style, file: path.join(ud, rel) };
+          p.attachments = [...(p.attachments ?? []), { file: rel, kind: 'image', use: 'reference', note: `Imagem de referência do ESTILO (extraída do vídeo de referência: ${p.styleRef.stylePrompt.slice(0, 180)})` }];
+        } catch { /* sem cópia: o quadro extraído ainda serve */ }
+        if (p.styleRef.palette?.length && !p.palette?.video) {
+          const pv = normalizePalette({ extra: p.styleRef.palette } as never) ?? normalizePalette(p.styleRef.palette as never);
+          if (pv) p.palette = { ...(p.palette ?? {}), video: pv };
+        }
+      }
     } catch (e) { p.refVideo.note = (e as Error).message; }
   }
   return p;

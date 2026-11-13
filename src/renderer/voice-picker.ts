@@ -162,5 +162,9 @@ export function voicePicker(o: VoicePickerOpts): HTMLElement {
       api && !apiList.length ? h('div', { class: 'muted' }, `Nenhuma voz carregada para ${api.provider} — abra Configurações → APIs de voz, clique em Testar (carrega as vozes da conta + biblioteca) e salve.`) : null] as Child[]).filter((x): x is Node => !!x));
   };
   paint();
-  return Object.assign(box, { repaint: (route?: Route, language?: string) => { if (route) o.route = route; if (language) o.language = language; paint(); } });
+  return Object.assign(box, {
+    repaint: (route?: Route, language?: string) => { if (route) o.route = route; if (language) o.language = language; paint(); },
+    /* volta ao padrão: sem motor próprio e sem voz escolhida (a da rota/skill) */
+    reset: () => { o.engine = undefined; o.onEngine?.(undefined); o.value = {}; o.onChange({}); paint(); },
+  });
 }
