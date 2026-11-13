@@ -261,7 +261,7 @@ export function storyboardShots(block: string): Array<{ a: number; b: number; te
 
 /* ───────── validador da API (modo estrito): a cena só pode chamar o que EXISTE na biblioteca ───────── */
 
-export interface Cartoon3dApi { c: Set<string>; stage: Set<string>; actor: Set<string> }
+export interface Cartoon3dApi { c: Set<string>; stage: Set<string>; actor: Set<string>; /** efeitos aceitos por Stage.fx(kind) */ fx: Set<string> }
 
 /** Membros de uma classe do bundle ("Nome = class { … }"): métodos, campos e this.x = …. Função pura. */
 function classMembers(js: string, name: string): Set<string> {
@@ -279,11 +279,21 @@ function classMembers(js: string, name: string): Set<string> {
   return out;
 }
 
+/** Efeitos que Stage.fx(kind) aceita, lidos do mapa interno do bundle (chaves de `D = { … }`). Função pura. */
+export function fxKindsFrom(js: string): Set<string> {
+  const at = js.search(/\bfx\(\s*kind\s*,/);
+  const out = new Set<string>();
+  if (at < 0) return out;
+  const m = /\bD\s*=\s*\{([\s\S]*?)\}\s*,\s*\[cw\s*,\s*ch/.exec(js.slice(at));
+  for (const k of (m?.[1] ?? '').matchAll(/^\s+([A-Za-z_$][\w$]*)\s*:/gm)) out.add(k[1]!);
+  return out;
+}
+
 /** API real da biblioteca, lida do bundle compilado (cartoon3d.js). Função pura. */
 export function cartoon3dApiFrom(js: string): Cartoon3dApi {
   const ex = /export\s*\{([\s\S]*?)\}/.exec(js)?.[1] ?? '';
   const c = new Set(ex.split(',').map((x) => x.trim().split(/\s+as\s+/).pop()!.trim()).filter(Boolean));
-  return { c, stage: classMembers(js, 'Stage'), actor: classMembers(js, 'Actor') };
+  return { c, stage: classMembers(js, 'Stage'), actor: classMembers(js, 'Actor'), fx: fxKindsFrom(js) };
 }
 
 const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:"'`\\])\/\/[^\n]*/g, '$1');
@@ -307,14 +317,23 @@ export function cartoon3dApiProblem(page: string, api: Cartoon3dApi): string | u
     if (stages.has(a)) continue;
     for (const m of code.matchAll(new RegExp(String.raw`(?<![\w$.])` + a + String.raw`\.([A-Za-z_$][\w$]*)`, 'g'))) if (!api.actor.has(m[1]!)) bad.add(`${a}.${m[1]} (ator)`);
   }
+  /* efeito inexistente em st.fx("…"): o mapa interno do Stage faz D[kind] = undefined e o render morre
+     (TypeError: undefined is not iterable) só no quadro em que o efeito aparece */
+  const fxBad = new Set<string>();
+  if (api.fx.size) for (const v of stages) {
+    for (const m of code.matchAll(new RegExp(String.raw`(?<![\w$.])` + v + String.raw`\.fx\(\s*['"\`]([A-Za-z_$][\w$]*)['"\`]`, 'g'))) if (!api.fx.has(m[1]!)) fxBad.add(m[1]!);
+  }
   /* acesso defensivo ("if (hero.root) …", "hero.root?.x", "hero.root &&") testa se existe — não é chamar função inventada */
   for (const b of [...bad]) {
     const ref = b.replace(/ \(ator\)$/, '').replace(/[.$]/g, (ch) => '\\' + ch);
     if (new RegExp(String.raw`if\s*\(\s*!?\s*` + ref + String.raw`\s*[)&|]|` + ref + String.raw`\s*(?:\?\.|&&|\?\?)|typeof\s+` + ref + String.raw`\b`).test(code)) bad.delete(b);
   }
-  if (!bad.size) return undefined;
+  if (!bad.size && !fxBad.size) return undefined;
   const pub = (s: Set<string>) => [...s].filter((x) => !/^_/.test(x)).sort().join(', ');
-  return `Erro: ${[...bad].slice(0, 12).join(', ')} não ${bad.size > 1 ? 'estão definidas' : 'está definida'} em <library_api> (biblioteca cartoon3d). ` +
-    `Reescreva o código usando APENAS os métodos permitidos — palco (st.*): ${pub(api.stage)}; ator (a.*): ${pub(api.actor)}; módulo (C.*): ${pub(api.c)}. ` +
-    'Para o que não existir na API, combine o que existe (st.mesh com geometria do THREE, st.draw/st.poster com Canvas 2D).';
+  const parts: string[] = [];
+  if (bad.size) parts.push(`${[...bad].slice(0, 12).join(', ')} não ${bad.size > 1 ? 'estão definidas' : 'está definida'} em <library_api> (biblioteca cartoon3d). ` +
+    `Reescreva o código usando APENAS os métodos permitidos — palco (st.*): ${pub(api.stage)}; ator (a.*): ${pub(api.actor)}; módulo (C.*): ${pub(api.c)}.`);
+  if (fxBad.size) parts.push(`o efeito ${[...fxBad].map((x) => `"${x}"`).join(', ')} não existe em Stage.fx (ele quebra o render no quadro em que aparece). ` +
+    `Use só estes efeitos: ${pub(api.fx)} — mantendo os mesmos tempos, coordenadas e cores.`);
+  return `Erro: ${parts.join(' ')} Para o que não existir na API, combine o que existe (st.mesh com geometria do THREE, st.draw/st.poster com Canvas 2D).`;
 }

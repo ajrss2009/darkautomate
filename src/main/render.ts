@@ -42,9 +42,12 @@ function listScenes(dir: string, base: string): string[] {
   }
   return out;
 }
+/** Respostas do render nunca podem vir do cache do Chromium: a mesma URL (scene.html) é regravada a cada correção. */
+const NO_CACHE = { 'Cache-Control': 'no-store, no-cache, must-revalidate', Pragma: 'no-cache' };
+
 function serveKit(m: KitMount, pathname: string): Response {
   const rel = decodeURIComponent(pathname);
-  if (rel === '/__manifest') return new Response(JSON.stringify(m.project ? listScenes(path.join(m.project, 'scenes'), '/project/scenes') : []), { headers: { 'Content-Type': 'application/json' } });
+  if (rel === '/__manifest') return new Response(JSON.stringify(m.project ? listScenes(path.join(m.project, 'scenes'), '/project/scenes') : []), { headers: { 'Content-Type': 'application/json', ...NO_CACHE } });
   const pick = (base: string, sub: string) => { const f = path.resolve(base, '.' + sub); return f.startsWith(path.resolve(base) + path.sep) ? f : undefined; };
   const file = rel.startsWith('/project/') && m.project ? pick(m.project, rel.slice(8))
     : rel.startsWith('/@film/') && m.project ? pick(m.project, rel.slice(6))
@@ -52,10 +55,10 @@ function serveKit(m: KitMount, pathname: string): Response {
     : pick(m.root, rel);
   if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     /* fonte ausente (repositórios não versionam fontes de terceiros): entrega a fonte de reserva */
-    if (m.fallbackFont && /\.(ttf|otf|woff2?)$/i.test(rel) && fs.existsSync(m.fallbackFont)) return new Response(fs.readFileSync(m.fallbackFont), { headers: { 'Content-Type': MIME[path.extname(m.fallbackFont).toLowerCase()] ?? 'font/woff2', 'Access-Control-Allow-Origin': '*' } });
-    return new Response('not found', { status: 404 });
+    if (m.fallbackFont && /\.(ttf|otf|woff2?)$/i.test(rel) && fs.existsSync(m.fallbackFont)) return new Response(fs.readFileSync(m.fallbackFont), { headers: { 'Content-Type': MIME[path.extname(m.fallbackFont).toLowerCase()] ?? 'font/woff2', 'Access-Control-Allow-Origin': '*', ...NO_CACHE } });
+    return new Response('not found', { status: 404, headers: NO_CACHE });
   }
-  return new Response(fs.readFileSync(file), { headers: { 'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream', 'Access-Control-Allow-Origin': '*' } });
+  return new Response(fs.readFileSync(file), { headers: { 'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream', 'Access-Control-Allow-Origin': '*', ...NO_CACHE } });
 }
 
 /**
@@ -229,7 +232,7 @@ function fileResponse(file: string, range: string | null): Response {
   const type = MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
   const size = fs.statSync(file).size;
   const r = parseRange(range, size);
-  const base = { 'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'Accept-Ranges': 'bytes' };
+  const base = { 'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'Accept-Ranges': 'bytes', ...NO_CACHE };
   if (!r) return new Response(fs.readFileSync(file), { headers: { ...base, 'Content-Length': String(size) } });
   const [start, end] = r;
   const fd = fs.openSync(file, 'r');
@@ -262,8 +265,15 @@ export function registerSceneProtocol(roots: () => string[]) {
   renderSession().protocol.handle('forge-scene', handler);
 }
 
-/** URL forge-scene:// para um arquivo local (cada segmento codificado; o protocolo é registrado no main). */
-export const sceneUrl = (file: string) => 'forge-scene://scene/' + path.resolve(file).split(path.sep).map(encodeURIComponent).join('/');
+/** URL forge-scene:// para um arquivo local (cada segmento codificado; o protocolo é registrado no main).
+    O `?v=<mtime>` muda a URL quando o arquivo é regravado — nem o cache do Chromium nem o de módulos
+    reaproveitam a versão anterior da cena depois de uma correção. */
+export const sceneUrl = (file: string) => {
+  const abs = path.resolve(file);
+  let v = Date.now();
+  try { v = Math.round(fs.statSync(abs).mtimeMs); } catch { /* arquivo ainda não existe */ }
+  return 'forge-scene://scene/' + abs.split(path.sep).map(encodeURIComponent).join('/') + '?v=' + v;
+};
 
 /**
  * Renderiza uma página HTML "determinística" (window.__forge.seek(t)) em MP4.

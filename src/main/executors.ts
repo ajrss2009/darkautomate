@@ -545,10 +545,12 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
         ].filter(Boolean).join('\n\n');
         const stop = watchOutputs(cwd, c.log);
         let r: Awaited<ReturnType<typeof runHarness>>;
+        const beforeLint = (() => { try { return fs.statSync(file).mtimeMs; } catch { return 0; } })();
         try { r = await runHarness(cfg, { cwd, prompt, model, effort, signal: c.signal, onLine: c.log, timeoutSec: c.step.timeoutSec, env,
           tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
         finally { stop(); }
-        if (!r.ok) throw new Error(`${id}: ${lint.slice(0, 160)}`);
+        const wroteLint = (() => { try { return fs.statSync(file).mtimeMs > beforeLint; } catch { return false; } })();
+        if (!r.ok && !wroteLint) throw new Error(`${id}: ${lint.slice(0, 160)}`);
         continue;
       }
     }
@@ -585,11 +587,13 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       c.log(`agente de revisão de cena: pedindo ao ${id} para corrigir (${framingRounds}/2)`);
       const stop = watchOutputs(cwd, c.log);
       let r: Awaited<ReturnType<typeof runHarness>>;
+      const beforeFraming = (() => { try { return fs.statSync(file).mtimeMs; } catch { return 0; } })();
       try { r = await runHarness(cfg, { cwd, prompt: framingFixPrompt(path.relative(cwd, file).split(path.sep).join('/'), issues), model, effort, signal: c.signal, onLine: c.log, timeoutSec: Math.max(120, Math.floor((left - renderMs) / 1000)), env,
         tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
       finally { stop(); }
-      if (!r.ok) { c.log(`⚠ ${id} não conseguiu corrigir a cena — mantida como estava`); return done; }
-      if (r.stdout.includes('__forge') && /<html|<!doctype/i.test(r.stdout) && fs.statSync(file).mtimeMs < Date.now() - 60_000) fs.writeFileSync(file, prov.stripFences(r.stdout));
+      const wroteFraming = (() => { try { return fs.statSync(file).mtimeMs > beforeFraming; } catch { return false; } })();
+      if (!r.ok && !wroteFraming) { c.log(`⚠ ${id} não conseguiu corrigir a cena — mantida como estava`); return done; }
+      if (r.stdout.includes('__forge') && /<html|<!doctype/i.test(r.stdout) && !wroteFraming && fs.statSync(file).mtimeMs < Date.now() - 60_000) fs.writeFileSync(file, prov.stripFences(r.stdout));
       fix = Math.max(0, fix - 1);   // rodada de enquadramento não gasta as correções de erro
       continue;
     }
@@ -607,11 +611,14 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       ].join('\n\n');
       const stop = watchOutputs(cwd, c.log);
       let r: Awaited<ReturnType<typeof runHarness>>;
+      const before = (() => { try { return fs.statSync(file).mtimeMs; } catch { return 0; } })();
       try { r = await runHarness(cfg, { cwd, prompt, model, effort, signal: c.signal, onLine: c.log, timeoutSec: c.step.timeoutSec, env,
         tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
       finally { stop(); }
-      if (!r.ok) throw e;
-      if (r.stdout.includes('__forge') && /<html|<!doctype/i.test(r.stdout) && fs.statSync(file).mtimeMs < Date.now() - 60_000) fs.writeFileSync(file, prov.stripFences(r.stdout));
+      /* o agy pode gravar a correção e ainda assim terminar com status != success: o arquivo é a verdade */
+      const fixedNow = (() => { try { return fs.statSync(file).mtimeMs > before; } catch { return false; } })();
+      if (!r.ok && !fixedNow) throw e;
+      if (r.stdout.includes('__forge') && /<html|<!doctype/i.test(r.stdout) && !fixedNow && fs.statSync(file).mtimeMs < Date.now() - 60_000) fs.writeFileSync(file, prov.stripFences(r.stdout));
     }
   }
 };

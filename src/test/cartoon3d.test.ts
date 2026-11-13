@@ -2,7 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { forceCartoon3dImports, cartoon3dScenePrompt, CARTOON3D_SKILL_ID, framingIssues, framingFixPrompt, storyboardFor, storyboardShots } from '../main/cartoon3d';
+import { forceCartoon3dImports, cartoon3dScenePrompt, CARTOON3D_SKILL_ID, framingIssues, framingFixPrompt, storyboardFor, storyboardShots, cartoon3dApiFrom, cartoon3dApiProblem } from '../main/cartoon3d';
 import { stageCartoon3d } from '../main/plugins';
 import { buildPrompt } from '../main/prompts';
 import { getRoute } from '../main/presets';
@@ -17,6 +17,15 @@ async function main() {
   const route = getRoute('curta-cartoon-3d');
   assert.ok(route && route.steps.some((s) => s.kind === 'code_scene') && route.steps.some((s) => s.kind === 'narration'), 'rota com cena por código e narração');
   assert.ok(fs.statSync(path.join('vendor', 'cartoon3d', 'cartoon3d.js')).size > 50_000, 'biblioteca compilada no vendor');
+
+  /* efeitos de Stage.fx: lidos do bundle; efeito inventado é barrado ANTES do render (quebrava em D[kind]) */
+  {
+    const api = cartoon3dApiFrom(fs.readFileSync(path.join('vendor', 'cartoon3d', 'cartoon3d.js'), 'utf8'));
+    assert.deepEqual([...api.fx].sort(), ['burst', 'cloud', 'creak', 'note', 'note2', 'puff', 'ring', 'splash', 'stars'], 'efeitos reais do bundle');
+    const pg = (fx: string) => `<html><body><script type="module">const st = C.createStage({}); st.fx('${fx}', { x: 0, y: 1, z: -2, t: 0.5 });</script></body></html>`;
+    assert.equal(cartoon3dApiProblem(pg('stars'), api), undefined, 'efeito que existe passa');
+    assert.match(cartoon3dApiProblem(pg('sparkle'), api) ?? '', /"sparkle" não existe em Stage\.fx[\s\S]*burst, cloud, creak/, 'efeito inventado é recusado com a lista');
+  }
 
   /* import map: CDN do three vira "three"; caminhos locais sobrescrevem os errados; mantém outras entradas */
   const imports = { three: '../../plugins/_three/three.module.min.js', cartoon3d: '../../plugins/_cartoon3d/cartoon3d.js' };
