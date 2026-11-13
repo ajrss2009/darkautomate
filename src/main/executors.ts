@@ -564,7 +564,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       c.log(`agente de revisão de cena: ${issues.length} problema(s) — ${issues.join('; ').slice(0, 500)}`);
       if (framingRounds >= 2 || c.signal.aborted) { c.log('⚠ revisão de cena ainda com problemas depois de 2 correções — cena mantida assim'); return done; }
       /* orçamento: a correção + o render novo têm que caber no prazo da etapa; sem tempo, fica o render que já passou */
-      const budget = (c.step.timeoutSec ?? 900) * 1000, left = budget - (Date.now() - stepT0), renderMs = Math.max(120_000, budget * 0.2);
+      const budget = Math.max(c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics' || c.step.id === 'kit_assets' ? 1800 : 0, c.step.timeoutSec ?? 900) * 1000, left = budget - (Date.now() - stepT0), renderMs = Math.max(120_000, budget * 0.2);
       if (left < renderMs + 180_000) { c.log(`⚠ revisão de cena: sem tempo para outra correção (${Math.round(left / 60000)} min restantes) — cena mantida com o último render`); return done; }
       framingRounds++;
       c.log(`agente de revisão de cena: pedindo ao ${id} para corrigir (${framingRounds}/2)`);
