@@ -69,9 +69,9 @@ async function main() {
   assert.ok(audioStreams(st.baseFile(out)), 'base com faixa de áudio');
   const fxVol = volumeOf(st.baseFile(out));
   assert.ok(fxVol > -60, `efeitos audíveis (${fxVol} dB)`);
-  assert.match(await st.applyFreeSoundtrack(s, {}, out), /trilha music\.mp3 a 35%/);
+  assert.match(await st.applyFreeSoundtrack(s, {}, out), /trilha music\.mp3 a 5%/);
   assert.ok(audioStreams(path.join(out, 'final.mp4')));
-  assert.ok(volumeOf(path.join(out, 'final.mp4')) > fxVol, 'trilha soma ao som');
+  assert.ok(volumeOf(path.join(out, 'final.mp4')) > -60, 'trilha audível no final (5%)');
   assert.equal(await st.applyFreeSoundtrack(s, { musicVolume: 0 }, out), 'trilha no mudo');
   st.setMusic(out, null);
   assert.equal(await st.applyFreeSoundtrack(s, {}, out), 'sem trilha');

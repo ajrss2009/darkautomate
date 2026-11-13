@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>Dark Automate</title>
+<style>
+  :root { --acc:#6ea8ff; --acc2:#b98bff; --bg:#0a0e15; --line:#1d2634; --mut:#8ea0b8; }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; }
+  body {
+    font-family: "Segoe UI", Tahoma, sans-serif; color:#e8eef8; background:var(--bg);
+    display:flex; flex-direction:column; justify-content:center; padding:26px 30px;
+    border:1px solid #243044; border-radius:12px; overflow:hidden;
+    -webkit-user-select:none; user-select:none; cursor:default;
+  }
+  /* brilho de fundo (dá profundidade sem imagens) */
+  body::before {
+    content:""; position:absolute; inset:-40% -20% auto -20%; height:380px;
+    background: radial-gradient(closest-side, rgba(110,168,255,.22), transparent 70%);
+    pointer-events:none;
+  }
+  .brand { display:flex; align-items:center; gap:12px; position:relative; }
+  .mark { width:44px; height:44px; flex:0 0 auto; }
+  h1 { font-size:19px; margin:0; letter-spacing:.4px; font-weight:650; }
+  h1 span { background:linear-gradient(90deg, var(--acc), var(--acc2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .sub { margin:3px 0 0; font-size:11px; color:var(--mut); letter-spacing:.2px; }
+  .barwrap { margin-top:26px; position:relative; }
+  .labels { display:flex; justify-content:space-between; align-items:baseline; font-size:11px; color:var(--mut); margin-bottom:7px; }
+  .pct { font-variant-numeric:tabular-nums; color:#cdd9ea; font-weight:600; }
+  .track { height:7px; border-radius:99px; background:#182130; overflow:hidden; box-shadow:inset 0 0 0 1px #223047; }
+  .fill { height:100%; width:0%; border-radius:99px; background:linear-gradient(90deg, var(--acc), var(--acc2)); transition:width .25s ease; box-shadow:0 0 12px rgba(110,168,255,.55); }
+  .step { margin-top:10px; font-size:10.5px; color:#7e8ea6; height:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .foot { position:absolute; left:30px; right:30px; bottom:16px; display:flex; justify-content:space-between; font-size:9.5px; color:#5c6b80; letter-spacing:.3px; }
+</style>
+</head>
+<body>
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="g" x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#6ea8ff"/><stop offset="1" stop-color="#b98bff"/>
+        </linearGradient>
+      </defs>
+      <rect x="5" y="9" width="38" height="30" rx="7" stroke="url(#g)" stroke-width="2.4"/>
+      <path d="M5 17h38M14 9v8M24 9v8M34 9v8M14 39v-8M24 39v-8M34 39v-8" stroke="url(#g)" stroke-width="1.6" opacity=".55"/>
+      <path d="M19.5 21.5v11l9.5-5.5-9.5-5.5Z" fill="url(#g)"/>
+    </svg>
+    <div>
+      <h1>Dark <span>Automate</span></h1>
+      <p class="sub">estúdio de vídeo automático</p>
+    </div>
+  </div>
+  <div class="barwrap">
+    <div class="labels"><span id="note">iniciando…</span><span class="pct" id="pct">0%</span></div>
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <div class="step" id="step"></div>
+  </div>
+  <div class="foot"><span>FilmForge</span><span id="ver"></span></div>
+<script>
+  let pct = 0;
+  window.setProgress = (p, note) => {
+    pct = Math.max(0, Math.min(100, Number(p) || 0));
+    document.getElementById('fill').style.width = pct + '%';
+    document.getElementById('pct').textContent = Math.round(pct) + '%';
+    if (note) { document.getElementById('note').textContent = note; document.getElementById('step').textContent = note; }
+  };
+  window.setVersion = (v) => { document.getElementById('ver').textContent = v ? 'v' + v : ''; };
+  /* enquanto o main não manda nada, a barra anda sozinha até 90% (nunca parece travada) */
+  setInterval(() => { if (pct < 90) window.setProgress(pct + 0.6); }, 250);
+</script>
+</body>
+</html>

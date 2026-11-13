@@ -1950,7 +1950,7 @@ function showScene(sc: Scene | undefined, autoplay = false, enter?: { kind: stri
   if (au) { const a = h('audio', { src: forge.mediaUrl(au) }); preview.a = a; box.append(a); if (autoplay) void a.play().catch(() => {}); }
   /* efeitos sonoros da cena tocam junto com a narração */
   const fxa = byName(sc, 'sfx.wav');
-  if (fxa) { const x = h('audio', { src: forge.mediaUrl(fxa) + '?v=' + Date.now() }); x.volume = Math.min(1, current.sfxVolume ?? 0.15); preview.x = x; box.append(x); if (autoplay) void x.play().catch(() => {}); }
+  if (fxa) { const x = h('audio', { src: forge.mediaUrl(fxa) + '?v=' + Date.now() }); x.volume = Math.min(1, current.sfxVolume ?? 0.05); preview.x = x; box.append(x); if (autoplay) void x.play().catch(() => {}); }
   const st = subStyle(current);
   const text = sc.subtitle?.trim() || sc.narration;
   /* textura da cena (aproximação em CSS do filtro do ffmpeg) */
@@ -2138,14 +2138,14 @@ const volSave = (p: Project, field: 'narrationVolume' | 'sfxVolume' | 'musicVolu
   toast(v === 0 ? `${what} no mudo. Renderize o final para aplicar.` : `Volume ${what === 'Música' ? 'da música' : what === 'Narração' ? 'da narração' : 'dos efeitos'} salvo${v === null ? ' (padrão)' : `: ${Math.round(v * 100)}%`}. Renderize o final para aplicar.`);
   renderEditor(true);
 };
-/** Faixa da narração: volume 0–200% (padrão 100%). */
-const narrHead = (p: Project) => volSlider({ key: 'narr', label: 'Narração', icon: '🎙️', value: p.narrationVolume, def: 1, max: 2,
+/** Faixa da narração: volume 0–150% (padrão 100%). */
+const narrHead = (p: Project) => volSlider({ key: 'narr', label: 'Narração', icon: '🎙️', value: p.narrationVolume, def: 1, max: 1.5,
   onPreview: (v) => { if (preview.a) preview.a.volume = Math.min(1, v); }, onSave: volSave(p, 'narrationVolume', 'Narração') });
-/** Faixa de efeitos: volume 0–150% (padrão 15%). */
-const sfxHead = (p: Project) => volSlider({ key: 'sfx', label: 'Efeitos sonoros', icon: '💥', value: p.sfxVolume, def: 0.15, max: 1.5,
+/** Faixa de efeitos: volume 0–150% (padrão 5%). */
+const sfxHead = (p: Project) => volSlider({ key: 'sfx', label: 'Efeitos sonoros', icon: '💥', value: p.sfxVolume, def: 0.05, max: 1.5,
   onPreview: (v) => { if (preview.x) preview.x.volume = Math.min(1, v); }, onSave: volSave(p, 'sfxVolume', 'Efeitos sonoros') });
-/** Faixa de música: volume 0–100% (padrão 15%; vídeo livre 35%). */
-const musicHead = (p: Project) => volSlider({ key: 'music', label: 'Música', icon: '🎵', value: p.musicVolume, def: p.scenes.length ? 0.15 : 0.35, max: 1,
+/** Faixa de música: volume 0–150% (padrão 5%). */
+const musicHead = (p: Project) => volSlider({ key: 'music', label: 'Música', icon: '🎵', value: p.musicVolume, def: 0.05, max: 1.5,
   onSave: volSave(p, 'musicVolume', 'Música'),
   extra: h('button', { class: 'small', 'data-act': 'music-edit', title: 'Adicionar, trocar, gerar ou remover a trilha sonora', onclick: () => void openMusicDialog(p) }, 'trocar trilha') });
 
@@ -2720,9 +2720,9 @@ function timeline(p: Project): HTMLElement {
     h('div', { class: 'tl-head tl-rulerh' }, h('span', { class: 'tl-hname' }, 'tempo')),
     head('filters', 'FX filtros', { state: 'fx' }), head('vignette', 'Vinheta', { state: 'fx' }),
     head('video', 'V1 vídeo'),
-    head('narration', 'A1 narração', { audio: true, vol: volCtl('narrationVolume', 'Narração', p.narrationVolume ?? 1, 2, 1) }),
-    head('music', 'A2 música', { audio: true, vol: volCtl('musicVolume', 'Música', p.musicVolume ?? 0.15, 1, 0.15) }),
-    head('sfx', 'Efeitos', { audio: true, vol: volCtl('sfxVolume', 'Efeitos', p.sfxVolume ?? 0.15, 1.5, 0.15) }),
+    head('narration', 'A1 narração', { audio: true, vol: volCtl('narrationVolume', 'Narração', p.narrationVolume ?? 1, 1.5, 1) }),
+    head('music', 'A2 música', { audio: true, vol: volCtl('musicVolume', 'Música', p.musicVolume ?? 0.05, 1.5, 0.05) }),
+    head('sfx', 'Efeitos', { audio: true, vol: volCtl('sfxVolume', 'Efeitos', p.sfxVolume ?? 0.05, 1.5, 0.05) }),
     head('subs', 'S1 legendas'));
   const inner = h('div', { class: 'tl-inner' }, ruler, fTrack, gTrack, vTrack, aTrack, mTrack, xTrack, sTrack, ph);
   inner.style.width = `${width}px`;

@@ -15,7 +15,7 @@ import { renderCodeMusic, type Mood } from './codemusic';
 
 export const MUSIC_RE = /^music\.(mp3|wav|m4a|ogg|flac|aac)$/i;
 /** Sem narração a trilha é o som principal: volume padrão maior que o das rotas com cenas (0,15). */
-export const FREE_MUSIC_VOLUME = 0.35;
+export const FREE_MUSIC_VOLUME = 0.05;
 
 export const musicFile = (outDir: string): string | undefined => {
   try { const f = fs.readdirSync(outDir).find((n) => MUSIC_RE.test(n)); return f ? path.join(outDir, f) : undefined; } catch { return undefined; }

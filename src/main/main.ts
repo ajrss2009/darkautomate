@@ -442,9 +442,39 @@ function importPortableProfile(src: string): { from: string; copied: string[] } 
   return { from: root, copied };
 }
 
+/* ───────── splash de abertura: janela sem moldura com a barra de progresso da inicialização ───────── */
+let splash: BrowserWindow | undefined;
+let splashShownAt = 0;
+function openSplash() {
+  try {
+    splash = new BrowserWindow({
+      width: 460, height: 296, frame: false, resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
+      show: false, alwaysOnTop: true, center: true, backgroundColor: '#0a0e15', title: APP_NAME, skipTaskbar: false,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    splash.once('ready-to-show', () => { if (splash && !splash.isDestroyed()) { splash.show(); splashShownAt = Date.now(); } });
+    splash.webContents.on('did-finish-load', () => { try { void splash?.webContents.executeJavaScript(`window.setVersion && window.setVersion(${JSON.stringify(app.getVersion())})`); } catch { /* opcional */ } });
+    void splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'));
+  } catch (e) { dumpErr('splash', e); splash = undefined; }
+}
+/** Progresso do splash (0–100) + o passo atual; ignora quando o splash já saiu. */
+function splashProgress(pct: number, note?: string) {
+  try {
+    if (!splash || splash.isDestroyed()) return;
+    void splash.webContents.executeJavaScript(`window.setProgress && window.setProgress(${Math.round(pct)}, ${JSON.stringify(note ?? '')})`);
+  } catch { /* janela fechando */ }
+}
+/** Fecha o splash depois de completar a barra (mínimo de ~0,9 s para não piscar). */
+function closeSplash() {
+  if (!splash || splash.isDestroyed()) return;
+  splashProgress(100, 'pronto');
+  const wait = Math.max(0, 900 - (Date.now() - splashShownAt));
+  setTimeout(() => { try { splash?.destroy(); } catch { /* já fechou */ } splash = undefined; }, wait + 380);
+}
+
 function createWindow() {
   win = new BrowserWindow({
-    width: 1400, height: 880, title: APP_NAME, icon: appIcon(), backgroundColor: bgFor(settings.theme),
+    width: 1400, height: 880, title: APP_NAME, icon: appIcon(), backgroundColor: bgFor(settings.theme), show: false,
     titleBarStyle: 'hidden', ...(process.platform !== 'darwin' ? { titleBarOverlay: overlayFor(settings.theme) } : {}),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -454,6 +484,10 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   void win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  /* a janela só aparece quando a interface está desenhada: o splash cobre esse intervalo */
+  const splashGuard = setTimeout(() => { if (splash && !splash.isDestroyed()) { win?.show(); closeSplash(); } }, 20_000);
+  win.once('ready-to-show', () => { clearTimeout(splashGuard); win?.show(); win?.focus(); closeSplash(); });
+  win.webContents.on('did-fail-load', () => { clearTimeout(splashGuard); win?.show(); closeSplash(); });
   /* rede de segurança: ao voltar para a janela, o teclado volta para a página (no Windows, diálogos nativos
      deixavam inputs/textareas sem aceitar digitação até a janela perder e ganhar o foco) */
   win.on('focus', () => { if (win && !win.isDestroyed()) win.webContents.focus(); });
@@ -2401,6 +2435,9 @@ app.whenReady().then(() => {
     return;
   }
   fs.mkdirSync(settings.workspace, { recursive: true });
+  /* splash de abertura: cobre a inicialização (memória, plugins, IPC) até a interface estar pronta */
+  openSplash();
+  splashProgress(12, 'preparando o workspace');
   /* inicializa o sistema de memória do FilmForge */
   try {
     const memResult = memory.initializeMemorySystem(String(process.resourcesPath ?? ''));
@@ -2412,7 +2449,9 @@ app.whenReady().then(() => {
       console.warn(`[FilmForge] Aviso: ${memResult.error}`);
     }
   } catch (e) { dumpErr('memory-system', e); }
+  splashProgress(34, 'carregando memórias');
   /* plugins que vêm com o app (ex.: Interface Cinemática): instalados uma vez na pasta de plugins do usuário */
+  splashProgress(44, 'instalando plugins');
   try {
     const seeded = seedBundledPlugins(settings, bundledPluginsDir());
     if (seeded.length) saveSettings(settings);
@@ -2421,11 +2460,14 @@ app.whenReady().then(() => {
       .then((r) => adaptPlugin(settings, r.plugin.id, { harness: '', log: () => {} }))
       .catch((e) => dumpErr('seed-youtube-skill', e));
   } catch (e) { dumpErr('seed-plugins', e); }
+  splashProgress(52, 'plugins prontos');
   registerProtocols();
+  splashProgress(64, 'registrando protocolos');
   /* uso real do Antigravity em cada chamada, por conta (Automações → uso) */
   setHarnessUsageSink((u) => recordAgyUsage(settings, { at: new Date().toISOString(), account: accountOfAgyHome(settings, u.home), model: u.model, input: u.input, output: u.output, thinking: u.thinking, total: u.total, ok: u.ok }));
   Menu.setApplicationMenu(null);
   registerIpc();
+  splashProgress(80, 'conectando a interface');
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

@@ -79,6 +79,13 @@ function main() {
   assert.ok(!voiceAccepted('openai', 'gpt-4o-mini-tts', ['alloy'], 'Kore'), 'voz do Gemini não vai para a OpenAI');
   assert.deepEqual(voicesForModel('gemini', 'gemini-2.5-flash-preview-tts', ['Kore', 'Puck']), ['Kore', 'Puck']);
 
+  // ───────── splash de abertura: página com barra de progresso e cópia no build
+  const splash = fs.readFileSync(path.join('src', 'renderer', 'splash.html'), 'utf8');
+  assert.match(splash, /window\.setProgress/, 'o main atualiza o progresso');
+  assert.match(splash, /id="fill"/, 'barra preenchida por largura');
+  assert.match(splash, /Dark <span>Automate<\/span>/, 'marca na abertura');
+  assert.ok(fs.existsSync(path.join('dist', 'renderer', 'splash.html')), 'build copia o splash para dist/renderer');
+
   fs.rmSync(root, { recursive: true, force: true });
   console.log('portable/overrides/plugin/voices tests: OK');
 }

@@ -91,8 +91,8 @@ export function updateProject(s: Settings, id: string, patch: Partial<Pick<Proje
   if ('watermark' in patch) { const w = cleanWatermark(patch.watermark); if (w) p.watermark = w; else delete p.watermark; }
   if ('wan2gpPost' in patch) { const w = cleanWan2gpPost(patch.wan2gpPost); if (w) p.wan2gpPost = w; else delete p.wan2gpPost; }
   if ('finalEffects' in patch) { const fe = cleanFinalEffects(patch.finalEffects); if (fe) p.finalEffects = fe; else delete p.finalEffects; }
-  /* volumes da montagem (null = voltar ao padrão da rota) */
-  for (const [k, max] of [['musicVolume', 1], ['sfxVolume', 1.5], ['narrationVolume', 2]] as const) if (k in patch) {
+  /* volumes da montagem (null = voltar ao padrão da rota); todos até 150% */
+  for (const [k, max] of [['musicVolume', 1.5], ['sfxVolume', 1.5], ['narrationVolume', 1.5]] as const) if (k in patch) {
     const v = Number((patch as Record<string, unknown>)[k]);
     if ((patch as Record<string, unknown>)[k] === null || !Number.isFinite(v)) delete p[k]; else p[k] = Math.round(Math.min(max, Math.max(0, v)) * 100) / 100;
   }
@@ -139,6 +139,13 @@ export function updateProject(s: Settings, id: string, patch: Partial<Pick<Proje
 export function readProject(s: Settings, id: string): Project {
   const p = JSON.parse(fs.readFileSync(path.join(safeProjectDir(s, id), 'project.json'), 'utf8')) as Project;
   migrateSceneFx(p);   // filtro/vinheta antigos (por cena/vídeo final) → trechos da timeline
+  /* volumes: a trilha/efeitos agora entram a 5% (o padrão antigo, 12–15% da rota, ficava alto demais).
+     Vale só para quem nunca escolheu um volume próprio — rotas de música (ex.: lyric video a 100%) ficam como estão. */
+  if (p.musicVolume === undefined) {
+    const routeMusic = (p.route?.steps ?? []).map((st) => Number(st.params?.['musicVolume'])).filter((v) => Number.isFinite(v) && v > 0);
+    if (!routeMusic.length || Math.max(...routeMusic) <= 0.2) p.musicVolume = 0.05;
+  }
+  if (p.sfxVolume === undefined) p.sfxVolume = 0.05;
   return p;
 }
 

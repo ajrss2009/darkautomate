@@ -127,7 +127,11 @@ async function main() {
     ops.saveProjectFile(s, p);
     const up = ops.updateProject(s, p.id, { musicVolume: 0 });
     assert.equal(up.musicVolume, 0, 'mudo');
-    assert.equal(ops.updateProject(s, p.id, { musicVolume: 3 }).musicVolume, 1);
+    assert.equal(ops.updateProject(s, p.id, { musicVolume: 3 }).musicVolume, 1.5, 'volume máximo 150%');
+    assert.equal(ops.updateProject(s, p.id, { musicVolume: 0.05 }).musicVolume, 0.05, 'padrão da música: 5%');
+    assert.equal(ops.updateProject(s, p.id, { musicVolume: 0 }).musicVolume, 0);
+    assert.equal(ops.updateProject(s, p.id, { narrationVolume: 3 }).narrationVolume, 1.5, 'narração também até 150%');
+    assert.equal(ops.updateProject(s, p.id, { sfxVolume: -1 }).sfxVolume, 0, 'efeitos nunca negativos');
     assert.equal(ops.updateProject(s, p.id, { musicVolume: null as unknown as number }).musicVolume, undefined, 'volta ao padrão da rota');
     const q = ops.readProject(s, p.id);
     ops.updateScene(q, 's02', { sfx: ['ding', 'xyz', 'tick@1'] });

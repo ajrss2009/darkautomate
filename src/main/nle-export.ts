@@ -110,7 +110,7 @@ export async function exportForEditor(s: Settings, p: Project, target: 'davinci'
     audio.push({ name: 'Efeitos sonoros', file: f, seconds: total, level: p.sfxVolume ?? SFX_DEFAULT_VOLUME });
   }
   const outDir = path.join(root, 'out'), music = fs.existsSync(outDir) ? fs.readdirSync(outDir).find((f) => /^music\.(mp3|wav|m4a|ogg)$/i.test(f)) : undefined;
-  const mvol = p.musicVolume ?? 0.15;
+  const mvol = p.musicVolume ?? 0.05;
   if (music && mvol > 0) {
     const f = path.join(media, 'musica.wav');
     await ff.run(s.ffmpeg, ['-y', '-stream_loop', '-1', '-i', path.join(outDir, music), '-t', total.toFixed(3), '-af', target === 'capcut' ? `volume=${mvol.toFixed(3)}` : 'anull', '-ac', '2', '-ar', '48000', '-c:a', 'pcm_s16le', f]);

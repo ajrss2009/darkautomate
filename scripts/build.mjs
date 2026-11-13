@@ -27,6 +27,7 @@ for (const t of ['engine', 'ops', 'library', 'skills', 'features', 'workflows', 
 }
 
 copyFileSync('src/renderer/index.html', 'dist/renderer/index.html');
+copyFileSync('src/renderer/splash.html', 'dist/renderer/splash.html');
 copyFileSync('src/renderer/styles.css', 'dist/renderer/styles.css');
 copyFileSync('src/renderer/logo.svg', 'dist/renderer/logo.svg');
 console.log('build ok');

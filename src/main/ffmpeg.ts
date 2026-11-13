@@ -145,7 +145,8 @@ export async function silenceTrim(ffmpeg: string, input: string, output: string,
 }
 
 /** Volume padrão dos efeitos sonoros sob a narração (15%). */
-export const SFX_DEFAULT_VOLUME = 0.15;
+/** Volume padrão dos efeitos sonoros (5%: o desenho de som fica sob a voz, não por cima). */
+export const SFX_DEFAULT_VOLUME = 0.05;
 export interface SegmentInput { visual?: string; audio?: string; seconds: number; effects?: SceneEffects; loop?: boolean; sfx?: string; sfxVolume?: number; /** segundos pulados no começo do visual (vídeo), da narração e dos efeitos (corte do editor) */ trimStart?: number; /** volume da narração (1 = 100%) */ narrationVolume?: number; /** duração em quadros (manda no corte; default: `seconds × fps`) */ frames?: number; /** fps do projeto (default 30) */ fps?: number; /** silencia o áudio desta cena (legenda continua) */ muted?: boolean; /** espelha a imagem (hflip) */ mirror?: boolean }
 
 /** Filtros de vídeo dos efeitos da cena (Ken Burns, cor, desfoque, fade). */
@@ -385,7 +386,7 @@ export async function concat(ffmpeg: string, segments: string[], out: string, si
 }
 
 /** Mixa trilha com ducking (sidechain) sob a narração. */
-export async function mixMusic(ffmpeg: string, video: string, music: string, out: string, signal?: AbortSignal, volume = 0.15) {
+export async function mixMusic(ffmpeg: string, video: string, music: string, out: string, signal?: AbortSignal, volume = 0.05) {
   const vol = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 0.5)).toFixed(3);
   /* sem `-shortest`: ele cortava o último quadro do vídeo quando o áudio (com o priming do
      AAC) terminava alguns milissegundos depois. O áudio é fechado no tamanho do vídeo depois. */

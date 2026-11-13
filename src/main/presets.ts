@@ -229,7 +229,7 @@ export const ROUTES: Route[] = [
       step({ id: 'video', kind: 'video', label: 'Reconstituição 3D (vídeo IA)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'], bindings: videoChain, timeoutSec: 2400, onFail: 'skip' }),
       step({ id: 'code_scene', kind: 'code_scene', label: 'Mapas, linhas do tempo e números (código)', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'stock'], onlySceneKinds: ['code', 'mixed', 'motion'], bindings: textChain }),
       sfxStep(false, ['code_scene']),
-      ...tail(['narration', 'stock', 'image', 'video', 'code_scene', 'sfx'], { musicVolume: 0.12 }),
+      ...tail(['narration', 'stock', 'image', 'video', 'code_scene', 'sfx'], { musicVolume: 0.05 }),
     ],
   },
   {

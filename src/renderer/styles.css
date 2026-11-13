@@ -1139,9 +1139,9 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .tl-hbtn:hover { opacity:1; }
 .tl-hbtn.on { color:var(--acc); opacity:1; }
 .tl-volwrap { display:flex; align-items:center; gap:3px; flex:0 0 auto; }
-.tl-vol { width:66px; height:20px; margin:0; cursor:pointer; -webkit-appearance:none; appearance:none; background:transparent; outline-offset:2px; }
+.tl-vol { width:76px; height:22px; margin:0; cursor:pointer; -webkit-appearance:none; appearance:none; background:transparent; outline-offset:2px; }
 .tl-vol::-webkit-slider-runnable-track { height:6px; border-radius:3px; background:linear-gradient(to right, var(--acc) 0 var(--pct,50%), #2a3242 var(--pct,50%) 100%); }
-.tl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-4px; border-radius:50%; background:#fff; border:2px solid var(--acc); box-shadow:0 1px 3px rgba(0,0,0,.5); transition:transform .1s; }
+.tl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; margin-top:-5px; border-radius:50%; background:#fff; border:2px solid var(--acc); box-shadow:0 1px 3px rgba(0,0,0,.5); transition:transform .1s; }
 .tl-vol:hover::-webkit-slider-thumb, .tl-vol:focus-visible::-webkit-slider-thumb { transform:scale(1.18); }
 .tl-vol::-moz-range-track { height:6px; border-radius:3px; background:#2a3242; }
 .tl-vol::-moz-range-progress { height:6px; border-radius:3px; background:var(--acc); }
