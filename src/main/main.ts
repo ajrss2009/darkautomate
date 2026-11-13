@@ -87,6 +87,8 @@ import { modelThumbnail, scoreTitle, suggestTitles, type ThumbModelInput, type T
 import type { TitleScoreInput } from './title-score';
 import { champions, createAb, listAb, measureAb, patchAb, type CreateAbInput } from './title-ab';
 import { buildNiche, listNiches, nicheStructure, nicheVsChannel, readNiche, type NicheBuildInput } from './niche-bench';
+import { audioPeaks } from './audio-peaks';
+import { createHash } from 'node:crypto';
 import { titleStructure } from './youtube-rules';
 import { DATA_DIR_NAME, copyProfile, expand, openPortable, relocate, resolveDataRoot, sealPortable, tokenize } from './portable';
 import * as memory from './memory-integration';
@@ -1502,6 +1504,36 @@ function registerIpc() {
   /* benchmark de nicho: corpus de centenas/milhares de títulos + comparação canal × mercado */
   h('niche:list', () => listNiches(settings));
   h('niche:get', (id: string) => readNiche(settings, id));
+  /* PICOS DE ÁUDIO (forma de onda da timeline): um passe de ffmpeg + cache ao lado do arquivo */
+  h('peaks:get', async (file: string) => {
+    const abs = path.resolve(String(file));
+    const roots = [path.resolve(projectsDir(settings)), path.resolve(settings.workspace)];
+    if (!roots.some((r) => abs === r || abs.startsWith(r + path.sep))) throw new Error('arquivo fora da pasta de trabalho');
+    return audioPeaks(settings.ffmpeg, abs);
+  });
+  /* PRÉVIA DO GUIADO: um clipe de 10 s (loop) do cartão da skill ou de um quadro */
+  h('preview:clip', async (o: { image?: string; text?: string; aspect?: string }) => {
+    const dir = path.join(settings.workspace, 'cache', 'previews');
+    fs.mkdirSync(dir, { recursive: true });
+    const key = createHash('sha1').update(`${o.image ?? ''}|${o.text ?? ''}|${o.aspect ?? ''}`).digest('hex').slice(0, 16);
+    const out = path.join(dir, `${key}.mp4`);
+    if (fs.existsSync(out) && fs.statSync(out).size > 1000) return out;
+    const { w, h } = ff.resolution((o.aspect as never) ?? '9:16');
+    if (o.image && fs.existsSync(o.image)) {
+      await ff.run(settings.ffmpeg, ['-y', '-loop', '1', '-i', o.image, '-t', '10',
+        '-vf', `scale=${Math.round(w * 1.12)}:-2,zoompan=z='min(zoom+0.0007,1.18)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=300:s=${w}x${h}:fps=30,format=yuv420p`,
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-an', out]);
+    } else {
+      const txt = path.join(dir, `${key}.txt`);
+      fs.writeFileSync(txt, (o.text ?? 'FilmForge').replace(/[\r\n]+/g, ' ').slice(0, 40), 'utf8');
+      const font = process.platform === 'win32' ? `fontfile='C\\:/Windows/Fonts/arialbd.ttf':` : '';
+      const tf = txt.replace(/\\/g, '/').replace(/:/g, '\\:');
+      await ff.run(settings.ffmpeg, ['-y', '-f', 'lavfi', '-i', `gradients=s=${w}x${h}:c0=#151a2e:c1=#7c5cff:x0=0:y0=0:x1=${w}:y1=${h}:d=10:r=30`,
+        '-vf', `drawtext=${font}textfile='${tf}':fontcolor=white:fontsize=${Math.round(Math.min(w, h) / 14)}:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p`,
+        '-t', '10', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-an', out]);
+    }
+    return out;
+  });
   h('niche:build', async (input: NicheBuildInput) => {
     const corpus = await buildNiche(settings, input, (line) => send({ t: 'log', stepId: 'craft', line } as EngineEvent));
     const niche = nicheStructure(corpus);
@@ -1973,7 +2005,7 @@ function registerIpc() {
   h('project:media', (id: string) => {
     const out = path.join(projectDirOf(settings, id), 'out');
     const f = (n: string) => { const x = path.join(out, n); return fs.existsSync(x) ? x : null; };
-    return { final: f('final.mp4'), subtitles: f('subtitles.srt'), music: soundtrack.musicFile(out) ?? null };
+    return { final: f('final.mp4'), subtitles: f('subtitles.srt'), music: soundtrack.musicFile(out) ?? null, narration: f('narration.stem.wav') };
   });
   /* trilha sonora no editor: escolher arquivo, gerar por código, remover e aplicar no vídeo final */
   h('project:music-pick', async (id: string) => {

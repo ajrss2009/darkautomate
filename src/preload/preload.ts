@@ -151,6 +151,8 @@ contextBridge.exposeInMainWorld('forge', {
   saveRoute: (id: string, route: unknown) => call('project:save-route', id, route),
   redoSteps: (id: string, stepIds: string[]) => call('project:redo-steps', id, stepIds),
   projectMedia: (id: string) => call('project:media', id),
+  audioPeaks: (file: string) => call('peaks:get', file),
+  previewClip: (o: unknown) => call('preview:clip', o),
   musicPick: (id: string) => call('project:music-pick', id),
   musicClear: (id: string) => call('project:music-clear', id),
   musicMoods: () => call('project:music-moods'),

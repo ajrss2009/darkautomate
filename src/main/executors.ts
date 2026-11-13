@@ -1952,8 +1952,28 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       const sfxFile = path.join(dir, 'audio', 'sfx.wav');
       const sfxOk = sfx.validWav(sfxFile);
       if (!sfxOk && fs.existsSync(sfxFile)) c.log(`aviso: ${s.id}/audio/sfx.wav inválido (vazio ou corrompido) — cena montada sem efeitos sonoros; refaça "Efeitos sonoros" nesta cena para recuperá-los`);
+      /* INVERTER: a cena toca de trás para frente. Prepara um arquivo finito do tamanho exato
+         da cena e o inverte — `reverse` sobre fluxo infinito (loop) travaria. */
+      if (s.transform?.reverse && visual && /\.(mp4|webm|mov|mkv|gif)$/i.test(visual)) {
+        const cut = path.join(c.outDir, `visual-cut-${s.id}.mp4`);
+        const rev = path.join(c.outDir, `visual-rev-${s.id}.mp4`);
+        const dur = seconds.toFixed(6);
+        const trim = s.trimStart && s.trimStart > 0 ? ['-ss', s.trimStart.toFixed(3)] : [];
+        try {
+          await ff.run(c.settings.ffmpeg, ['-y', ...(loop ? ['-stream_loop', '-1'] : []), ...trim, '-i', visual, '-t', dur, '-an',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', cut], c.signal);
+          await ff.run(c.settings.ffmpeg, ['-y', '-i', cut, '-vf', 'reverse', '-an',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', rev], c.signal);
+          visual = rev; loop = false;
+        } catch (e) {
+          if (c.signal.aborted) throw e;
+          c.log(`aviso: não consegui inverter ${s.id} (${(e as Error).message.slice(0, 120)})`);
+        } finally { fs.rmSync(cut, { force: true }); }
+      }
       const effects = autoMotion(s, params);
-      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, frames, fps: PROJECT_FPS, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: c.project.sfxVolume ?? SFX_DEFAULT_VOLUME, trimStart: s.trimStart, narrationVolume: c.project.narrationVolume }, out, c.project.aspect, c.signal);
+      const narrVol = c.project.tracks?.narration?.muted ? 0 : c.project.narrationVolume;
+      const sfxVol = c.project.tracks?.sfx?.muted ? 0 : (c.project.sfxVolume ?? SFX_DEFAULT_VOLUME);
+      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, frames, fps: PROJECT_FPS, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: sfxVol, trimStart: s.trimStart, narrationVolume: narrVol, muted: !!s.audio?.muted, mirror: !!s.transform?.mirror }, out, c.project.aspect, c.signal);
       segs.push({ file: out, seconds, transition: effects?.transition, transitionSec: effects?.transitionSec });
       c.log(`segmento ${s.index}/${scenes.length} ok`);
     }
@@ -1972,8 +1992,8 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       c.log(`acabamento do vídeo final: ${fin.length} filtro(s)`);
     }
     const music = fs.readdirSync(c.outDir).find((f) => f.startsWith('music.'));
-    /* volume da trilha: o do editor (projeto) vence o da rota; 0 = mudo */
-    const musicVol = c.project.musicVolume ?? Number(params.musicVolume ?? 0.15);
+    /* volume da trilha: o do editor (projeto) vence o da rota; 0 = mudo (mudo da faixa também) */
+    const musicVol = c.project.tracks?.music?.muted ? 0 : (c.project.musicVolume ?? Number(params.musicVolume ?? 0.15));
     if (music && musicVol > 0) await ff.mixMusic(c.settings.ffmpeg, raw, path.join(c.outDir, music), final, c.signal, musicVol);
     else { if (music) c.log('trilha sonora no mudo'); fs.copyFileSync(raw, final); }
     const srt = primaryFile('subtitles', c);

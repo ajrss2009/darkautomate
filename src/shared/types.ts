@@ -165,6 +165,10 @@ export interface Scene {
   manualDuration?: boolean;            // duração definida pelo usuário (ignora a do áudio)
   subtitle?: string;                   // texto da legenda (vazio = usa a narração)
   effects?: SceneEffects;              // efeitos aplicados na montagem e na prévia
+  /** inversão (vídeo de trás para frente) e espelhamento da cena (valem no arquivo final) */
+  transform?: { reverse?: boolean; mirror?: boolean };
+  /** áudio da cena: mudo mantém a legenda e silencia a narração dela no render */
+  audio?: { muted?: boolean };
   status: Record<string, StepStatus>;
   artifacts: Record<string, string[]>;
 }
@@ -423,6 +427,9 @@ export interface RunParams {
   executorBypass?: ExecutorBypass;
 }
 
+/** Estado visual/sonoro de uma faixa do editor. `hidden` não chega ao ffmpeg; `muted` chega. */
+export interface TrackState { muted?: boolean; hidden?: boolean; locked?: boolean }
+
 export interface Project {
   id: string;
   name: string;
@@ -447,6 +454,8 @@ export interface Project {
   codeMusic?: boolean;
   /** arquivos do usuário (imagens, vídeos, áudios, textos) copiados para assets/user e usados no prompt e na produção */
   attachments?: Attachment[];
+  /** estado das faixas no editor: mudo (render) e oculto (só visualização); trava é só da UI */
+  tracks?: { video?: TrackState; narration?: TrackState; music?: TrackState; sfx?: TrackState; subs?: TrackState; fx?: TrackState };
   waveform?: 'line' | 'bar' | 'p2p' | 'cline' | 'dot'; // waveform sobreposta no clipe
   /** coletânea musical: duração total mínima e máxima (minutos) e duração de cada faixa (s) */
   musicMinMin?: number;

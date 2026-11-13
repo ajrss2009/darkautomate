@@ -154,6 +154,20 @@ async function main() {
   const sm = await probeStreams(s.ffprobe, shortSeg);
   assert.equal(sm.frames, 30, `clipe de 0,4 s com 30 quadros pedidos fecha em 30 (saiu ${sm.frames})`);
   assert.ok(Math.abs(sm.audio - 1) < 0.05, `áudio do clipe curto acompanha 1 s (${sm.audio} s)`);
+  /* espelhar muda a imagem; o mudo da cena zera só aquele áudio */
+  const plain = path.join(qws, 'plain.mp4');
+  const mirror = path.join(qws, 'mirror.mp4');
+  await ff.makeSegment(s.ffmpeg, { visual: shortClip, seconds: 0.5, frames: 15, fps: PROJECT_FPS }, plain, '16:9');
+  await ff.makeSegment(s.ffmpeg, { visual: shortClip, seconds: 0.5, frames: 15, fps: PROJECT_FPS, mirror: true }, mirror, '16:9');
+  const md5 = async (f: string) => (await ff.run(s.ffmpeg, ['-v', 'error', '-i', f, '-frames:v', '1', '-f', 'md5', '-'])).stdout.trim();
+  assert.notEqual(await md5(plain), await md5(mirror), 'hflip muda o quadro');
+  const sine = path.join(qws, 'sine.wav');
+  await ff.run(s.ffmpeg, ['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-ac', '2', sine]);
+  const mutedSeg = path.join(qws, 'muted.mp4');
+  await ff.makeSegment(s.ffmpeg, { visual: shortClip, audio: sine, seconds: 1, frames: 30, fps: PROJECT_FPS, muted: true }, mutedSeg, '16:9');
+  const muteVol = await ff.run(s.ffmpeg, ['-i', mutedSeg, '-af', 'volumedetect', '-f', 'null', '-']).catch((e) => ({ stderr: String(e) }));
+  const muteMean = Number(/mean_volume:\s*(-?[\d.]+|-inf)/.exec(muteVol.stderr)?.[1]);
+  assert.ok(!Number.isFinite(muteMean) || muteMean < -60, `cena muda fica em silêncio (${/mean_volume:\s*([^\n]+)/.exec(muteVol.stderr)?.[1]})`);
   console.log('timeline tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

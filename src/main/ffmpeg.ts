@@ -145,7 +145,7 @@ export async function silenceTrim(ffmpeg: string, input: string, output: string,
 
 /** Volume padrão dos efeitos sonoros sob a narração (15%). */
 export const SFX_DEFAULT_VOLUME = 0.15;
-export interface SegmentInput { visual?: string; audio?: string; seconds: number; effects?: SceneEffects; loop?: boolean; sfx?: string; sfxVolume?: number; /** segundos pulados no começo do visual (vídeo), da narração e dos efeitos (corte do editor) */ trimStart?: number; /** volume da narração (1 = 100%) */ narrationVolume?: number; /** duração em quadros (manda no corte; default: `seconds × fps`) */ frames?: number; /** fps do projeto (default 30) */ fps?: number }
+export interface SegmentInput { visual?: string; audio?: string; seconds: number; effects?: SceneEffects; loop?: boolean; sfx?: string; sfxVolume?: number; /** segundos pulados no começo do visual (vídeo), da narração e dos efeitos (corte do editor) */ trimStart?: number; /** volume da narração (1 = 100%) */ narrationVolume?: number; /** duração em quadros (manda no corte; default: `seconds × fps`) */ frames?: number; /** fps do projeto (default 30) */ fps?: number; /** silencia o áudio desta cena (legenda continua) */ muted?: boolean; /** espelha a imagem (hflip) */ mirror?: boolean }
 
 /** Filtros de vídeo dos efeitos da cena (Ken Burns, cor, desfoque, fade). */
 /** Filtros de cor (cena e vídeo final). */
@@ -342,8 +342,10 @@ export async function makeSegment(ffmpeg: string, seg: SegmentInput, out: string
   const fps = seg.fps && seg.fps > 0 ? seg.fps : 30;
   const frames = seg.frames && seg.frames > 0 ? Math.round(seg.frames) : Math.max(1, Math.round(seg.seconds * fps));
   const seconds = frames / fps, dur = seconds.toFixed(6);
-  const vf = [`scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`, ...effectFilters(seg.effects, seconds, w, h), 'format=yuv420p'].join(',');
+  const vf = [`scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`, ...effectFilters(seg.effects, seconds, w, h), ...(seg.mirror ? ['hflip'] : []), 'format=yuv420p'].join(',');
   const af = audioFades(seg.effects, seconds);
+  /* mudo da cena: silencia só esta fala; o clipe e a legenda continuam */
+  const mute = seg.muted ? ['volume=0'] : [];
   /* apad sempre: o stream de áudio tem que ter a mesma duração do de vídeo */
   const pad = ['apad', `atrim=duration=${dur}`, 'asetpts=PTS-STARTPTS'];
   const args: string[] = ['-y'];
@@ -367,8 +369,8 @@ export async function makeSegment(ffmpeg: string, seg: SegmentInput, out: string
   const withSfx = !!seg.sfx && fs.existsSync(seg.sfx) && sfxVol > 0;
   if (withSfx) args.push(...ss, '-i', seg.sfx!);
   const audioArgs = withSfx
-    ? ['-filter_complex', `[1:a]aformat=channel_layouts=stereo${nvf ? ',' + nvf : ''},apad[n];[2:a]aformat=channel_layouts=stereo,volume=${sfxVol.toFixed(2)}[x];[n][x]amix=inputs=2:duration=first:normalize=0${af.length ? ',' + af.join(',') : ''},${pad.join(',')}[a]`, '-map', '0:v:0', '-map', '[a]']
-    : ['-map', '0:v:0', '-map', '1:a:0', '-af', [nvf, ...af, ...pad].filter(Boolean).join(',')];
+    ? ['-filter_complex', `[1:a]aformat=channel_layouts=stereo${nvf ? ',' + nvf : ''},apad[n];[2:a]aformat=channel_layouts=stereo,volume=${sfxVol.toFixed(2)}[x];[n][x]amix=inputs=2:duration=first:normalize=0${af.length ? ',' + af.join(',') : ''}${mute.length ? ',' + mute.join(',') : ''},${pad.join(',')}[a]`, '-map', '0:v:0', '-map', '[a]']
+    : ['-map', '0:v:0', '-map', '1:a:0', '-af', [nvf, ...af, ...mute, ...pad].filter(Boolean).join(',')];
   args.push(...audioArgs, '-frames:v', String(frames), '-t', dur, '-vf', vf,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-ar', '44100', '-ac', '2', out);
   await run(ffmpeg, args, signal);

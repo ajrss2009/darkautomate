@@ -1,4 +1,4 @@
-import type { Agent, Attachment, Binding, CastMember, EngineEvent, ExecutorProfile, FxSegment, Project, Route, Scene, SceneKind, Settings, Skill, StockSource, ThumbnailTemplate } from '../shared/types';
+import type { Agent, Attachment, Binding, CastMember, EngineEvent, ExecutorProfile, FxSegment, Project, Route, Scene, SceneKind, Settings, Skill, StockSource, ThumbnailTemplate, TrackState } from '../shared/types';
 import { KIND_LABEL as KIND_LABEL_NP } from './library-ui';
 import { LANGUAGES, renderRoutesLib, renderSettings, renderSkills, openSkillFromVideos, type Ctx } from './library-ui';
 import { artIcon, bindingArt, effectiveByCategory, fallbackChips, openProjectExecutorsModal, openProvidersModal, renderProvidersPage, type ProvidersChoice } from './providers-ui';
@@ -68,7 +68,9 @@ interface Forge {
   batchCreate(ideas: string[], base: unknown): Promise<Project[]>;
   saveRoute(id: string, r: Route): Promise<Project>;
   redoSteps(id: string, stepIds: string[]): Promise<{ ok: boolean; error?: string }>;
-  projectMedia(id: string): Promise<{ final: string | null; subtitles: string | null; music: string | null }>;
+  projectMedia(id: string): Promise<{ final: string | null; subtitles: string | null; music: string | null; narration: string | null }>;
+  audioPeaks(file: string): Promise<{ rate: number; peaks: Array<[number, number]> }>;
+  previewClip(o: { image?: string; text?: string; aspect?: string }): Promise<string>;
   musicPick(id: string): Promise<string | null>;
   musicClear(id: string): Promise<boolean>;
   musicMoods(): Promise<Array<{ id: string; label: string }>>;
@@ -180,7 +182,7 @@ function enqueue(ids: string[]) {
 let busy = '';
 let batchState: { total: number; done: number; failed: number; running: string[]; finished: boolean } | undefined;
 let playToken = 0;
-let media: { final: string | null; subtitles: string | null; music: string | null } = { final: null, subtitles: null, music: null };
+let media: { final: string | null; subtitles: string | null; music: string | null; narration: string | null } = { final: null, subtitles: null, music: null, narration: null };
 let runProgress: { mode?: 'scenes' | 'deliverables'; done: number; total: number; etaMs: number; elapsedMs: number; label?: string } | null = null;
 let progHide: number | undefined;
 /** projetos executando agora (o evento run.start/run.done mantém isto) */
@@ -1593,17 +1595,39 @@ async function renderNew() {
     const next = h('button', { class: 'primary', id: 'np-g-next' }, 'Avançar') as HTMLButtonElement;
     const back = h('button', { id: 'np-g-back' }, 'Voltar') as HTMLButtonElement;
     const def = h('button', { class: 'small', id: 'np-g-default' }, 'Usar o padrão') as HTMLButtonElement;
-    const paintPrev = () => {
+    let previewSeq = 0;
+    const paintPrev = async () => {
+      const seq = ++previewSeq;
       const k = skills.find((x) => x.id === skill.value);
       const r = meta.routes.find((x) => x.id === route.value);
-      const media = k?.previewMedia ?? (k ? previews[k.id] : undefined);
+      let src = k?.previewMedia ?? (k ? previews[k.id] : undefined);
+      /* 1) vídeo já criado neste workspace (o último projeto com final.mp4) */
+      if (!src) {
+        const list = ((await guard(() => forge.listProjects())) as Array<{ id: string }> | undefined) ?? [];
+        for (const pr of list.slice(0, 8)) {
+          const m = (await guard(() => forge.projectMedia(pr.id))) as { final?: string | null } | undefined;
+          if (m?.final) { src = m.final; break; }
+          if (seq !== previewSeq) return;
+        }
+      }
+      if (seq !== previewSeq) return;
+      /* 2) nenhum vídeo: um clipe de 10 s do cartão/quadro da skill (ffmpeg local, cache) */
+      if (!src) {
+        const img = k?.previewMedia && !/\.(mp4|webm|mov)$/i.test(k.previewMedia) ? k.previewMedia : undefined;
+        src = (await guard(() => forge.previewClip({ image: img, text: k?.name ?? 'FilmForge', aspect: aspect.value }))) as string | undefined;
+      }
+      if (seq !== previewSeq) return;
       let el: HTMLElement;
-      if (!media) el = h('div', { class: `skillmedia anim a-${k?.appearance ?? 'custom'}` }, h('span', {}, k?.name ?? 'sem skill'));
-      else if (/\.(mp4|webm|mov)$/i.test(media)) { const v = h('video', { class: 'skillmedia', src: forge.mediaUrl(media), autoplay: true, loop: true, playsinline: true }); v.muted = true; v.volume = 0; el = v; }
-      else el = h('img', { class: 'skillmedia', src: forge.mediaUrl(media), alt: k?.name ?? '' });
+      if (src && /\.(mp4|webm|mov)$/i.test(src)) {
+        const v = h('video', { class: 'skillmedia', src: forge.mediaUrl(src), autoplay: true, loop: true, playsinline: true });
+        v.muted = true; v.volume = 0; v.style.aspectRatio = aspect.value.replace(':', '/');
+        el = v;
+      } else if (src) el = h('img', { class: 'skillmedia', src: forge.mediaUrl(src), alt: k?.name ?? '' });
+      else el = h('div', { class: `skillmedia anim a-${k?.appearance ?? 'custom'}` }, h('span', {}, k?.name ?? 'sem skill'));
       const dur = Number(dsec.value) || 60;
       const scenes = Math.max(1, Math.round(dur / Math.max(2, Math.min(15, (k as { sceneSec?: number } | undefined)?.sceneSec ?? 4))));
       prev.replaceChildren(el,
+        h('span', { class: 'np-prev-note' }, src ? 'prévia em loop' : 'sem prévia'),
         h('strong', {}, `${scenes} cenas · ~${dur}s · ${aspect.value}`),
         h('div', { class: 'muted small' }, r ? `rota: ${r.name}` : 'sem rota'),
         h('div', { class: 'muted small' }, `voz: ${npVoice.apiVoice || npVoice.refAudio ? 'escolhida' : 'a da skill'} · trilha: ${codeMusicCb.checked ? 'código' : 'da rota'}`),
@@ -1622,7 +1646,7 @@ async function renderNew() {
     const audioCard = (label: string, hint: string, on: () => boolean, set: () => void) => gcard(on(), [h('strong', {}, label), h('span', { class: 'muted small' }, hint)], () => { set(); paint(); });
     const paint = () => {
       paintReview();
-      paintPrev();
+      void paintPrev();
       if (voiceHome && step !== 2 && voiceBox.parentElement !== voiceHome) voiceHome.append(voiceBox);
       next.replaceChildren(step >= 4 ? 'Criar projeto' : 'Avançar');
       next.disabled = step === 0 ? (!name.value.trim() || !idea.value.trim() || !skill.value) : step === 1 ? !route.value : false;
@@ -2381,7 +2405,7 @@ function stepDots(p: Project, sc: Scene): HTMLElement {
   }));
 }
 
-function timeline(p: Project): HTMLElement {
+function timelineLegacy(p: Project): HTMLElement {
   const total = p.scenes.reduce((a, s) => a + dur(s), 0);
   const width = Math.max(600, total * pxPerSec + 40);
   const ruler = h('div', { class: 'ruler', title: 'Clique para ir a este ponto' });
@@ -2475,6 +2499,216 @@ function timeline(p: Project): HTMLElement {
     h('div', { class: 'tname' }, 'Vídeo'), vTrack, narrHead(p), aTrack, h('div', { class: 'tname' }, 'Legendas'), sTrack, sfxHead(p), xTrack, musicHead(p), mTrack, ph);
   inner.style.width = `${width}px`;
   return h('div', { class: 'tl', id: 'tl' }, inner);
+}
+
+let tlKeyHandler: ((e: KeyboardEvent) => void) | undefined;
+
+/**
+ * TIMELINE v2 — cabeçalho fixo, altura por tipo de faixa, onda no áudio e controles
+ * (M / olho / trava). O cabeçalho não rola com o clipe: só a área da direita rola.
+ */
+function timeline(p: Project): HTMLElement {
+  const total = p.scenes.reduce((a, s) => a + dur(s), 0);
+  const width = Math.max(600, total * pxPerSec + 40);
+  const tracksOf = (p.tracks ?? {}) as NonNullable<Project['tracks']>;
+  const trk = (k: keyof NonNullable<Project['tracks']>) => tracksOf[k] ?? {};
+  const saveTrack = (k: keyof NonNullable<Project['tracks']>, patch: Partial<TrackState>) => void guard(async () => {
+    current = await forge.updateProject(p.id, { tracks: { ...tracksOf, [k]: { ...trk(k), ...patch } } } as never);
+    renderEditor(true);
+  });
+  const saveVol = (field: 'narrationVolume' | 'sfxVolume' | 'musicVolume', v: number) => void guard(async () => {
+    current = await forge.updateProject(p.id, { [field]: v } as never);
+    renderEditor(true);
+  });
+
+  const ruler = h('div', { class: 'ruler', title: 'Clique para ir a este ponto' });
+  const stepSec = pxPerSec >= 60 ? 1 : pxPerSec >= 30 ? 2 : pxPerSec >= 15 ? 5 : 10;
+  for (let t = 0; t <= total + stepSec; t += stepSec) { const tk = h('span', { class: 'tick' }, `${t}s`); tk.style.left = `${t * pxPerSec}px`; ruler.append(tk); }
+  ruler.addEventListener('click', (e) => {
+    const t = (e as MouseEvent).offsetX / pxPerSec; let acc = 0;
+    const i = p.scenes.findIndex((s) => { acc += dur(s); return t < acc; });
+    const idx = i < 0 ? p.scenes.length - 1 : i; if (idx < 0) return;
+    cursorT = Math.min(t, total);
+    if (playing) void playScene(idx); else { selected = [p.scenes[idx]!.id]; anchor = selected[0]; renderEditor(true); }
+  });
+
+  const lane = (id: string, track: string) => h('div', { class: 'track', 'data-track': track, 'data-lane': id });
+  const vTrack = lane('video', 'video');
+  const aTrack = lane('narration', 'audio');
+  const mTrack = lane('music', 'music');
+  const xTrack = lane('sfx', 'sfx');
+  const sTrack = lane('subs', 'subs');
+  const fx = fxTracks(p);
+  const fTrack = fx.find((t) => t.dataset.track === 'filter') ?? lane('filters', 'filter');
+  const gTrack = fx.find((t) => t.dataset.track === 'vignette') ?? lane('vignette', 'vignette');
+  fTrack.dataset.lane = 'filters'; gTrack.dataset.lane = 'vignette';
+
+  /* FORMA DE ONDA: desenha do cache de picos (40/s), nunca decodifica no zoom */
+  const drawWave = (track: HTMLElement, file: string | null, color: string) => {
+    if (!file) return;
+    const low = trk(track.dataset.lane === 'music' ? 'music' : 'narration');
+    const c = h('canvas', { class: 'tl-wave' }) as HTMLCanvasElement;
+    const dpr = window.devicePixelRatio || 1;
+    const hgt = track.dataset.lane === 'music' ? 34 : 34;
+    const cw = Math.min(14000, Math.round(width * dpr));
+    c.width = Math.max(1, cw); c.height = Math.round(hgt * dpr);
+    c.style.width = `${Math.round(cw / dpr)}px`; c.style.height = `${hgt}px`;
+    track.append(c);
+    void guard(() => forge.audioPeaks(file)).then((pk) => {
+      if (!pk?.peaks?.length) return;
+      const ctx = c.getContext('2d'); if (!ctx) return;
+      const scale = cw / width;
+      ctx.clearRect(0, 0, cw, c.height);
+      ctx.fillStyle = low.hidden ? 'rgba(120,120,130,.3)' : color;
+      const mid = c.height / 2;
+      const stepPx = Math.max(1, Math.round(pxPerSec * scale / pk.rate * 40) / 40);
+      for (let x = 0; x < width; x += Math.max(1, 1 / scale)) {
+        const i = Math.floor((x / pxPerSec) * pk.rate);
+        const b = pk.peaks[i]; if (!b) continue;
+        const y1 = mid - b[1] * (mid - 2), y2 = mid - b[0] * (mid - 2);
+        ctx.fillRect(x * scale, y1, Math.max(1, stepPx), Math.max(1, y2 - y1));
+      }
+    });
+  };
+  drawWave(aTrack, media.narration, 'rgba(62,207,142,.6)');
+  drawWave(mTrack, media.music, 'rgba(160,120,255,.55)');
+
+  const clipMenu = (ev: MouseEvent, sc: Scene) => {
+    ev.preventDefault(); ev.stopPropagation();
+    document.querySelectorAll('.tl-menu.clipmenu').forEach((x) => x.remove());
+    const run = (patch: Partial<Scene>) => void guard(async () => {
+      m.remove();
+      current = (await forge.updateScene(p.id, sc.id, patch)).project;
+      renderEditor(true);
+    });
+    const m = h('div', { class: 'tl-menu clipmenu open' },
+      h('button', { onclick: () => run({ transform: { ...(sc.transform ?? {}), reverse: !sc.transform?.reverse } }) }, `${sc.transform?.reverse ? '↺ Voltar ao normal' : '⇄ Inverter cena'}`),
+      h('button', { onclick: () => run({ transform: { ...(sc.transform ?? {}), mirror: !sc.transform?.mirror } }) }, `${sc.transform?.mirror ? '↔ Tirar o espelho' : '⇋ Espelhar cena'}`),
+      h('button', { onclick: () => run({ audio: { ...(sc.audio ?? {}), muted: !sc.audio?.muted } }) }, `${sc.audio?.muted ? '🔊 Ouvir o áudio da cena' : '🔇 Mutar o áudio da cena'}`),
+      h('button', { onclick: () => { m.remove(); saveTrack('video', { hidden: true }); } }, '◉ Ocultar a faixa de vídeo'));
+    m.style.position = 'fixed'; m.style.left = `${ev.clientX}px`; m.style.top = `${ev.clientY}px`; m.style.zIndex = '9999';
+    document.body.append(m);
+    setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }), 0);
+  };
+
+  let x = 0;
+  if (!p.scenes.length && media.final) {
+    const c = h('div', { class: 'clip sel final', 'data-id': 'final' }, h('video', { src: forge.mediaUrl(media.final) + '#t=0.1', preload: 'metadata', muted: true }), h('div', { class: 'lbl' }, 'Vídeo final'));
+    c.style.left = '0px'; c.style.width = '480px'; vTrack.append(c);
+  }
+  p.scenes.forEach((sc, idx) => {
+    const w = dur(sc) * pxPerSec;
+    const vis = pickVisual(sc);
+    const hasFx = !!sc.effects && ((sc.effects.filter ?? 'none') !== 'none' || (sc.effects.zoom ?? 'none') !== 'none' || sc.effects.fadeIn || sc.effects.fadeOut || (sc.effects.vignette ?? 'none') !== 'none');
+    const tr = sc.effects?.transition && sc.effects.transition !== 'none' && idx < p.scenes.length - 1 ? FX_TRANS.find((x) => x[0] === sc.effects!.transition) : undefined;
+    if (tr) {
+      const mk = h('div', { class: 'trmark', title: `Transição: ${tr[1]} (${sc.effects?.transitionSec ?? 0.6}s) — clique para abrir o exibidor de efeitos`, onclick: (e) => { e.stopPropagation(); openFxViewer(p, [sc.id], 'transition'); } }, tr[2]);
+      mk.style.left = `${x + w - 13}px`; vTrack.append(mk);
+    }
+    const clip = h('div', { class: `clip${selected.includes(sc.id) ? ' sel' : ''}${sc.audio?.muted ? ' mutedclip' : ''}`, draggable: 'true', 'data-id': sc.id },
+      vis ? (vis.video ? h('video', { src: forge.mediaUrl(vis.path) + '#t=0.1', preload: 'metadata', muted: true }) : h('img', { src: forge.mediaUrl(vis.path), alt: '' })) : null,
+      h('div', { class: 'lbl', title: [sc.skillOverride ? `skill desta cena: ${sc.skillOverride.name}` : '', sc.pluginsOverride ? `plugins desta cena: ${sc.pluginsOverride.join(', ') || 'nenhum'}` : ''].filter(Boolean).join(' · ') },
+        `${sc.skillOverride || sc.pluginsOverride ? '🧩 ' : ''}${sc.index}. ${sc.title}`), stepDots(p, sc),
+      hasFx ? h('span', { class: 'fxbadge', title: 'Esta cena tem efeitos — clique para abrir o exibidor', onclick: (e) => { e.stopPropagation(); openFxViewer(p, [sc.id], 'filter'); } }, icon('fx')) : null,
+      sc.transform?.reverse ? h('span', { class: 'revbadge', title: 'Cena invertida (o render toca de trás para frente)' }, '⏪') : null,
+      sc.transform?.mirror ? h('span', { class: 'mibadge', title: 'Cena espelhada (hflip no render)' }, '⇋') : null,
+      h('div', { class: 'rz', title: 'Arraste para ajustar a duração' }));
+    clip.style.left = `${x}px`; clip.style.width = `${w - 2}px`;
+    const mediaEl = clip.querySelector<HTMLElement>('img,video');
+    if (mediaEl && sc.transform?.mirror) mediaEl.style.transform = 'scaleX(-1)';
+    clip.addEventListener('click', (e) => {
+      const r = clip.getBoundingClientRect(); cursorT = sceneStart(p, idx) + Math.max(0, Math.min(dur(sc), (e.clientX - r.left) / pxPerSec));
+      selectScene(sc.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+    });
+    clip.addEventListener('dblclick', () => { void playScene(idx); });
+    clip.addEventListener('contextmenu', (e) => clipMenu(e, sc));
+    clip.addEventListener('dragstart', (e) => { if (trk('video').locked) { e.preventDefault(); return; } e.dataTransfer?.setData('text/plain', sc.id); });
+    clip.addEventListener('dragover', (e) => { e.preventDefault(); clip.classList.add('over'); });
+    clip.addEventListener('dragleave', () => clip.classList.remove('over'));
+    clip.addEventListener('drop', (e) => {
+      e.preventDefault(); clip.classList.remove('over');
+      const from = e.dataTransfer?.getData('text/plain'); if (!from || from === sc.id) return;
+      void guard(async () => { current = await forge.moveScene(p.id, from, idx); renderEditor(true); });
+    });
+    const rz = clip.querySelector<HTMLElement>('.rz')!;
+    rz.addEventListener('mousedown', (e) => {
+      if (trk('video').locked) return;
+      e.preventDefault(); e.stopPropagation();
+      const startX = e.clientX, startW = w; clip.draggable = false;
+      const move = (m: MouseEvent) => { clip.style.width = `${Math.max(24, startW + m.clientX - startX) - 2}px`; };
+      const up = (m: MouseEvent) => {
+        window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); clip.draggable = true;
+        const nd = Math.max(0.5, Math.round(((startW + m.clientX - startX) / pxPerSec) * 10) / 10);
+        void guard(async () => { current = (await forge.updateScene(p.id, sc.id, { durationSec: nd })).project; renderEditor(true); });
+      };
+      window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    });
+    vTrack.append(clip);
+
+    const a = h('div', { class: `bar a ${sc.status['narration'] ?? (pickAudio(sc) ? 'done' : 'pending')}`, title: sc.audio?.muted ? `${sc.narration} (mudo nesta cena)` : sc.narration }, sc.audio?.muted ? `🔇 ${sc.narration.slice(0, 36)}` : sc.narration.slice(0, 40) || '—');
+    a.style.left = `${x}px`; a.style.width = `${w - 2}px`; aTrack.append(a);
+    const subText = sc.subtitle?.trim() || sc.narration;
+    const s = h('div', { class: `bar s${sc.subtitle?.trim() ? ' custom' : ''}`, title: subText }, subText.slice(0, 60));
+    s.addEventListener('click', () => selectScene(sc.id));
+    s.style.left = `${x}px`; s.style.width = `${w - 2}px`; sTrack.append(s);
+    const sfxList = sceneSfx(sc);
+    const xb = h('div', { class: `bar x${sfxList.length ? '' : ' empty'}`, 'data-sfx-scene': sc.id, title: sfxList.length ? `Efeitos sonoros: ${sfxList.join(', ')} — clique para editar` : 'Sem efeitos sonoros — clique para adicionar', onclick: () => openSfxDialog(p, selected.includes(sc.id) && selected.length > 1 ? selected : [sc.id]) },
+      sfxList.length ? sfxList.map((n) => sfxLib.find((d) => d.id === n.split(/[@:]/)[0])?.icon ?? '🔊').join(' ') : '+');
+    xb.style.left = `${x}px`; xb.style.width = `${w - 2}px`; xTrack.append(xb);
+    x += w;
+  });
+  {
+    const span = (p.scenes.length ? total : p.targetDurationSec || 10) * pxPerSec;
+    const m = h('div', { class: `bar m${media.music ? '' : ' empty'}`, 'data-act': 'music-bar', title: 'Clique para adicionar, trocar ou gerar a trilha sonora', onclick: () => void openMusicDialog(p) }, media.music ? '♪ ' + basename(media.music) : '+ trilha sonora');
+    m.style.left = '0px'; m.style.width = `${Math.max(160, span)}px`; mTrack.append(m);
+  }
+  const ph = h('div', { id: 'playhead', class: 'playhead' }, h('span', { class: 'ph-knob' }));
+  { const a = sceneStart(p, selIndex()), b = a + (p.scenes[selIndex()] ? dur(p.scenes[selIndex()]!) : 0); if (!(cursorT >= a && cursorT <= b)) cursorT = a; }
+  ph.style.left = `${cursorT * pxPerSec}px`;
+
+  const head = (id: string, label: string, o: { audio?: boolean; vol?: HTMLElement; state?: keyof NonNullable<Project['tracks']> } = {}) => {
+    const key = o.state ?? (id as keyof NonNullable<Project['tracks']>);
+    const st = trk(key);
+    return h('div', { class: `tl-head${st.muted ? ' muted' : ''}${st.locked ? ' locked' : ''}`, 'data-lane': id },
+      h('span', { class: 'tl-hname', title: label }, label),
+      h('span', { class: 'tl-htools' },
+        o.audio ? h('button', { class: `tl-hbtn${st.muted ? ' on' : ''}`, title: st.muted ? 'Ouvir esta faixa (volta ao volume)' : 'Mutar esta faixa — vale no render', onclick: () => saveTrack(key, { muted: !st.muted }) }, 'M') : null,
+        h('button', { class: `tl-hbtn${st.hidden ? ' on' : ''}`, title: st.hidden ? 'Mostrar a faixa (só visualização)' : 'Ocultar a faixa (só visualização — não muda o render)', onclick: () => saveTrack(key, { hidden: !st.hidden }) }, st.hidden ? '◌' : '◉'),
+        h('button', { class: `tl-hbtn${st.locked ? ' on' : ''}`, title: st.locked ? 'Destravar' : 'Travar: não arrasta nem apara', onclick: () => saveTrack(key, { locked: !st.locked }) }, '🔒'),
+        o.vol ?? null));
+  };
+  const volCtl = (field: 'narrationVolume' | 'sfxVolume' | 'musicVolume', value: number, max: number) =>
+    h('input', { class: 'tl-vol', type: 'range', min: '0', max: String(max), step: '0.01', value: String(value), title: `Volume (${Math.round(value * 100)}%)`, onchange: (e) => saveVol(field, Number((e.target as HTMLInputElement).value)) });
+  const heads = h('div', { class: 'tl-heads' },
+    h('div', { class: 'tl-head tl-rulerh' }, h('span', { class: 'tl-hname' }, 'tempo')),
+    head('filters', 'FX filtros', { state: 'fx' }), head('vignette', 'Vinheta', { state: 'fx' }),
+    head('video', 'V1 vídeo'),
+    head('narration', 'A1 narração', { audio: true, vol: volCtl('narrationVolume', p.narrationVolume ?? 1, 2) }),
+    head('music', 'A2 música', { audio: true, vol: volCtl('musicVolume', p.musicVolume ?? 0.15, 1) }),
+    head('sfx', 'Efeitos', { audio: true, vol: volCtl('sfxVolume', p.sfxVolume ?? 0.15, 1.5) }),
+    head('subs', 'S1 legendas'));
+  const inner = h('div', { class: 'tl-inner' }, ruler, fTrack, gTrack, vTrack, aTrack, mTrack, xTrack, sTrack, ph);
+  inner.style.width = `${width}px`;
+  const scroll = h('div', { class: 'tl-scroll' }, inner);
+  scroll.addEventListener('scroll', () => { heads.scrollTop = scroll.scrollTop; });
+  const root = h('div', { class: 'tl', id: 'tl' }, heads, scroll);
+  for (const k of ['video', 'narration', 'music', 'sfx', 'subs', 'fx'] as const) if (trk(k).hidden) root.classList.add(`tl-hide-${k}`);
+
+  /* atalhos: R inverte, M espelha, Shift+M muta a narração, H oculta a faixa de vídeo */
+  const onKey = (ev: KeyboardEvent) => {
+    const t = ev.target as HTMLElement | null;
+    if (t && /INPUT|TEXTAREA|SELECT/.test(t.tagName)) return;
+    if (!current || current.id !== p.id || !p.scenes.length) return;
+    const sc = p.scenes.find((s) => s.id === anchor) ?? p.scenes[0]!;
+    const k = ev.key.toLowerCase();
+    if (k === 'r') { ev.preventDefault(); void guard(async () => { current = (await forge.updateScene(p.id, sc.id, { transform: { ...(sc.transform ?? {}), reverse: !sc.transform?.reverse } })).project; renderEditor(true); }); }
+    else if (k === 'm' && !ev.shiftKey) { ev.preventDefault(); void guard(async () => { current = (await forge.updateScene(p.id, sc.id, { transform: { ...(sc.transform ?? {}), mirror: !sc.transform?.mirror } })).project; renderEditor(true); }); }
+    else if (k === 'm' && ev.shiftKey) { ev.preventDefault(); saveTrack('narration', { muted: !trk('narration').muted }); }
+    else if (k === 'h') { ev.preventDefault(); saveTrack('video', { hidden: !trk('video').hidden }); }
+  };
+  if (tlKeyHandler) document.removeEventListener('keydown', tlKeyHandler);
+  tlKeyHandler = onKey; document.addEventListener('keydown', onKey);
+  return root;
 }
 
 /* ── efeitos: filtros, vinhetas e transições (cartões visuais) ── */

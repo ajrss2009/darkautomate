@@ -66,10 +66,23 @@ export function cleanBypass(v: unknown): ExecutorBypass | undefined {
 }
 
 export function updateProject(s: Settings, id: string, patch: Partial<Pick<Project,
-  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark' | 'wan2gpPost'>>): Project {
+  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark' | 'wan2gpPost' | 'tracks'>>): Project {
   const p = readProject(s, id);
   const allowed = ['name', 'idea', 'aspect', 'targetDurationSec', 'language', 'memories', 'quality', 'videoType', 'maxProductionMin', 'sceneConcurrency', 'subtitleStyle', 'scriptStyle', 'videoStyle', 'musicStyle', 'musicMode', 'waveform', 'plugins'];
   Object.assign(p, Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && allowed.includes(k))));
+  if ('tracks' in patch) {
+    const t = (patch.tracks ?? {}) as NonNullable<Project['tracks']>;
+    const clean: NonNullable<Project['tracks']> = {};
+    for (const k of ['video', 'narration', 'music', 'sfx', 'subs', 'fx'] as const) {
+      const v = t[k]; if (!v) continue;
+      const s: { muted?: boolean; hidden?: boolean; locked?: boolean } = {};
+      if (v.muted !== undefined) s.muted = !!v.muted;
+      if (v.hidden !== undefined) s.hidden = !!v.hidden;
+      if (v.locked !== undefined) s.locked = !!v.locked;
+      if (Object.keys(s).length) clean[k] = s;
+    }
+    if (Object.keys(clean).length) p.tracks = clean; else delete p.tracks;
+  }
   if ('freeEngine' in patch) { if (patch.freeEngine === '2d' || patch.freeEngine === '3d') p.freeEngine = patch.freeEngine; else delete p.freeEngine; }
   if ('flowAccount' in patch) { if (patch.flowAccount) p.flowAccount = patch.flowAccount; else delete p.flowAccount; }
   if ('agyAccount' in patch) { if (patch.agyAccount) p.agyAccount = patch.agyAccount; else delete p.agyAccount; }
@@ -169,6 +182,8 @@ export interface ScenePatch {
   sfx?: string[];
   /** arquivo do usuário (assets/user) como visual da cena; "" = gerar normalmente */
   userMedia?: string;
+  transform?: { reverse?: boolean; mirror?: boolean };
+  audio?: { muted?: boolean };
 }
 export const FILTERS = ['none', 'bw', 'sepia', 'vivid', 'warm', 'cool', 'blur', 'cinematic', 'teal_orange', 'vintage', 'noir', 'matte', 'dramatic'];
 const ZOOMS = ['none', 'in', 'out', 'pan_left', 'pan_right', 'pan_up', 'pan_down', 'in_left', 'in_right', 'shake', 'pulse', 'drift'];
@@ -221,6 +236,8 @@ function cleanPatch(patch: ScenePatch): ScenePatch {
   if (Array.isArray(patch.sfx)) out.sfx = patch.sfx.map((x) => String(x).trim()).filter((x) => sfxDef(x.split(/[@:]/)[0]!)).slice(0, 8);
   if (patch.kind && SCENE_KINDS.includes(patch.kind)) out.kind = patch.kind;
   if (typeof patch.durationSec === 'number' && Number.isFinite(patch.durationSec) && patch.durationSec > 0 && patch.durationSec < 3600) out.durationSec = patch.durationSec;
+  if (patch.transform && typeof patch.transform === 'object') out.transform = { reverse: !!patch.transform.reverse, mirror: !!patch.transform.mirror };
+  if (patch.audio && typeof patch.audio === 'object') out.audio = { muted: !!patch.audio.muted };
   return out;
 }
 
