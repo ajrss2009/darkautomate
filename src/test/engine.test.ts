@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { runRoute, orderSteps, acquireLocalModel, localModelKey, type Executor } from '../main/engine';
 import { ROUTES, applyProfile, getRoute } from '../main/presets';
 import { abortMessage, buildArgs, DEFAULT_HARNESSES } from '../main/harness';
+import { SLOW_STEP_TIMEOUT_SEC, stepTimeoutSec } from '../main/timeouts';
 import { applyVariables } from '../main/comfyui';
 import { createProject, defaultSettings } from '../main/settings';
 import type { EngineEvent, Route } from '../shared/types';
@@ -19,6 +20,13 @@ async function main() {
 
   // 1. todas as rotas padrão têm ordem topológica válida
   for (const r of ROUTES) orderSteps(r.steps);
+  /* prazo efetivo: o mesmo número no cronômetro do motor e no harness (antes: motor 30 min, harness 15) */
+  assert.equal(stepTimeoutSec({ id: 'scene-code', kind: 'code_scene', timeoutSec: 900 }), 1800);
+  assert.equal(stepTimeoutSec({ id: 'scene-code', kind: 'code_scene', timeoutSec: 2400 }), 2400, 'prazo da rota maior que o piso é respeitado');
+  assert.equal(stepTimeoutSec({ id: 'kit_assets', kind: 'asset_design', timeoutSec: 900 }), 1800, 'elenco/cenários do kit');
+  assert.equal(stepTimeoutSec({ id: 'motion', kind: 'motion_graphics', timeoutSec: 600 }), SLOW_STEP_TIMEOUT_SEC);
+  assert.equal(stepTimeoutSec({ id: 'script', kind: 'script', timeoutSec: 600 }), 600, 'etapa normal mantém o prazo');
+  assert.equal(stepTimeoutSec({ id: 'script', kind: 'script' } as never), 900, 'sem prazo na rota: 15 min');
 
   // 2. perfil local remove APIs
   const local = applyProfile(getRoute('shorts-autopilot')!, 'local');

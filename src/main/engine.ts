@@ -11,6 +11,7 @@ import { duration as probeDuration } from './ffmpeg';
 import { autoCast } from './cast';
 import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
 import { pluginsRoot } from './plugins';
+import { stepTimeoutSec } from './timeouts';
 import { applyPicks, candidatePlan, needsApproval, readPicks, sketchIntent, writeStoryboard } from './project-storyboard';
 import { estimateSpeechSec, h3Mode, isH3Video, isH3Voice, normalizeEmotion } from './speech-emotion';
 import { applySkillMix } from './skill-mix';
@@ -738,8 +739,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
         /* elenco e cenários do motor do plugin: o agente lê a API inteira e grava vários arquivos (rotas antigas tinham 900 s) */
         /* vídeo livre em planos de 3–4 s (modelo local): cada plano é uma página — até 15 min por plano */
         const shotsFree = step.kind === 'free' && binding.type === 'harness' && shotsWanted(binding.harness, project.targetDurationSec || 15);
-        const timeoutSec = step.id === 'kit_assets' || step.kind === 'code_scene' || step.kind === 'motion_graphics' ? Math.max(1800, step.timeoutSec)
-          : shotsFree ? Math.max(step.timeoutSec, shotDurations(Math.min(180, project.targetDurationSec || 15)).length * 1500 + 600) : step.timeoutSec;
+        const timeoutSec = shotsFree ? Math.max(stepTimeoutSec(step), shotDurations(Math.min(180, project.targetDurationSec || 15)).length * 1500 + 600) : stepTimeoutSec(step);
         for (let attempt = 1; attempt <= maxTries; attempt++) {
           if (signal.aborted) return { ok: false, reason: 'cancelado' };
           emit({ t: 'step.attempt', stepId: step.id, sceneId, binding: label, attempt });
