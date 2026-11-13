@@ -69,24 +69,27 @@ const same = (a: Binding, b: Binding) => {
  * função da etapa), loops perfeitos (workflow first = last frame) e etapas marcadas
  * com params.lockExecutors.
  */
-export function profileSkips(st: RouteStep): boolean {
+export function profileSkips(st: RouteStep, explicit = false): boolean {
   const first = st.bindings[0];
   if (!first || first.type === 'builtin' || first.type === 'stock' || first.type === 'manual') return true;
   if ((st.params as Record<string, unknown> | undefined)?.['lockExecutors'] === true) return true;
+  /* Workflows que SÃO a função da etapa (elenco com retratos, loop perfeito): um perfil ou
+     plugin automático não os substitui. Uma escolha explícita do usuário (projeto/etapa)
+     vence — senão "escolhi a API X" era descartado sem aviso. */
+  if (explicit) return false;
   if (st.kind === 'video' && st.bindings.some((b) => b.type === 'comfyui' && /perfect-loop/.test(b.workflow))) return true;
-  /* elenco (MiniMax H3 com retratos dos personagens): o workflow da rota é a própria função da etapa */
   if (st.kind === 'video' && st.bindings[0]?.type === 'comfyui' && /-cast\.json$/.test(st.bindings[0].workflow)) return true;
   return false;
 }
 
 /** Aplica o perfil: o executor do perfil vira o principal e os da rota ficam como fallback. */
-export function applyExecutorProfile(route: Route, profile: ExecutorProfile | undefined): Route {
+export function applyExecutorProfile(route: Route, profile: ExecutorProfile | undefined, explicit = false): Route {
   const copy: Route = JSON.parse(JSON.stringify(route));
   if (!profile) return copy;
   for (const st of copy.steps) {
     const cat = CATEGORY_OF[st.kind];
     const chain = cat ? profile.chains[cat] : undefined;
-    if (!chain?.length || profileSkips(st)) continue;
+    if (!chain?.length || profileSkips(st, explicit)) continue;
     const head: Binding[] = chain.map((b) => {
       const nb = JSON.parse(JSON.stringify(b)) as Binding;
       // voz clonada: mantém o áudio de referência que a rota já usava no mesmo workflow
@@ -123,12 +126,12 @@ export function stepTargets(route: Route): RouteStep[] {
 }
 
 /** Aplica os executores escolhidos por etapa: viram o principal e os da etapa ficam como reserva (função pura). */
-export function applyStepBindings(route: Route, steps?: Record<string, Binding>): Route {
+export function applyStepBindings(route: Route, steps?: Record<string, Binding>, explicit = true): Route {
   const copy: Route = JSON.parse(JSON.stringify(route));
   if (!steps) return copy;
   for (const st of copy.steps) {
     const b = steps[st.id];
-    if (!b || profileSkips(st)) continue;
+    if (!b || profileSkips(st, explicit)) continue;
     const head = JSON.parse(JSON.stringify(b)) as Binding;
     st.bindings = [head, ...st.bindings.filter((x) => !same(x, head))];
   }

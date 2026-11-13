@@ -7,7 +7,8 @@ import * as ops from '../main/ops';
 import { BatchRunner } from '../main/batch';
 import { extractJson, rewriteScenes } from '../main/editor';
 import { runRoute } from '../main/engine';
-import type { EngineEvent, Scene } from '../shared/types';
+import { applyExecutorProfile, applyStepBindings, profileSkips } from '../shared/profiles';
+import type { Binding, EngineEvent, Route, Scene } from '../shared/types';
 
 async function main() {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ops-'));
@@ -162,6 +163,22 @@ async function main() {
   const j4 = await p4;
   assert.deepEqual([...aborted].sort(), ['a', 'b'], 'aborta só os ativos do lote (a e b), não o resto');
   assert.equal(j4.find((j) => j.id === 'c')!.ok, undefined, 'o que não começou não roda');
+
+  /* escolha explícita de executor vence o workflow que é "a função da etapa" (elenco/loop) */
+  const castRoute = {
+    id: 'r', name: 'r', description: '', videoTypes: [], steps: [{
+      id: 'video', kind: 'video', label: 'v', scope: 'scene', dependsOn: [], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 60,
+      bindings: [{ type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v-cast.json' }], onFail: 'skip',
+    }],
+  } as unknown as Route;
+  const snapgen = { type: 'api', provider: 'snapgen', model: 'veo-3' } as Binding;
+  assert.equal(profileSkips(castRoute.steps[0]!), true, 'perfil automático não troca o workflow de elenco');
+  assert.equal(profileSkips(castRoute.steps[0]!, true), false, 'escolha explícita pode trocar');
+  const applied = applyExecutorProfile(castRoute, { id: 'p', name: 'p', chains: { video: [snapgen] } }, true);
+  assert.deepEqual(applied.steps[0]!.bindings[0], snapgen, 'a API escolhida vira o executor principal');
+  assert.equal(applied.steps[0]!.bindings[1]!.type, 'comfyui', 'o workflow de elenco fica como reserva');
+  assert.equal(applyExecutorProfile(castRoute, { id: 'p', name: 'p', chains: { video: [snapgen] } }).steps[0]!.bindings[0]!.type, 'comfyui', 'sem escolha explícita, o workflow da rota fica intacto');
+  assert.deepEqual(applyStepBindings(castRoute, { video: snapgen }).steps[0]!.bindings[0], snapgen, 'executor por etapa também vence');
 
   console.log('ops/editor/batch tests: OK');
 }

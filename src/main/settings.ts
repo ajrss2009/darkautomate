@@ -223,7 +223,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
   const prof = input.executorProfile ? allProfiles(s.executorProfiles).find((x) => x.id === input.executorProfile) : undefined;
   if (input.executorProfile && !prof) throw new Error(`Perfil de executores "${input.executorProfile}" não existe`);
   if (prof) route = applyExecutorProfile(route, prof);
-  if (input.executorChains && Object.values(input.executorChains).some((c) => c?.length)) route = applyExecutorProfile(route, { id: 'projeto', name: 'Só neste projeto', chains: input.executorChains });
+  if (input.executorChains && Object.values(input.executorChains).some((c) => c?.length)) route = applyExecutorProfile(route, { id: 'projeto', name: 'Só neste projeto', chains: input.executorChains }, true);
   /* LLM indicada pelos plugins do projeto (ex.: Claude Opus em cenas por código): vai à frente da cadeia
      dessas etapas; os executores da rota ficam de reserva. Escolha explícita por etapa (abaixo) vence. */
   /* plugins da skill (ex.: skill importada de um SKILL.md) + os escolhidos no formulário */

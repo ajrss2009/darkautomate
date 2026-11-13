@@ -1035,8 +1035,11 @@ async function renderNew() {
   const pickedChars = new Set<string>(episode?.characterIds ?? []);
   const charVariants: Record<string, string> = { ...(episode?.variants ?? {}) };
   const charsBox = h('div', { class: 'card', id: 'np-characters' });
+  let charRows: CharRow[] = [];
+  let repaintChars: () => void = () => {};
   void guard(() => forge.charactersList()).then((list) => {
     const rows = (list ?? []) as CharRow[];
+    charRows = rows;
     const chip = (ch: CharRow) => {
         const img = charImage(forge as never, ch);
         const v = charVariants[ch.id];
@@ -1056,6 +1059,7 @@ async function renderNew() {
           img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name), h('small', { class: 'muted' }, KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
       })) : null] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
     paintChars();
+    repaintChars = paintChars;
   });
 
   /* ── 🧠 misturar skills (percentual de tempo de cada uma) ── */
@@ -1304,7 +1308,7 @@ async function renderNew() {
     if (!r) return undefined;
     const prof = providers?.profileId ? (meta.profiles ?? []).find((p) => p.id === providers!.profileId) : undefined;
     let eff = applyExecutorProfile(r, prof);
-    if (providers?.chains) eff = applyExecutorProfile(eff, { id: 'projeto', name: 'Só neste projeto', chains: providers.chains });
+    if (providers?.chains) eff = applyExecutorProfile(eff, { id: 'projeto', name: 'Só neste projeto', chains: providers.chains }, true);
     return applyStepBindings(eff, providers?.steps);
   };
   const paintVoice = () => voiceBox.repaint(effectiveRoute(), lang.value);
@@ -1533,6 +1537,204 @@ async function renderNew() {
         : h('div', {}, h('h3', {}, 'Plugins (opcional)'),
           h('div', { class: 'muted' }, 'Nenhum plugin instalado. Na aba Plugins você instala de uma pasta ou de uma URL do GitHub (formato Claude ou coleção de prompts de estilo).')),
       h('div', { class: 'row actions' }, create, createQ, createRun)));
+  /* ── redesenho: 5 campos sempre visíveis + 5 gavetas com resumo, revisão e guiado ── */
+  const sums: Array<() => void> = [];
+  const drawer = (id: string, title: string, summary: () => string, ...dkids: Array<HTMLElement | null>) => {
+    const s = h('span', { class: 'np-gsum' });
+    sums.push(() => { s.textContent = summary(); });
+    return h('details', { class: 'np-group', id }, h('summary', {}, h('span', { class: 'np-gtitle' }, title), s), h('div', { class: 'np-gbody' }, ...dkids));
+  };
+  const castSum = () => `${pickedChars.size ? `${pickedChars.size} da Biblioteca` : 'sem elenco fixo'} · voz: ${npVoice.apiVoice || npVoice.refAudio ? 'escolhida' : 'a da skill'}`;
+  const styleSum = () => `${palOn.checked ? 'paleta fixa' : 'paleta automática'} · ${styleRef ? 'estilo de imagem' : 'sem referência'} · ${mixRows.length ? `1+${mixRows.length} skill(s)` : '1 skill'}`;
+  const audioSum = () => `trilha: ${codeMusicCb.checked ? 'por código' : 'da rota'} · legendas: ${subsSel.value === 'off' ? 'não' : subsSel.value === 'srt' ? 'arquivo .srt' : 'no vídeo'}`;
+  const prodSum = () => `${conc.value} cena(s) em paralelo · ${quality.value} · storyboard: ${storyCb.checked ? 'sim' : 'não'}`;
+  const plugSum = () => {
+    const n = pluginBoxes.filter((x) => x.cb.checked).length;
+    const styles = Object.keys(pluginStyles).filter((id) => pluginBoxes.some((x) => x.k.id === id && x.cb.checked)).length;
+    return n ? `${n} plugin(s)${styles ? ` · ${styles} estilo(s)` : ''}` : 'nenhum';
+  };
+  const review = h('div', { class: 'card np-review', id: 'np-review' });
+  const paintReview = () => {
+    const sk = skills.find((x) => x.id === skill.value);
+    const r = meta.routes.find((x) => x.id === route.value);
+    const dur = Math.max(5, Number(dsec.value) || 60);
+    const sceneSec = Math.max(2, Math.min(15, (sk as { sceneSec?: number } | undefined)?.sceneSec ?? 4));
+    const scenes = Math.max(1, Math.round(dur / sceneSec));
+    const steps = (r?.steps ?? []).filter((st) => st.enabled);
+    const sceneSteps = steps.filter((st) => st.scope === 'scene');
+    const calls = scenes * sceneSteps.length + steps.filter((st) => st.scope === 'project').length;
+    const per: Record<string, number> = { video: 2.5, image: 0.6, narration: 0.4, music: 2, thumbnail: 0.6, script: 0.6, scene_plan: 0.6, asset_design: 0.5, metadata: 0.4, edit: 0.4, review: 0.3, code_scene: 0.8, motion_graphics: 0.8 };
+    const concN = Math.max(1, Number(conc.value) || 1);
+    const mins = Math.max(1, Math.round(steps.reduce((a, st) => a + (st.scope === 'scene' ? scenes / concN : 1) * (per[st.kind] ?? 0.3), 0)));
+    const legendas = subsSel.value === 'off' ? 'não' : subsSel.value === 'srt' ? 'arquivo .srt' : 'no vídeo';
+    review.replaceChildren(
+      h('div', { class: 'row' }, h('strong', { class: 'grow' }, `Vai gerar: ${scenes} cena(s) · ~${dur}s · ${aspect.value}`), h('span', { class: `tag ${r ? 'done' : 'failed'}` }, r ? r.name : 'sem rota')),
+      h('div', { class: 'muted small' }, `voz: ${npVoice.apiVoice || npVoice.refAudio ? 'escolhida' : 'a da skill'} · trilha: ${codeMusicCb.checked ? 'por código' : 'da rota'} · legendas: ${legendas} · storyboard: ${storyCb.checked ? 'sim' : 'não'}`),
+      h('div', { class: 'muted small' }, `estimativa: ~${mins} min · ${calls} chamada(s)${sk ? ` · skill: ${sk.name}` : ''}${pluginBoxes.some((x) => x.cb.checked) ? ` · ${pluginBoxes.filter((x) => x.cb.checked).length} plugin(s)` : ''}`));
+  };
+  sums.push(paintReview);
+
+  const modeKey = 'filmforge.newMode';
+  const projectCount = ((await guard(() => forge.listProjects())) as unknown[] | undefined)?.length ?? 0;
+  let mode = (localStorage.getItem(modeKey) as 'guided' | 'expert' | null) ?? (projectCount >= 3 ? 'expert' : 'guided');
+  const modeLbl = h('span', { class: 'muted small', id: 'np-mode-lbl' });
+  const paintMode = () => { modeLbl.textContent = mode === 'guided' ? 'modo guiado' : 'modo especialista'; };
+  paintMode();
+
+  let guided: HTMLElement | null = null;
+  function openGuided() {
+    guided?.remove();
+    let step = 0;
+    const body = h('div', { class: 'np-guided-body' });
+    const prev = h('aside', { class: 'np-guided-prev' });
+    const dots = h('div', { class: 'np-dots' });
+    const next = h('button', { class: 'primary', id: 'np-g-next' }, 'Avançar') as HTMLButtonElement;
+    const back = h('button', { id: 'np-g-back' }, 'Voltar') as HTMLButtonElement;
+    const def = h('button', { class: 'small', id: 'np-g-default' }, 'Usar o padrão') as HTMLButtonElement;
+    const paintPrev = () => {
+      const k = skills.find((x) => x.id === skill.value);
+      const r = meta.routes.find((x) => x.id === route.value);
+      const media = k?.previewMedia ?? (k ? previews[k.id] : undefined);
+      let el: HTMLElement;
+      if (!media) el = h('div', { class: `skillmedia anim a-${k?.appearance ?? 'custom'}` }, h('span', {}, k?.name ?? 'sem skill'));
+      else if (/\.(mp4|webm|mov)$/i.test(media)) { const v = h('video', { class: 'skillmedia', src: forge.mediaUrl(media), autoplay: true, loop: true, playsinline: true }); v.muted = true; v.volume = 0; el = v; }
+      else el = h('img', { class: 'skillmedia', src: forge.mediaUrl(media), alt: k?.name ?? '' });
+      const dur = Number(dsec.value) || 60;
+      const scenes = Math.max(1, Math.round(dur / Math.max(2, Math.min(15, (k as { sceneSec?: number } | undefined)?.sceneSec ?? 4))));
+      prev.replaceChildren(el,
+        h('strong', {}, `${scenes} cenas · ~${dur}s · ${aspect.value}`),
+        h('div', { class: 'muted small' }, r ? `rota: ${r.name}` : 'sem rota'),
+        h('div', { class: 'muted small' }, `voz: ${npVoice.apiVoice || npVoice.refAudio ? 'escolhida' : 'a da skill'} · trilha: ${codeMusicCb.checked ? 'código' : 'da rota'}`),
+        h('div', { class: 'muted small' }, `legendas: ${subsSel.value === 'off' ? 'não' : subsSel.value === 'srt' ? 'arquivo' : 'no vídeo'} · formato: ${aspect.value}`));
+    };
+    const gcard = (on: boolean, gkids: Array<HTMLElement | null>, onclick: () => void) => h('button', { class: `np-gcard${on ? ' on' : ''}`, onclick }, ...gkids);
+    const skillCard = (k: (typeof skills)[number]) => {
+      const media = k.previewMedia ?? previews[k.id];
+      const visual = media && !/\.(mp4|webm|mov)$/i.test(media) ? h('img', { src: forge.mediaUrl(media), alt: '' }) : h('div', { class: `skillmedia anim a-${k.appearance ?? 'custom'}` }, h('span', {}, k.name));
+      return gcard(skill.value === k.id, [visual, h('strong', {}, k.name), h('span', { class: 'muted small' }, (k.description ?? '').slice(0, 80))], () => { skill.value = k.id; skill.dispatchEvent(new Event('change', { bubbles: true })); paint(); });
+    };
+    const fmtCard = (a: string) => {
+      const box = h('div', { class: 'np-fmt' }); box.style.aspectRatio = a.replace(':', '/');
+      return gcard(aspect.value === a, [box, h('strong', {}, a)], () => { aspect.value = a; paint(); });
+    };
+    const audioCard = (label: string, hint: string, on: () => boolean, set: () => void) => gcard(on(), [h('strong', {}, label), h('span', { class: 'muted small' }, hint)], () => { set(); paint(); });
+    const paint = () => {
+      paintReview();
+      paintPrev();
+      next.replaceChildren(step >= 4 ? 'Criar projeto' : 'Avançar');
+      next.disabled = step === 0 ? (!name.value.trim() || !idea.value.trim() || !skill.value) : step === 1 ? !route.value : false;
+      def.style.display = step === 2 || step === 3 ? '' : 'none';
+      dots.replaceChildren(...[0, 1, 2, 3, 4].map((i) => h('span', { class: `np-dot${i === step ? ' on' : ''}` })));
+      const k = skills.find((x) => x.id === skill.value);
+      if (step === 0) {
+        const n2 = h('input', { placeholder: 'Nome do vídeo' }) as HTMLInputElement; n2.value = name.value;
+        n2.addEventListener('input', () => { name.value = n2.value; next.disabled = !name.value.trim() || !idea.value.trim() || !skill.value; paintPrev(); });
+        const i2 = h('textarea', { rows: '3', placeholder: 'Ideia, roteiro ou tema' }) as HTMLTextAreaElement; i2.value = idea.value;
+        i2.addEventListener('input', () => { idea.value = i2.value; next.disabled = !name.value.trim() || !idea.value.trim() || !skill.value; paintPrev(); });
+        body.replaceChildren(...([
+          h('h3', {}, '01 · Ideia'), h('p', { class: 'muted' }, 'Nome e tema. É a única tela sem padrão possível.'),
+          h('label', {}, 'Nome', n2), h('label', {}, 'Ideia / tema', i2),
+          h('div', { class: 'muted small' }, 'Skill — o tipo de vídeo decide voz, trilha, prompts e a rota sugerida'),
+          h('div', { class: 'np-gcards' }, ...skills.map(skillCard)),
+          k ? h('div', { class: 'muted small' }, `rota sugerida: ${meta.routes.find((r) => r.id === k.routeId)?.name ?? k.routeId ?? 'a da skill'}`) : null,
+        ] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
+      } else if (step === 1) {
+        const d2 = h('input', { type: 'number', min: '5', value: dsec.value, class: 'num' }) as HTMLInputElement; d2.addEventListener('input', () => { dsec.value = d2.value; paintPrev(); });
+        const l2 = h('select', {}, ...LANGUAGES.map(([v, l]) => h('option', { value: v, ...(v === lang.value ? { selected: true } : {}) }, l))) as HTMLSelectElement; l2.addEventListener('change', () => { lang.value = l2.value; });
+        body.replaceChildren(
+          h('h3', {}, '02 · Formato'), h('p', { class: 'muted' }, 'Formato, duração e idioma. O custo aparece aqui.'),
+          h('div', { class: 'np-gcards' }, ...['9:16', '16:9', '1:1', '4:5'].map(fmtCard)),
+          h('div', { class: 'row' }, h('label', {}, 'Duração (s)', d2), h('label', { class: 'grow' }, 'Idioma', l2)),
+          h('div', { class: 'muted small' }, review.textContent ?? ''));
+      } else if (step === 2) {
+        body.replaceChildren(
+          h('h3', {}, '03 · Elenco e voz'), h('p', { class: 'muted' }, 'Quem aparece e com que voz. Pode usar o padrão da skill.'),
+          h('div', { class: 'muted small' }, 'Personagens da Biblioteca (opcional)'),
+          charRows.length ? h('div', { class: 'np-gcards' }, ...charRows.slice(0, 12).map((ch) => {
+            const img = charImage(forge as never, ch);
+            return gcard(pickedChars.has(ch.id), [
+              img ? h('img', { src: img, alt: '' }) : h('div', { class: 'np-fmt' }, h('span', {}, ch.name.slice(0, 1))),
+              h('strong', {}, ch.name), h('span', { class: 'muted small' }, (ch.look ?? '').slice(0, 60)),
+            ], () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); repaintChars(); paint(); });
+          })) : h('div', { class: 'muted' }, 'Biblioteca vazia — a voz da skill vale.'),
+          h('div', { class: 'card' }, h('strong', {}, 'Voz'), h('div', { class: 'muted small' }, `em uso: ${npVoice.apiVoice || npVoice.refAudio ? 'a escolhida na gaveta Elenco e voz' : 'a voz da skill (OmniVoice/Wan2GP/API da rota)'}`)),
+          h('p', { class: 'muted small' }, '“Usar o padrão” limpa o elenco fixo e volta à voz da skill.'));
+      } else if (step === 3) {
+        body.replaceChildren(
+          h('h3', {}, '04 · Áudio e estilo'), h('p', { class: 'muted' }, 'Trilha, efeitos e legendas. Tudo com padrão.'),
+          h('div', { class: 'muted small' }, 'Trilha'),
+          h('div', { class: 'np-gcards' },
+            audioCard('Da rota', 'a trilha que a skill/rota já define', () => !codeMusicCb.checked, () => { codeMusicCb.checked = false; }),
+            audioCard('Por código', 'offline, duração exata, sem IA', () => codeMusicCb.checked, () => { codeMusicCb.checked = true; })),
+          h('div', { class: 'muted small' }, 'Legendas'),
+          h('div', { class: 'np-gcards' },
+            audioCard('Não', 'sem legendas', () => subsSel.value === 'off', () => { subsSel.value = 'off'; }),
+            audioCard('Arquivo .srt', 'para YouTube/player', () => subsSel.value === 'srt', () => { subsSel.value = 'srt'; }),
+            audioCard('No vídeo', 'gravadas na imagem', () => subsSel.value === 'burn', () => { subsSel.value = 'burn'; })),
+          h('div', { class: 'muted small' }, `paleta: ${palOn.checked ? 'fixa' : 'automática'} · estilo de imagem: ${styleRef ? 'com referência' : 'sem referência'} (muda na gaveta Estilo e imagem)`));
+      } else {
+        body.replaceChildren(h('h3', {}, '05 · Revisão'), h('p', { class: 'muted' }, 'O que vai ser gerado, o custo e o botão de criar.'), review.cloneNode(true) as HTMLElement);
+      }
+    };
+    const goStep = (d: number) => { step = Math.max(0, Math.min(4, step + d)); paint(); };
+    let bg: HTMLElement | undefined;
+    const close = () => { bg?.remove(); guided = null; };
+    next.addEventListener('click', () => void guard(async () => {
+      if (step < 4) { goStep(1); return; }
+      const p = await make();
+      close();
+      current = p; selected = []; go('editor');
+    }));
+    back.addEventListener('click', () => goStep(-1));
+    def.addEventListener('click', () => {
+      if (step === 2) { pickedChars.clear(); repaintChars(); npVoice = {}; npEngine = undefined; paintVoice(); }
+      else if (step === 3) { codeMusicCb.checked = false; subsSel.value = cfg?.defaults?.subtitles ?? 'off'; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true; }
+      for (const p of sums) p(); paint();
+    });
+    bg = h('div', { class: 'modal-bg', id: 'np-guided', onclick: (e) => { if (e.target === bg) close(); } },
+      h('div', { class: 'modal np-guided-modal' },
+        h('div', { class: 'row' }, h('h3', { class: 'grow' }, 'Novo projeto — guiado'), dots, h('button', { onclick: () => close() }, '✕')),
+        h('div', { class: 'np-guided' }, body, prev),
+        h('div', { class: 'row actions' }, back, h('span', { class: 'sp' }), def, h('button', { onclick: () => close() }, 'Fechar'), next)));
+    guided = bg;
+    document.body.append(bg);
+    paint();
+  }
+
+  const outer = main.querySelector(':scope > .card') as HTMLElement | null;
+  if (outer) {
+    const kids = Array.from(outer.children) as HTMLElement[];
+    const rowOf = (el: Element | null) => (el?.closest('.row') as HTMLElement | null);
+    const labelOf = (el: Element | null) => (el?.closest('label') as HTMLElement | null);
+    /* só reorganiza se TODOS os controles esperados existem (nada é movido pela metade) */
+    const prodRow = (maxMin.closest('label')?.parentElement as HTMLElement | null);
+    const ready = !!(rowOf(name) && idea.closest('label') && rowOf(skill) && info && rowOf(aspect) && prodRow && labelOf(agySel) && labelOf(autoUp) && rowOf(orch) && create.closest('.row'));
+    if (ready) {
+      const iTeam = kids.indexOf(teamInfo);
+      const form = h('div', { class: 'np-form', id: 'np-form' },
+      h('div', { class: 'card np-essential' },
+        rowOf(name)!, titleBox, idea.closest('label') as HTMLElement, rowOf(skill)!, info, episodeBox, rowOf(aspect)!),
+      drawer('np-g-cast', 'Elenco e voz', castSum, charsBox, castBox, voiceBox, foldBox),
+      drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!, thumbBox),
+      drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(audioFirstCb), labelOf(codeMusicCb)),
+      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel), labelOf(chSel)), labelOf(autoUp),
+        pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
+        rowOf(orch)!, teamInfo),
+      drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
+      review,
+      create.closest('.row') as HTMLElement);
+    form.addEventListener('input', () => { for (const p of sums) p(); });
+    form.addEventListener('change', () => { for (const p of sums) p(); });
+    main.replaceChildren(
+      h('div', { class: 'row np-head' }, h('h2', { class: 'grow' }, 'Novo projeto'), modeLbl,
+        h('button', { class: 'small', id: 'np-guided-open', onclick: () => { mode = 'guided'; localStorage.setItem(modeKey, mode); paintMode(); openGuided(); } }, '🧭 Guiado'),
+        h('button', { class: 'small', id: 'np-expert', onclick: () => { mode = 'expert'; localStorage.setItem(modeKey, mode); paintMode(); guided?.remove(); guided = null; } }, '🗂 Especialista')),
+      form);
+    for (const p of sums) p();
+    if (mode === 'guided') setTimeout(() => { if (!guided) openGuided(); }, 80);
+    }
+  }
+
   paintMusic();
   if (pendingSkill && Array.from(skill.options).some((o) => o.value === pendingSkill)) { skill.value = pendingSkill; skill.dispatchEvent(new Event('change')); }
   pendingSkill = undefined;

@@ -257,12 +257,12 @@ function modalShell(id: string, title: string, subtitle: string, body: HTMLEleme
 
 /** Executor principal que cada categoria terá nesta rota (depois do perfil). */
 export function effectiveByCategory(route: Route | undefined, chains?: ExecutorProfile['chains']): Record<ExecutorCategory, { binding?: Binding; steps: RouteStep[]; locked: RouteStep[] }> {
-  const r = route ? applyExecutorProfile(route, chains ? { id: 'x', name: 'x', chains } : undefined) : undefined;
+  const r = route ? applyExecutorProfile(route, chains ? { id: 'x', name: 'x', chains } : undefined, true) : undefined;
   const out = Object.fromEntries(CATEGORIES.map((k) => [k, { binding: undefined, steps: [], locked: [] }])) as unknown as Record<ExecutorCategory, { binding?: Binding; steps: RouteStep[]; locked: RouteStep[] }>;
   for (const st of r?.steps ?? []) {
     if (!st.enabled) continue;
     const cat = CATEGORY_OF[st.kind]; if (!cat) continue;
-    if (profileSkips(route!.steps.find((x) => x.id === st.id) ?? st)) { out[cat].locked.push(st); continue; }
+    if (profileSkips(route!.steps.find((x) => x.id === st.id) ?? st, true)) { out[cat].locked.push(st); continue; }
     out[cat].steps.push(st);
     if (!out[cat].binding) out[cat].binding = st.bindings[0];
   }
@@ -315,7 +315,7 @@ export async function openProvidersModal(c: PickerCtx, o: { route?: Route; curre
   };
   const paintSteps = () => {
     if (!targets.length) { stepBox.replaceChildren(); return; }
-    const eff = applyStepBindings(applyExecutorProfile(o.route!, Object.keys(chains).length ? { id: 'x', name: 'x', chains } : undefined), steps);
+    const eff = applyStepBindings(applyExecutorProfile(o.route!, Object.keys(chains).length ? { id: 'x', name: 'x', chains } : undefined, true), steps, true);
     const roles = ROLES.filter((r) => targets.some((st) => roleOfStep(st) === r));
     stepBox.replaceChildren(
       h('div', { class: 'row' }, h('span', { class: 'muted grow' }, 'Escolha um harness por função (ou etapa por etapa) para dividir o trabalho e a cota entre eles. O que não for escolhido segue a categoria acima ou a rota; os executores da rota ficam como reserva.'),
@@ -516,7 +516,7 @@ export async function openProjectExecutorsModal(c: PickerCtx, o: { project: Proj
   const route: Route = JSON.parse(JSON.stringify(orig));
   const hOpts = [{ id: 'auto', models: [] as string[] }, ...catalog.harnesses];
   const hName = (id: string) => (id === 'auto' ? 'auto (o melhor instalado)' : HARNESS_ART[id]?.name ?? id) + (id !== 'auto' && status[id] && !status[id]!.installed ? ' — não encontrado' : '');
-  const steps = route.steps.filter((st) => st.enabled && st.bindings.length && !profileSkips(st));
+  const steps = route.steps.filter((st) => st.enabled && st.bindings.length && !profileSkips(st, true));
   const origOf = (id: string) => orig.steps.find((x) => x.id === id)!;
   const changed = () => steps.filter((st) => JSON.stringify(st.bindings) !== JSON.stringify(origOf(st.id).bindings)).map((st) => st.id);
   const isText = (st: RouteStep) => { const cat = CATEGORY_OF[st.kind]; return cat === 'text' || cat === 'code'; };
