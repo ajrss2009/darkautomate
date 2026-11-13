@@ -1528,6 +1528,7 @@ async function renderNew() {
         h('label', { title: 'Uma execução é interrompida ao atingir este tempo (o que já foi gerado fica em cache).' }, 'Tempo máximo (min)', h('span', { class: 'row' }, maxMin, noLimit.parentElement!)),
         h('label', { title: 'Quantas cenas avançam ao mesmo tempo pelas etapas. GPU local continua uma cena por vez por etapa.' }, 'Cenas simultâneas', conc),
         h('label', { title: 'Legendas do que se fala. Dá para mudar depois no editor (cartão "Legendas") e renderizar de novo, sem refazer as cenas.' }, 'Legendas', subsSel),
+        /* estes dois são movidos para a gaveta "Áudio e trilha" junto do seletor de legendas */
         h('label', { title: 'Fonte da legenda — a mesma família no .ass gravado no vídeo e na prévia' }, 'Fonte da legenda', subsFont),
         h('label', { title: 'Estilo (tarja, karaokê, palavra por palavra, neon…) — vazio usa o do canal/skill' }, 'Estilo da legenda', subsKind),
         h('label', { class: 'inline chk', title: 'Gera a narração e a transcrição de TODAS as cenas primeiro (rápido, em paralelo) e depois os clipes. A duração total sai logo e a GPU local não alterna entre o modelo de voz e o de vídeo a cada cena.' }, audioFirstCb, '🎙 Narrar todas as cenas primeiro'),
@@ -1560,7 +1561,7 @@ async function renderNew() {
   };
   const castSum = () => `${pickedChars.size ? `${pickedChars.size} da Biblioteca` : 'sem elenco fixo'} · voz: ${npVoice.apiVoice || npVoice.refAudio ? 'escolhida' : 'a da skill'}`;
   const styleSum = () => `${palOn.checked ? 'paleta fixa' : 'paleta automática'} · ${styleRef ? 'estilo de imagem' : 'sem referência'} · ${mixRows.length ? `1+${mixRows.length} skill(s)` : '1 skill'}`;
-  const audioSum = () => `trilha: ${codeMusicCb.checked ? 'por código' : 'da rota'} · legendas: ${subsSel.value === 'off' ? 'não' : subsSel.value === 'srt' ? 'arquivo .srt' : 'no vídeo'}`;
+  const audioSum = () => `trilha: ${codeMusicCb.checked ? 'por código' : 'da rota'} · legendas: ${subsSel.value === 'off' ? 'não' : `${subsSel.value === 'srt' ? 'arquivo .srt' : 'no vídeo'}${subsKind.value || subsFont.value ? ` (${[subsKind.value, subsFont.value].filter(Boolean).join(' · ')})` : ''}`}`;
   const prodSum = () => `${conc.value} cena(s) em paralelo · ${quality.value} · storyboard: ${storyCb.checked ? 'sim' : 'não'}`;
   const plugSum = () => {
     const n = pluginBoxes.filter((x) => x.cb.checked).length;
@@ -1655,6 +1656,13 @@ async function renderNew() {
       return gcard(aspect.value === a, [box, h('strong', {}, a)], () => { aspect.value = a; paint(); });
     };
     const audioCard = (label: string, hint: string, on: () => boolean, set: () => void) => gcard(on(), [h('strong', {}, label), h('span', { class: 'muted small' }, hint)], () => { set(); paint(); });
+    /* seletor do guiado que espelha o controle real da gaveta (o valor escolhido é o que cria o projeto) */
+    const mirrorSelect = (real: HTMLSelectElement, opts: Array<[string, string]>) => {
+      const s = h('select', {}, ...opts.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+      s.value = real.value;
+      s.addEventListener('change', () => { real.value = s.value; });
+      return s;
+    };
     const paint = () => {
       paintReview();
       void paintPrev();
@@ -1711,6 +1719,9 @@ async function renderNew() {
             audioCard('Não', 'sem legendas', () => subsSel.value === 'off', () => { subsSel.value = 'off'; }),
             audioCard('Arquivo .srt', 'para YouTube/player', () => subsSel.value === 'srt', () => { subsSel.value = 'srt'; }),
             audioCard('No vídeo', 'gravadas na imagem', () => subsSel.value === 'burn', () => { subsSel.value = 'burn'; })),
+          h('div', { class: 'row' },
+            h('label', { title: 'Fonte da legenda (a mesma no .ass do vídeo final)' }, 'Fonte', mirrorSelect(subsFont, SUBTITLE_FONTS.map((f) => [f.id, f.label] as [string, string]))),
+            h('label', { title: 'Estilo da legenda (vazio usa o do canal/skill)' }, 'Estilo', mirrorSelect(subsKind, [['', 'estilo do canal/skill'], ...SUB_KINDS as Array<[string, string]>]))),
           h('div', { class: 'muted small' }, `paleta: ${palOn.checked ? 'fixa' : 'automática'} · estilo de imagem: ${styleRef ? 'com referência' : 'sem referência'} (muda na gaveta Estilo e imagem)`));
       } else {
         body.replaceChildren(h('h3', {}, '05 · Revisão'), h('p', { class: 'muted' }, 'O que vai ser gerado, o custo e o botão de criar.'), review.cloneNode(true) as HTMLElement);
@@ -1756,7 +1767,7 @@ async function renderNew() {
         rowOf(name)!, titleBox, idea.closest('label') as HTMLElement, rowOf(skill)!, info, episodeBox, rowOf(aspect)!),
       drawer('np-g-cast', 'Elenco e voz', castSum, charsBox, castBox, voiceBox, foldBox),
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!, thumbBox),
-      drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(audioFirstCb), labelOf(codeMusicCb)),
+      drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb)),
       drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel), labelOf(chSel)), labelOf(autoUp),
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),

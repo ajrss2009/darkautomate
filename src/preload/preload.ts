@@ -74,6 +74,12 @@ contextBridge.exposeInMainWorld('forge', {
   researchGaps: (id: string) => call('research:gaps', id),
   researchCreateProject: (input: unknown) => call('research:create-project', input),
   researchRemove: (id: string) => call('research:remove', id),
+  /* banco portátil (filmforge.db) */
+  dbStatus: () => call('db:status'),
+  dbIntegrity: () => call('db:integrity'),
+  dbBackup: () => call('db:backup'),
+  dbChanges: (seq?: number) => call('db:changes', seq),
+  dbReveal: () => call('db:reveal'),
   finderFavorites: () => call('finder:favorites'),
   finderFavoritesRemove: (ids: string[]) => call('finder:favorites-remove', ids),
   finderInsights: (input: unknown, ai?: unknown) => call('finder:insights', input, ai),

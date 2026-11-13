@@ -72,6 +72,7 @@ import { STOCK_SOURCES } from '../shared/stock-sources';
 import { auditLibrary } from './audit';
 import { findOutliers, type FinderQuery } from './finder';
 import { analyzeGaps, cachedCollection, collectFrontier, depthPlan, gapToProjectInput, listFrontiers, loadGaps, makeFrontier, researchRoot, saveCachedCollection, saveResearch, type Frontier, type Gap } from './research';
+import { closeDb, getDb, listProjectsIndexed, openDb, setProjectCostProvider } from './db';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
@@ -1854,11 +1855,22 @@ function registerIpc() {
 
   // projetos (CRUD)
   /* uma linha problemática não pode derrubar a lista inteira: cada projeto falha sozinho */
-  h('project:list', () => Promise.all(listProjects(settings).map((p) => projectRow(p.id).catch(() => ({
-    id: p.id, name: p.name ?? p.id, videoType: p.videoType ?? 'custom', createdAt: p.createdAt ?? '', scenes: 0, scenesWithMedia: 0,
-    hasFinal: false, running: false, totalMs: 0, firstFrame: null, frameFromFinal: false, status: 'new', runs: 0, updatedAt: p.createdAt ?? '',
-    plugins: [], dir: projectDirOf(settings, p.id),
-  })))));
+  h('project:list', async () => {
+    const base = () => Promise.all(listProjects(settings).map((p) => projectRow(p.id).catch(() => ({
+      id: p.id, name: p.name ?? p.id, videoType: p.videoType ?? 'custom', createdAt: p.createdAt ?? '', scenes: 0, scenesWithMedia: 0,
+      hasFinal: false, running: false, totalMs: 0, firstFrame: null, frameFromFinal: false, status: 'new', runs: 0, updatedAt: p.createdAt ?? '',
+      plugins: [], dir: projectDirOf(settings, p.id),
+    }))));
+    const db = getDb();
+    if (!db) return base();
+    let rows;
+    try { db.syncIndex(settings); rows = db.listRows(new Set(running.keys())); }
+    catch (e) { dumpErr('db-list', e); return base(); }
+    return Promise.all(rows.map(async (r) => {
+      const firstFrame = r.running ? null : await ensureFirstFrame(settings, r.id).catch(() => null);
+      return { ...r, firstFrame, frameFromFinal: !!r.hasFinal && !!firstFrame };
+    }));
+  });
   h('project:refresh', (id: string) => projectRow(id));
   h('project:create', async (input: NewProjectInput & { refScriptFile?: string; refVideoFile?: string; refScriptUse?: boolean; attachFiles?: string[] }) => {
     assertSkillAndRoute(input);
@@ -1894,7 +1906,13 @@ function registerIpc() {
     const b = ops.cleanBypass(bp);
     return p.route && b ? bypassTargets(p.route, b) : [];
   });
-  h('project:delete', (ids: string[]) => { for (const id of ids) { idle(id); ops.deleteProject(settings, id); } return true; });
+  h('project:delete', (ids: string[]) => { for (const id of ids) { idle(id); ops.deleteProject(settings, id); getDb()?.softDeleteProject(id); } return true; });
+  /* banco portátil: status, integridade, backup e fila de mudanças (para a sincronia futura) */
+  h('db:status', () => getDb()?.status() ?? null);
+  h('db:integrity', () => getDb()?.integrityCheck() ?? 'sem banco');
+  h('db:backup', () => { const db = getDb(); if (!db) return null; const file = db.backup('manual'); return { file, status: db.status() }; });
+  h('db:changes', (seq?: number) => getDb()?.changesSince(Number(seq) || 0) ?? []);
+  h('db:reveal', () => { const db = getDb(); if (db) shell.showItemInFolder(db.file); return db?.file; });
   h('project:duplicate', (id: string, name?: string) => ops.duplicateProject(settings, id, name));
   /** Novo projeto a partir de outro com atributos trocados (skill/estilo, rota, formato, idioma, duração). */
   h('project:derive', (id: string, i: DeriveInput) => deriveProject(settings, id, i));
@@ -2367,7 +2385,7 @@ function useAppPluginsDir(): void {
   } catch (e) { dumpErr('plugins-adopt', e); }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   settings = loadSettings();
   useAppPluginsDir();
   /* `FilmForge.exe --mcp`: roda como servidor MCP por stdio, sem janela.
@@ -2481,9 +2499,27 @@ app.whenReady().then(() => {
     return;
   }
   fs.mkdirSync(settings.workspace, { recursive: true });
+  /* processo único: dois apps no MESMO filmforge.db é corrupção com hora marcada (o banco é um arquivo, não um servidor) */
+  if (!app.requestSingleInstanceLock()) { app.quit(); return; }
+  app.on('second-instance', () => {
+    const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed());
+    if (!w) return;
+    if (w.isMinimized()) w.restore();
+    w.show(); w.focus();
+  });
   /* splash de abertura: cobre a inicialização (memória, plugins, IPC) até a interface estar pronta */
   openSplash();
   splashProgress(12, 'preparando o workspace');
+  /* banco portátil: um arquivo (filmforge.db) com o índice de projetos, cenas, arquivos e mudanças */
+  try {
+    const db = await openDb({ root: dataRoot?.root ?? app.getPath('userData'), workspace: settings.workspace });
+    setProjectCostProvider((pr) => costOfProject(pr));
+    splashProgress(20, 'abrindo o banco');
+    const idx = db.syncIndex(settings, { log: (l) => console.log(`[FilmForge] ${l}`) });
+    console.log(`[FilmForge] banco: ${db.file} · ${idx.total} projeto(s) no índice (${idx.added} novos, ${idx.updated} alterados, ${idx.removed} removidos)`);
+    if (db.restoredBackup) console.log(`[FilmForge] banco restaurado do backup ${db.restoredBackup}`);
+  } catch (e) { dumpErr('db', e); }
+  splashProgress(30, 'indexando projetos');
   /* inicializa o sistema de memória do FilmForge */
   try {
     const memResult = memory.initializeMemorySystem(String(process.resourcesPath ?? ''));
@@ -2517,7 +2553,7 @@ app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => Wan2gpClient.shutdownAll());
+app.on('before-quit', () => { try { closeDb(); } catch { /* já fechou */ } Wan2gpClient.shutdownAll(); });
 /* No modo headless (--run-project) não há janela: fechar a janela temporária do
    renderizador de cenas NÃO pode encerrar o app no meio da execução. */
 app.on('window-all-closed', () => { if (headless) return; if (process.platform !== 'darwin') app.quit(); });

@@ -1147,6 +1147,32 @@ export async function renderSettings(c: Ctx, reload = true) {
         toast(r.ok ? 'ffmpeg e ffprobe executando' : 'ffmpeg/ffprobe não executaram — veja a mensagem', !r.ok);
       }) }, '▶ Testar'), ffOut,
       h('span', { class: 'muted' }, 'a cópia dentro do app (resources\\tools\\ffmpeg) tem prioridade; depois o PATH, Downloads, WinGet e a pasta do app')));
+    /* banco portátil: um arquivo (filmforge.db) com o índice; mídia continua no disco e nada é apagado de verdade */
+    const dbSize = h('span', { class: 'tag' }, '…');
+    const dbLine = h('div', { class: 'muted small' }, 'abrindo o índice…');
+    const paintDb = () => void guard(async () => {
+      const st = (await forge['dbStatus']()) as { path: string; size: number; projects: number; scenes: number; assets: number; changes: number; schema: number; deviceId: string; integrity: string; backups: number } | null;
+      if (!st) { dbLine.textContent = 'sem banco nesta sessão (o índice é recriado ao abrir o app).'; return; }
+      dbSize.textContent = st.size > 1024 * 1024 ? `${(st.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(st.size / 1024))} KB`;
+      dbLine.textContent = `${st.path} · ${st.projects} projeto(s) · ${st.scenes} cena(s) · ${st.assets} arquivo(s) · ${st.changes} mudança(s) · schema v${st.schema} · integridade ${st.integrity} · ${st.backups} backup(s)`;
+    });
+    paintDb();
+    body.append(h('h3', {}, 'Banco de dados'),
+      h('div', { class: 'card', id: 'db-card' },
+        h('div', { class: 'row' }, h('strong', { class: 'grow' }, '🗄 filmforge.db — um arquivo, não uma árvore'), dbSize),
+        h('div', { class: 'muted small' }, 'O índice (projetos, cenas, arquivos e o histórico de mudanças) mora em um SQLite na pasta de dados. A lista de projetos consulta o índice — não abre 200 project.json. A mídia continua no disco: apagar o banco não apaga vídeo.'),
+        dbLine,
+        h('div', { class: 'row' },
+          h('button', { onclick: () => void guard(async () => {
+            const r = (await forge['dbIntegrity']()) as string;
+            toast(`Integridade do banco: ${r}`); paintDb();
+          }) }, '🔎 Verificar integridade'),
+          h('button', { onclick: () => void guard(async () => {
+            const r = (await forge['dbBackup']()) as { file: string } | null;
+            toast(r ? `Backup criado: ${r.file.split(/[\\/]/).pop()}` : 'O banco não está aberto nesta sessão.', !r); paintDb();
+          }) }, '💾 Fazer backup agora'),
+          h('button', { onclick: () => void forge['dbReveal']() }, '📂 Abrir pasta do banco'))),
+      h('div', { class: 'muted small' }, 'Regra: nunca deixe o .db dentro de OneDrive/Dropbox (a sincronização copia no meio da escrita). O backup vai para backups/, com uma cópia por dia e as 14 últimas mantidas.'));
   }
 
   if (cfgTab === 'plugins') {

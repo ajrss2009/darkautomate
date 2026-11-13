@@ -444,6 +444,8 @@ export interface Project {
   memories: string[];
   scenes: Scene[];
   createdAt: string;
+  /** última gravação (o banco usa para o índice e a sincronia; projetos antigos não têm) */
+  updatedAt?: string;
   typeId?: string;                     // (legado) tipo de vídeo personalizado usado
   skillId?: string;                    // skill escolhida (= tipo de vídeo)
   scriptStyle?: string;                // estilo de roteiro (opcional, definido pelo usuário)

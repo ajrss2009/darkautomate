@@ -5,6 +5,7 @@ import type { ExecutorBypass, FinalEffects, Project, Watermark, Wan2gpPost, Rout
 import { WAN2GP_SMOOTH, WAN2GP_UPSCALE } from '../shared/types';
 import { compilationFields, projectDirOf, projectsDir } from './settings';
 import { subtitleFontName } from '../shared/subtitle-fonts';
+import { indexProjectQuiet } from './db';
 import { cleanSegments, migrateSceneFx } from '../shared/fx';
 import { sfxDef } from './sfx';
 
@@ -25,9 +26,10 @@ function atomicWrite(file: string, data: string) {
  */
 export function saveProjectFile(s: Settings, p: Project, o: { scenes?: boolean } = {}) {
   const dir = projectDirOf(s, p.id);
+  p.updatedAt = new Date().toISOString();
   reindex(p);
   atomicWrite(path.join(dir, 'project.json'), JSON.stringify(p, null, 2));
-  if (o.scenes === false) return;
+  if (o.scenes === false) { indexProjectQuiet(s, p); return; }
   // scenes.json espelha a lista de cenas (fonte lida pelo harness e pela etapa scene_plan)
   atomicWrite(path.join(dir, 'scenes.json'), JSON.stringify(p.scenes.map((x) => ({
     id: x.id, title: x.title, narration: x.narration, visualIntent: x.visualIntent,
@@ -35,6 +37,7 @@ export function saveProjectFile(s: Settings, p: Project, o: { scenes?: boolean }
     searchTerms: x.searchTerms, manualDuration: x.manualDuration, effects: x.effects, variation: x.variation,
     videoPrompt: x.videoPrompt, speaker: x.speaker, emotion: x.emotion, delivery: x.delivery, userMedia: x.userMedia, clipStart: x.clipStart, clipCrop: x.clipCrop, trimStart: x.trimStart,
   })), null, 2));
+  indexProjectQuiet(s, p);
 }
 
 /** Resolve e valida que o diretório pertence ao workspace (anti path-traversal). */
