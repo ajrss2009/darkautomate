@@ -2692,7 +2692,15 @@ function timeline(p: Project): HTMLElement {
   const scroll = h('div', { class: 'tl-scroll' }, inner);
   scroll.addEventListener('scroll', () => { heads.scrollTop = scroll.scrollTop; });
   const root = h('div', { class: 'tl', id: 'tl' }, heads, scroll);
-  for (const k of ['video', 'narration', 'music', 'sfx', 'subs', 'fx'] as const) if (trk(k).hidden) root.classList.add(`tl-hide-${k}`);
+  const hiddenLanes = (['video', 'narration', 'music', 'sfx', 'subs', 'fx'] as const).filter((k) => trk(k).hidden);
+  for (const k of hiddenLanes) root.classList.add(`tl-hide-${k}`);
+  if (hiddenLanes.length) {
+    const names: Record<string, string> = { video: 'vídeo', narration: 'narração', music: 'música', sfx: 'efeitos', subs: 'legendas', fx: 'FX' };
+    /* o olho da faixa oculta some junto; esta barra devolve o controle (H também alterna o vídeo) */
+    root.prepend(h('div', { class: 'tl-restore' },
+      h('span', { class: 'grow' }, `Faixa(s) oculta(s): ${hiddenLanes.map((k) => names[k]).join(', ')} — só na visualização, o render não muda`),
+      h('button', { class: 'small', onclick: () => { for (const k of hiddenLanes) saveTrack(k, { hidden: false }); } }, '👁 Mostrar')));
+  }
 
   /* atalhos: R inverte, M espelha, Shift+M muta a narração, H oculta a faixa de vídeo */
   const onKey = (ev: KeyboardEvent) => {
@@ -3223,8 +3231,18 @@ function freeEngineSelect(id: string, value: string): HTMLSelectElement {
     bypassBox(p));
 }
 
+/** Leva ao cartão "Produção" do editor (tempo, concorrência, contas, vídeo livre) e o destaca. Salva ao mudar. */
+function openProjectParams(_p: Project): void {
+  const card = document.getElementById('pj-card') as HTMLElement | null;
+  if (!card) { toast('O cartão de produção não está nesta tela.', true); return; }
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('pj-flash');
+  setTimeout(() => card.classList.remove('pj-flash'), 1500);
+}
+
 /* ───────── bypass de executor do projeto (força um harness/modelo, sem mexer na rota) ───────── */
 const BYPASS_SCOPE: Array<[string, string]> = [['ai', 'texto + código (roteiro, cenas, metadados, cenas por código)'], ['code', 'só cenas por código e motion'], ['text', 'só texto (roteiro, plano, metadados…)']];
+/* ───────── bypass de executor do projeto (força um harness/modelo, sem mexer na rota) ───────── */
 function bypassBox(p: Project): HTMLElement {
   const box = h('div', { class: `pj-bypass${p.executorBypass?.enabled ? ' on' : ''}`, id: 'pj-bypass' });
   void (async () => {
@@ -3612,6 +3630,7 @@ function renderEditor(keepScroll = false) {
           try { const res = await forge.redoSteps(p.id, redo); if (!res.ok) toast(res.error ?? 'falhou', true); else toast('Etapas refeitas com os novos executores'); }
           finally { busy = ''; current = await forge.getProject(p.id); media = await forge.projectMedia(p.id); renderEditor(true); }
         } }) }, '🎛 Executores') : null,
+      p.route ? h('button', { id: 'btn-params', title: 'Tempo máximo, cenas simultâneas, narração primeiro, contas e vídeo livre — salva ao mudar', onclick: () => openProjectParams(p) }, '⚙ Parâmetros') : null,
       /* ajustar cenas e bypass na barra de cima (o cartão "Produção" fica no fim do editor) */
       p.route?.steps.some((st) => st.kind === 'scene_plan' && st.enabled) ? h('button', { id: 'btn-replan', disabled: runningIds.has(p.id),
         title: `Refaz o plano de cenas com menos (ou mais) cenas, com backup e mantendo o roteiro — hoje: ${p.scenes.length} cena(s)${p.scenes.length ? ` de ≈ ${(p.scenes.reduce((a, s) => a + (s.durationSec ?? 0), 0) / p.scenes.length).toFixed(1)} s` : ''}`,

@@ -1159,3 +1159,8 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .tl-menu.clipmenu button:hover { background:var(--hover); }
 .np-guided-prev .skillmedia { object-fit: contain; background:#000; }
 .np-prev-note { font-size:10px; letter-spacing:.04em; text-transform:uppercase; color:var(--mut); }
+/* faixa oculta: barra para devolver o controle (o olho da faixa some junto) */
+.tl { max-height: 276px; }
+.tl-scroll { max-height: 250px; }
+.tl-restore { grid-column: 1 / -1; display:flex; align-items:center; gap:8px; padding:5px 8px; background:rgba(124,92,255,.14); border-bottom:1px solid var(--line); font-size:11px; color:var(--mut); }
+.pj-flash { box-shadow: 0 0 0 2px var(--acc); transition: box-shadow .2s; }
