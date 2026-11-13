@@ -773,7 +773,7 @@ export function fitContext(messages: any[], budget: number): boolean {
 /** Limite prático da linha de comando no Windows (cmd.exe: 8191; CreateProcess: 32767). */
 const ARG_LIMIT = (viaShell: boolean) => (!isWin ? 120_000 : viaShell ? 7_000 : 28_000);
 
-export interface HarnessRun { ok: boolean; stdout: string; stderr: string; code: number | null }
+export interface HarnessRun { ok: boolean; stdout: string; stderr: string; code: number | null; /** status do stream-json do agy ("success", "incomplete"...) */ status?: string }
 
 /** Uso devolvido pelo harness (hoje: o agy em --output-format json). O main registra por conta. */
 export interface HarnessUsageEvent { harness: 'antigravity'; home?: string; model?: string; input: number; output: number; thinking: number; total: number; ok: boolean }
@@ -802,7 +802,7 @@ export function agyStreamLine(line: string): { text?: string; log?: string } {
   } catch { return {}; }
 }
 /** Desembrulha a saída JSON do agy: { response, status, usage } (função pura). */
-export function parseAgyJson(stdout: string): { response: string; ok: boolean; usage?: { input: number; output: number; thinking: number; total: number } } | undefined {
+export function parseAgyJson(stdout: string): { response: string; ok: boolean; status?: string; usage?: { input: number; output: number; thinking: number; total: number } } | undefined {
   const t0 = stdout.trim();
   /* stream-json: a última linha {"event":"result","result":{…}} traz a resposta; json simples: um objeto só */
   const resLine = t0.split('\n').reverse().find((l) => l.includes('"event":"result"'));
@@ -813,7 +813,7 @@ export function parseAgyJson(stdout: string): { response: string; ok: boolean; u
     const j = JSON.parse(t.slice(start)) as { response?: string; status?: string; usage?: { input_tokens?: number; output_tokens?: number; thinking_tokens?: number; total_tokens?: number } };
     if (typeof j.response !== 'string') return undefined;
     const u = j.usage;
-    return { response: j.response, ok: !j.status || /success/i.test(j.status), usage: u ? { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, thinking: u.thinking_tokens ?? 0, total: u.total_tokens ?? 0 } : undefined };
+    return { response: j.response, ok: !j.status || /success/i.test(j.status), status: j.status, usage: u ? { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, thinking: u.thinking_tokens ?? 0, total: u.total_tokens ?? 0 } : undefined };
   } catch { return undefined; }
 }
 
@@ -922,7 +922,7 @@ export function runHarness(
           if (agyText.trim()) opts.onLine?.(agyText.trim());
           if (!agyStreamed) for (const l of j.response.split('\n')) if (l.trim()) opts.onLine?.(l);
           if (j.usage) try { usageSink?.({ harness: 'antigravity', home: opts.env?.['USERPROFILE'], model: opts.model, ...j.usage, ok: j.ok && code === 0 }); } catch { /* registro opcional */ }
-          resolve({ ok: code === 0 && j.ok, stdout: j.response, stderr: j.ok ? stderr : (stderr || j.response).slice(-2000), code });
+          resolve({ ok: code === 0 && j.ok, stdout: j.response, stderr: j.ok ? stderr : (`status: ${j.status ?? '?'}\n` + (stderr || j.response)).slice(-2000), code, status: j.status });
           return;
         }
       }

@@ -402,6 +402,12 @@ export function tolerantSeek(page: string): string {
   return at >= 0 ? page.slice(0, at) + guard + page.slice(at) : page + guard;
 }
 
+/** Cena por código: o arquivo gravado NESTA execução vale mesmo se o harness não terminou em "success"
+    (o agy às vezes conclui o trabalho e ainda assim devolve status incomplete/error). Função pura de IO. */
+export function sceneFileFresh(file: string, since: number): boolean {
+  try { return fs.statSync(file).mtimeMs >= since - 2000; } catch { return false; }
+}
+
 const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
   const stepT0 = Date.now();   // orçamento de tempo das rodadas de revisão (não podem estourar o prazo da etapa)
   const b = c.binding as HarnessBinding;
@@ -446,7 +452,16 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
   try { res = await runHarness(cfg, { cwd, prompt: buildPromptMarked(c) + (schema ? `\nResponda SOMENTE com o JSON de ${path.basename(file)} (o app grava o arquivo).` : ''), model, effort, signal: c.signal, onLine: c.log, timeoutSec: c.step.timeoutSec, env, schema,
     tools: schema ? undefined : { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
   finally { stopWatch(); }
-  if (!res.ok) throw new Error(res.code === null ? `${id}: ${res.stderr.slice(-400)}` : `${id} saiu com código ${res.code}: ${res.stderr.slice(-400)}`);
+  if (!res.ok) {
+    /* O agy pode terminar com status != success DEPOIS de gravar a cena — e o arquivo é a verdade.
+       Para cena por código, segue com o arquivo gravado nesta execução; nos outros casos, falha. */
+    const codeScene = c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics';
+    const fresh = codeScene && res.code === 0 && sceneFileFresh(file, stepT0);
+    if (fresh) c.log(`aviso: ${id} terminou com status "${res.status ?? 'não-success'}", mas ${path.basename(file)} foi gravado nesta execução — seguindo com o arquivo`);
+    else if (res.code === null) throw new Error(`${id}: ${res.stderr.slice(-400)}`);
+    else if (res.code === 0) throw new Error(`${id} não concluiu${res.status ? ` (status ${res.status})` : ''}: ${res.stderr.slice(-400)}`);
+    else throw new Error(`${id} saiu com código ${res.code}: ${res.stderr.slice(-400)}`);
+  }
   if (schema && res.stdout.trim()) {
     const raw = prov.stripFences(res.stdout).trim();
     try { JSON.parse(raw); ensureDir(file); fs.writeFileSync(file, raw); c.log(`JSON guiado gravado em ${path.basename(file)}`); }

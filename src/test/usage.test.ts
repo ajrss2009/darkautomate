@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { runRoute, type Executor } from '../main/engine';
+import { sceneFileFresh } from '../main/executors';
 import { agyJsonArgs, agyStreamLine, AUTO_ORDER, autoOrder, DEFAULT_HARNESSES, parseAgyJson, resolveHarness } from '../main/harness';
 import { agyWindows, codexLimitsFrom } from '../main/usage';
 import { createProject, defaultSettings } from '../main/settings';
@@ -16,9 +17,20 @@ async function main() {
   assert.equal(agyJsonArgs(agy, ['--output-format', 'text', '--print', 'oi']).json, false, 'formato escolhido pelo usuário é respeitado');
   assert.equal(agyJsonArgs(DEFAULT_HARNESSES.claude, ['-p', 'oi']).json, false, 'só o agy');
   const j = parseAgyJson('aviso qualquer\n{"conversation_id":"x","status":"SUCCESS","response":"ok\\n","usage":{"input_tokens":6913,"output_tokens":1,"thinking_tokens":2,"total_tokens":6916}}');
-  assert.deepEqual(j, { response: 'ok\n', ok: true, usage: { input: 6913, output: 1, thinking: 2, total: 6916 } });
-  assert.equal(parseAgyJson('{"conversation_id":"x","status":"ERROR","response":"falhou"}')?.ok, false);
+  assert.deepEqual(j, { response: 'ok\n', ok: true, status: 'SUCCESS', usage: { input: 6913, output: 1, thinking: 2, total: 6916 } });
+  const bad = parseAgyJson('{"conversation_id":"x","status":"ERROR","response":"falhou"}');
+  assert.equal(bad?.ok, false);
+  assert.equal(bad?.status, 'ERROR', 'o status real é preservado para o log (o agy pode gravar a cena e ainda assim não concluir)');
   assert.equal(parseAgyJson('texto puro'), undefined);
+  /* cena por código: o arquivo gravado NESTA execução vale mesmo com status != success */
+  const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-fresh-'));
+  const sceneFile = path.join(freshDir, 'scene.html');
+  assert.equal(sceneFileFresh(sceneFile, Date.now()), false, 'arquivo inexistente não vale');
+  fs.writeFileSync(sceneFile, '<!doctype html><html></html>');
+  assert.equal(sceneFileFresh(sceneFile, Date.now() - 60_000), true, 'gravado nesta execução vale');
+  const longAgo = new Date(Date.now() - 600_000);
+  fs.utimesSync(sceneFile, longAgo, longAgo);
+  assert.equal(sceneFileFresh(sceneFile, Date.now() - 60_000), false, 'arquivo de outra execução não vale');
   /* stream-json: progresso ao vivo e a resposta na linha "result" */
   const stream = [
     '{"event":"init","conversation_id":"c"}',
@@ -29,7 +41,7 @@ async function main() {
   assert.deepEqual(agyStreamLine(stream[1]!), { log: '🔧 write_file …/scenes\\cast.js' });
   assert.deepEqual(agyStreamLine(stream[2]!), { text: 'feito' });
   assert.deepEqual(agyStreamLine(stream[0]!), {});
-  assert.deepEqual(parseAgyJson(stream.join('\n')), { response: 'feito\n', ok: true, usage: { input: 10, output: 2, thinking: 0, total: 12 } });
+  assert.deepEqual(parseAgyJson(stream.join('\n')), { response: 'feito\n', ok: true, status: 'SUCCESS', usage: { input: 10, output: 2, thinking: 0, total: 12 } });
   assert.deepEqual(agyJsonArgs(agy, ['--print', 'x']).args, ['--output-format', 'stream-json', '--print', 'x']);
 
   /* registro do Antigravity por conta: 5 h e 7 dias */
