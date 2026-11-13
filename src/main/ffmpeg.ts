@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Aspect, FinalEffects, FxFilter, FxMove, FxSegment, FxTexture, FxTransition, FxVignette, Scene, SceneEffects, SubtitleKind, SubtitleStyle, Watermark } from '../shared/types';
+import { subtitleFontName } from '../shared/subtitle-fonts';
 
 /** ffmpeg/ffprobe fora do PATH: procura nas pastas comuns antes de desistir. */
 const BIN_CACHE = new Map<string, string>();
@@ -406,7 +407,9 @@ const assColor = (hex: string) => { const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim
 export function subtitleForceStyle(st: SubtitleStyle): string {
   const align = st.position === 'top' ? 8 : st.position === 'middle' ? 5 : 2;
   const size = Math.max(8, Math.round((st.size || 46) * 288 / 1080));
+  const font = subtitleFontName(st.font);
   return [`Fontsize=${size}`, `PrimaryColour=${assColor(st.color || '#ffffff')}`, `Alignment=${align}`, 'MarginV=24',
+    ...(font ? [`Fontname=${font}`] : []),
     st.box ? 'BorderStyle=3,Outline=1,BackColour=&H80000000' : 'BorderStyle=1,Outline=2,Shadow=0'].join(',');
 }
 export async function burnSubtitles(ffmpeg: string, video: string, srt: string, st: SubtitleStyle, out: string, signal?: AbortSignal) {
@@ -671,7 +674,7 @@ export function buildAss(words: SubWord[], st: SubtitleStyle, size: { w: number;
   const color = assColor(st.color || '#ffffff'), accent = assColor(st.accent || (kind === 'neon' ? '#00e5ff' : '#ffe14d'));
   const align = st.position === 'top' ? 8 : st.position === 'middle' ? 5 : 2;
   const marginV = st.position === 'middle' ? 0 : Math.round(H * (tall ? (st.position === 'top' ? 0.12 : 0.16) : 0.07));
-  const font = kind === 'bold' || kind === 'word' || kind === 'highlight' || kind === 'comic' ? 'Arial Black' : kind === 'typewriter' ? 'Courier New' : 'Arial';
+  const font = subtitleFontName(st.font) || (kind === 'bold' || kind === 'word' || kind === 'highlight' || kind === 'comic' ? 'Arial Black' : kind === 'typewriter' ? 'Courier New' : 'Arial');
   const ol = (k: number) => Math.max(1, Math.round(fs * k));
   /* Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding */
   const style = (() => {

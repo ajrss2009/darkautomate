@@ -224,7 +224,7 @@ export interface FxSegment { id: string; kind: 'filter' | 'vignette'; value: str
 export type SubtitleKind = 'classic' | 'box' | 'bold' | 'karaoke' | 'word' | 'neon' | 'minimal' | 'highlight' | 'reveal' | 'typewriter' | 'comic' | 'slide';
 /** Marca d'água do vídeo final: texto e/ou imagem, num canto ou no centro, com opacidade e tamanho. */
 export interface Watermark { enabled: boolean; text?: string; image?: string; position: 'tl' | 'tr' | 'bl' | 'br' | 'center'; opacity: number; /** % da altura do vídeo (texto) ou da largura (imagem) */ size: number }
-export interface SubtitleStyle { burn: boolean; position: 'bottom' | 'middle' | 'top'; size: number; color: string; box: boolean; kind?: SubtitleKind; /** cor de destaque (bold/karaoke/neon) */ accent?: string }
+export interface SubtitleStyle { burn: boolean; position: 'bottom' | 'middle' | 'top'; size: number; color: string; box: boolean; kind?: SubtitleKind; /** cor de destaque (bold/karaoke/neon) */ accent?: string; /** família da fonte (vazio = a padrão do tipo de legenda) */ font?: string }
 /** Fontes que uma skill mista pode mesclar: motion graphics/código, bancos de mídia e vídeo/imagem por IA (MiniMax etc.). */
 export type MixSource = 'motion' | 'stock' | 'ai';
 

@@ -1,4 +1,4 @@
-import type { Agent, Attachment, Binding, CastMember, EngineEvent, ExecutorProfile, FxSegment, Project, Route, Scene, SceneKind, Settings, Skill, StockSource, ThumbnailTemplate, TrackState } from '../shared/types';
+import type { Agent, Attachment, Binding, CastMember, EngineEvent, ExecutorProfile, FxSegment, Project, Route, Scene, SceneKind, Settings, Skill, StockSource, SubtitleStyle, ThumbnailTemplate, TrackState } from '../shared/types';
 import { KIND_LABEL as KIND_LABEL_NP } from './library-ui';
 import { LANGUAGES, renderRoutesLib, renderSettings, renderSkills, openSkillFromVideos, type Ctx } from './library-ui';
 import { artIcon, bindingArt, effectiveByCategory, fallbackChips, openProjectExecutorsModal, openProvidersModal, renderProvidersPage, type ProvidersChoice } from './providers-ui';
@@ -21,6 +21,7 @@ import { helpButton } from './carousel';
 import { CATEGORIES, CATEGORY_INFO, applyExecutorProfile, applyStepBindings } from '../shared/profiles';
 import { checkSkillRoute, routeHasTool } from '../shared/compat';
 import { addSegLayer, layersOf, placeSeg, segAt, segEnd, segsAt, totalOf } from '../shared/fx';
+import { SUBTITLE_FONTS, subtitleFontCss } from '../shared/subtitle-fonts';
 import { renderAgents } from './agents-ui';
 import { icon } from './icons';
 import { startI18n, t } from './i18n';
@@ -994,6 +995,13 @@ async function renderNew() {
   const noLimit = timeLimitToggle('np-nolimit', maxMin, defMax === 0);
   /* legendas da fala e ordem da produção: padrões das Configurações */
   const subsSel = subtitlesSelect('np-subs', cfg?.defaults?.subtitles ?? 'off');
+  /* fonte e estilo da legenda escolhidos já na criação (o editor também permite trocar depois) */
+  const subsFont = h('select', { id: 'np-subs-font', title: 'Fonte da legenda: vale na prévia e no .ass gravado no vídeo final' },
+    ...SUBTITLE_FONTS.map((f) => h('option', { value: f.id }, f.label))) as HTMLSelectElement;
+  const subsKind = h('select', { id: 'np-subs-kind', title: 'Estilo da legenda (o do canal/skill quando vazio)' },
+    h('option', { value: '' }, 'estilo do canal/skill'), ...SUB_KINDS.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+  const paintSubs = () => { const off = subsSel.value === 'off'; subsFont.disabled = off; subsKind.disabled = off; };
+  subsSel.addEventListener('change', paintSubs); paintSubs();
   const audioFirstCb = h('input', { type: 'checkbox', id: 'np-audio-first' }) as HTMLInputElement; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true;
   const codeMusicCb = h('input', { type: 'checkbox', id: 'np-code-music' }) as HTMLInputElement;
   /* storyboard depois do plano de cenas; com aprovação, a execução pausa até você aprovar */
@@ -1424,7 +1432,8 @@ async function renderNew() {
       thumbnailTemplate: thumbId || undefined, scriptStyle: scriptStyle.value.trim() || undefined, videoStyle: videoStyle.value.trim() || undefined,
       musicStyle: musicStyle.value.trim() || undefined, musicMode: musicMode.value as 'instrumental' | 'song', musicMinMin: Number(musMin.value) || undefined, musicMaxMin: Number(musMax.value) || undefined, musicTrackSec: Number(musTrack.value) || undefined, waveform: waveform.value as 'line' | 'bar' | 'p2p' | 'cline' | 'dot',
       refScriptFile: refScript, refVideoFile: refVideo, refScriptUse: !!refScript && scriptUse.checked, attachFiles: attachFiles.length ? [...attachFiles] : undefined,
-      subtitles: subsSel.value as 'off' | 'srt' | 'burn', audioFirst: audioFirstCb.checked, codeMusic: codeMusicCb.checked || undefined,
+      subtitles: subsSel.value as 'off' | 'srt' | 'burn', subtitleFont: subsFont.value || undefined, subtitleKind: (subsKind.value || undefined) as SubtitleStyle['kind'],
+      audioFirst: audioFirstCb.checked, codeMusic: codeMusicCb.checked || undefined,
       storyboard: storyCb.checked ? { enabled: true, approval: storyApproveCb.checked, sketches: storyApproveCb.checked && sketchMode.value ? { mode: sketchMode.value as 'sketch' | 'frame' | 'both', count: Number(sketchCount.value) || 2 } : undefined } : undefined,
       characterIds: pickedChars.size ? [...pickedChars] : undefined,
       characterVariants: Object.keys(charVariants).length ? Object.fromEntries(Object.entries(charVariants).filter(([id]) => pickedChars.has(id))) : undefined,
@@ -1519,6 +1528,8 @@ async function renderNew() {
         h('label', { title: 'Uma execução é interrompida ao atingir este tempo (o que já foi gerado fica em cache).' }, 'Tempo máximo (min)', h('span', { class: 'row' }, maxMin, noLimit.parentElement!)),
         h('label', { title: 'Quantas cenas avançam ao mesmo tempo pelas etapas. GPU local continua uma cena por vez por etapa.' }, 'Cenas simultâneas', conc),
         h('label', { title: 'Legendas do que se fala. Dá para mudar depois no editor (cartão "Legendas") e renderizar de novo, sem refazer as cenas.' }, 'Legendas', subsSel),
+        h('label', { title: 'Fonte da legenda — a mesma família no .ass gravado no vídeo e na prévia' }, 'Fonte da legenda', subsFont),
+        h('label', { title: 'Estilo (tarja, karaokê, palavra por palavra, neon…) — vazio usa o do canal/skill' }, 'Estilo da legenda', subsKind),
         h('label', { class: 'inline chk', title: 'Gera a narração e a transcrição de TODAS as cenas primeiro (rápido, em paralelo) e depois os clipes. A duração total sai logo e a GPU local não alterna entre o modelo de voz e o de vídeo a cada cena.' }, audioFirstCb, '🎙 Narrar todas as cenas primeiro'),
         h('label', { class: 'inline chk', title: 'Trilha sintetizada por código, sem IA e offline, com a duração exata do vídeo e o clima da skill. Vale para qualquer rota; a trilha da rota fica de reserva.' }, codeMusicCb, '🎼 Trilha por código'),
         h('label', { class: 'inline chk', title: 'Depois do plano de cenas, monta o storyboard (um quadro por cena: tempo, ato, visual, câmera, narração e efeitos) em out/storyboard.html.' }, storyCb, '🎞 Criar storyboard'),
@@ -1950,6 +1961,7 @@ function showScene(sc: Scene | undefined, autoplay = false, enter?: { kind: stri
     const kind = st.kind ?? (st.box ? 'box' : 'classic');
     const cap = h('div', { class: `cap pos-${st.position} k-${kind}${kind === 'box' ? ' box' : ''}` });
     cap.style.color = st.color; cap.style.setProperty('--accent', st.accent ?? (kind === 'neon' ? '#00e5ff' : '#ffe14d'));
+    if (subtitleFontCss(st.font)) cap.style.fontFamily = subtitleFontCss(st.font);
     const stageH = box.clientHeight || 360, tall = current.aspect === '9:16' || current.aspect === '4:5';
     const mult = kind === 'word' ? 1.6 : kind === 'bold' || kind === 'highlight' || kind === 'comic' ? (tall ? 1.05 : 1.25) : kind === 'minimal' ? 0.8 : 1;
     cap.style.fontSize = `${Math.max(9, Math.round(st.size * (stageH / 1080) * mult))}px`;
@@ -2517,8 +2529,9 @@ function timeline(p: Project): HTMLElement {
     renderEditor(true);
   });
   const saveVol = (field: 'narrationVolume' | 'sfxVolume' | 'musicVolume', v: number) => void guard(async () => {
+    /* salva sem redesenhar o editor: o slider não perde o foco no meio do arraste */
+    p[field] = v;
     current = await forge.updateProject(p.id, { [field]: v } as never);
-    renderEditor(true);
   });
 
   const ruler = h('div', { class: 'ruler', title: 'Clique para ir a este ponto' });
@@ -2677,15 +2690,39 @@ function timeline(p: Project): HTMLElement {
         h('button', { class: `tl-hbtn${st.locked ? ' on' : ''}`, title: st.locked ? 'Destravar' : 'Travar: não arrasta nem apara', onclick: () => saveTrack(key, { locked: !st.locked }) }, '🔒'),
         o.vol ?? null));
   };
-  const volCtl = (field: 'narrationVolume' | 'sfxVolume' | 'musicVolume', value: number, max: number) =>
-    h('input', { class: 'tl-vol', type: 'range', min: '0', max: String(max), step: '0.01', value: String(value), title: `Volume (${Math.round(value * 100)}%)`, onchange: (e) => saveVol(field, Number((e.target as HTMLInputElement).value)) });
+  const volCtl = (field: 'narrationVolume' | 'sfxVolume' | 'musicVolume', label: string, value: number, max: number, def: number) => {
+    const inp = h('input', { class: 'tl-vol', type: 'range', min: '0', max: String(max), step: '0.01', value: String(value), 'data-field': field, title: `${label}: ${Math.round(value * 100)}%` }) as HTMLInputElement;
+    const num = h('span', { class: 'tl-hvol' }, `${Math.round(value * 100)}%`);
+    const paint = () => {
+      const v = Number(inp.value);
+      inp.style.setProperty('--pct', `${(v / max) * 100}%`);
+      inp.title = `${label}: ${Math.round(v * 100)}% (arraste, roda do mouse ou setas · duplo clique volta a ${Math.round(def * 100)}%)`;
+      num.textContent = v === 0 ? 'mudo' : `${Math.round(v * 100)}%`;
+      inp.classList.toggle('muted', v === 0);
+    };
+    paint();
+    let saveT = 0;
+    const commit = () => {
+      window.clearTimeout(saveT);
+      saveT = window.setTimeout(() => {
+        const v = Number(inp.value);
+        saveVol(field, v);
+        toast(`${label}: ${v === 0 ? 'no mudo' : `${Math.round(v * 100)}%`} — "Renderizar final" aplica no vídeo.`);
+      }, 300);
+    };
+    inp.addEventListener('input', paint);
+    inp.addEventListener('change', commit);
+    inp.addEventListener('dblclick', () => { inp.value = String(def); paint(); commit(); });
+    inp.addEventListener('wheel', (e) => { e.preventDefault(); const d = e.deltaY < 0 ? 0.05 : -0.05; inp.value = String(Math.max(0, Math.min(max, Math.round((Number(inp.value) + d) * 100) / 100))); paint(); commit(); }, { passive: false });
+    return h('span', { class: 'tl-volwrap' }, inp, num);
+  };
   const heads = h('div', { class: 'tl-heads' },
     h('div', { class: 'tl-head tl-rulerh' }, h('span', { class: 'tl-hname' }, 'tempo')),
     head('filters', 'FX filtros', { state: 'fx' }), head('vignette', 'Vinheta', { state: 'fx' }),
     head('video', 'V1 vídeo'),
-    head('narration', 'A1 narração', { audio: true, vol: volCtl('narrationVolume', p.narrationVolume ?? 1, 2) }),
-    head('music', 'A2 música', { audio: true, vol: volCtl('musicVolume', p.musicVolume ?? 0.15, 1) }),
-    head('sfx', 'Efeitos', { audio: true, vol: volCtl('sfxVolume', p.sfxVolume ?? 0.15, 1.5) }),
+    head('narration', 'A1 narração', { audio: true, vol: volCtl('narrationVolume', 'Narração', p.narrationVolume ?? 1, 2, 1) }),
+    head('music', 'A2 música', { audio: true, vol: volCtl('musicVolume', 'Música', p.musicVolume ?? 0.15, 1, 0.15) }),
+    head('sfx', 'Efeitos', { audio: true, vol: volCtl('sfxVolume', 'Efeitos', p.sfxVolume ?? 0.15, 1.5, 0.15) }),
     head('subs', 'S1 legendas'));
   const inner = h('div', { class: 'tl-inner' }, ruler, fTrack, gTrack, vTrack, aTrack, mTrack, xTrack, sTrack, ph);
   inner.style.width = `${width}px`;
@@ -3117,6 +3154,9 @@ function subtitlesCard(p: Project): HTMLElement {
     h('button', { class: `small${position === v ? ' on' : ''}`, 'data-sub-pos': v, onclick: () => { position = v; posBtns.forEach((b) => b.classList.toggle('on', b.dataset['subPos'] === v)); save(); } }, label) as HTMLButtonElement);
   const kind = h('select', { id: 'sub-kind' }, ...SUB_KINDS.map(([v, label]) => h('option', { value: v }, label))) as HTMLSelectElement;
   kind.value = st.kind ?? (st.box ? 'box' : 'classic');
+  /* fonte da legenda: a mesma família vai para o .ass (libass) e para a prévia */
+  const font = h('select', { id: 'sub-font', title: 'Fonte da legenda (vale na prévia e no .ass gravado no vídeo)' }, ...SUBTITLE_FONTS.map((f) => h('option', { value: f.id }, f.label))) as HTMLSelectElement;
+  font.value = st.font ?? '';
   const size = h('input', { type: 'number', min: '16', max: '120', value: String(st.size), id: 'sub-size', class: 'num' }) as HTMLInputElement;
   const color = h('input', { type: 'color', value: st.color, id: 'sub-color' }) as HTMLInputElement;
   const accent = h('input', { type: 'color', value: st.accent ?? (kind.value === 'neon' ? '#00e5ff' : '#ffe14d'), id: 'sub-accent', title: 'Cor de destaque (palavra falada, preenchimento do karaokê, brilho do neon)' }) as HTMLInputElement;
@@ -3124,9 +3164,9 @@ function subtitlesCard(p: Project): HTMLElement {
   show.addEventListener('change', () => { showSubs = show.checked; showScene(p.scenes.find((s) => s.id === selected[0])); });
   /* modo das legendas (projetos antigos sem modo: .srt sempre + "gravar" pelo estilo) */
   const mode = subtitlesSelect('sub-mode', p.subtitles ?? (st.burn ? 'burn' : 'srt'));
-  const paintMode = () => { burn.checked = mode.value === 'burn'; for (const el of [kind, size, color, accent, ...posBtns]) el.disabled = mode.value === 'off'; };
+  const paintMode = () => { burn.checked = mode.value === 'burn'; for (const el of [kind, font, size, color, accent, ...posBtns]) el.disabled = mode.value === 'off'; };
   paintMode();
-  const style = () => ({ burn: mode.value === 'burn', position, size: Math.min(120, Math.max(16, Number(size.value) || 46)), color: color.value, box: kind.value === 'box', kind: kind.value, accent: accent.value });
+  const style = () => ({ burn: mode.value === 'burn', position, size: Math.min(120, Math.max(16, Number(size.value) || 46)), color: color.value, box: kind.value === 'box', kind: kind.value, accent: accent.value, ...(font.value ? { font: font.value } : {}) });
   const save = () => void guard(async () => {
     current = await forge.updateProject(p.id, { subtitles: mode.value, subtitleStyle: style() } as never);
     showScene(current.scenes.find((s) => s.id === selected[0]));
@@ -3135,7 +3175,7 @@ function subtitlesCard(p: Project): HTMLElement {
   burn.addEventListener('change', () => { mode.value = burn.checked ? 'burn' : 'srt'; paintMode(); save(); });
   /* neon brilha em ciano por padrão; os outros destacam em amarelo — troca a cor só se ainda era a padrão do tipo anterior */
   kind.addEventListener('change', () => { if (kind.value === 'neon' && accent.value.toLowerCase() === '#ffe14d') accent.value = '#00e5ff'; else if (kind.value !== 'neon' && accent.value.toLowerCase() === '#00e5ff') accent.value = '#ffe14d'; });
-  [kind, size, color, accent].forEach((el) => el.addEventListener('change', save));
+  [kind, font, size, color, accent].forEach((el) => el.addEventListener('change', save));
   /* criar agora: liga "gravar no vídeo" se estiver desligado, salva o estilo e refaz só legendas + montagem */
   const create = h('button', { class: 'primary small', id: 'sub-create', title: 'Gera as legendas (tempos da fala) no tipo e posição escolhidos e grava no vídeo final — as cenas não são refeitas', onclick: () => void guard(async () => {
     if (mode.value !== 'burn') { mode.value = 'burn'; paintMode(); }
@@ -3146,8 +3186,8 @@ function subtitlesCard(p: Project): HTMLElement {
   return h('div', { class: 'card', id: 'sub-card' },
     h('div', { class: 'row' }, h('span', { class: 'ico' }, icon('text')), h('strong', {}, 'Legendas'), h('label', {}, 'Gerar', mode), h('label', { class: 'inline chk' }, show, 'mostrar na prévia'), create),
     h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Posição'), h('div', { class: 'seg', id: 'sub-pos' }, ...posBtns)),
-    h('div', { class: 'row' }, h('label', {}, 'Tipo', kind), h('label', {}, 'Tamanho (px)', size), h('label', {}, 'Cor', color), h('label', {}, 'Destaque', accent),
-      h('label', { class: 'inline chk' }, burn, 'gravar no vídeo final')),
+    h('div', { class: 'row' }, h('label', {}, 'Fonte', font), h('label', {}, 'Tipo', kind), h('label', { class: 'inline chk' }, burn, 'gravar no vídeo final')),
+    h('div', { class: 'row' }, h('label', {}, 'Tamanho (px)', size), h('label', {}, 'Cor', color), h('label', {}, 'Destaque', accent)),
     h('div', { class: 'muted' }, 'O texto de cada cena é editado no campo "Legenda" da cena (vazio = usa a narração, nos tempos reais das palavras). Depois de mudar, "Renderizar final" (ou "Criar legendas") refaz só legendas e montagem.'));
 }
 

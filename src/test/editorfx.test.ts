@@ -1,5 +1,5 @@
 import * as assert from 'node:assert/strict';
-import { buildAss, effectFilters, FX_TEXTURES, moveExpr, SUBTITLE_KINDS, textureFilters, watermarkGraph, watermarkXY, type SubWord } from '../main/ffmpeg';
+import { buildAss, effectFilters, FX_TEXTURES, moveExpr, SUBTITLE_KINDS, subtitleForceStyle, textureFilters, watermarkGraph, watermarkXY, type SubWord } from '../main/ffmpeg';
 import { cleanWatermark, TEXTURES, updateScene } from '../main/ops';
 import { findLinks, linkBudget, linksDoc, pageDoc, youTubeId } from '../main/weblink';
 import { thumbTree, treeToHtml } from '../shared/thumbdesign';
@@ -32,6 +32,12 @@ function main() {
   const sl = dlg(buildAss(words, st('slide', 'top'), { w: 1920, h: 1080 }))[0]!;
   const m = /\\move\((\d+),(\d+),(\d+),(\d+),0,220\)/.exec(sl)!;
   assert.ok(m && m[1] === '960' && Number(m[2]) > Number(m[4]), 'deslizando: sobe até o lugar, centralizado');
+  /* fonte escolhida no editor/projeto vai para o .ass (e a padrão do tipo continua sem fonte) */
+  assert.match(buildAss(words, { ...st('classic'), font: 'Impact' }, { w: 1920, h: 1080 }), /Style: Main,Impact,/);
+  assert.match(buildAss(words, { ...st('classic'), font: 'Arial Black' }, { w: 1920, h: 1080 }), /Style: Main,Arial Black,/);
+  assert.match(buildAss(words, st('classic'), { w: 1920, h: 1080 }), /Style: Main,Arial,/, 'sem fonte: a padrão do tipo');
+  assert.match(subtitleForceStyle({ burn: true, position: 'bottom', size: 46, color: '#fff', box: false, font: 'Georgia' }), /Fontname=Georgia/);
+  assert.doesNotMatch(subtitleForceStyle({ burn: true, position: 'bottom', size: 46, color: '#fff', box: false }), /Fontname=/, 'sem fonte: libass usa a do estilo');
 
   /* ── texturas e animações ── */
   assert.deepEqual(FX_TEXTURES.map((t) => t.id), TEXTURES.filter((t) => t !== 'none'), 'mesma lista no motor e no validador');

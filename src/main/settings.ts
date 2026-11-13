@@ -9,6 +9,7 @@ import { applyProfile, applyQuality, getVideoType, type Profile } from './preset
 import { allProfiles, applyExecutorProfile, applyStepBindings, profileSkips } from '../shared/profiles';
 import { pluginRecommendations } from './plugins';
 import { dnaSceneSec, dnaSubtitleStyle } from './channel-dna';
+import { subtitleFontName } from '../shared/subtitle-fonts';
 import { normalizePalette } from './channel-setup';
 import { applyCharacters } from './characters';
 import { userStyleRef } from './style-ref';
@@ -141,6 +142,10 @@ export interface NewProjectInput {
   titleModel?: Project['titleModel'];
   /** legendas da fala (ausente = padrão das Configurações, que é 'off') */
   subtitles?: Project['subtitles'];
+  /** fonte da legenda escolhida no Novo projeto (ausente = a padrão do tipo) */
+  subtitleFont?: string;
+  /** tipo/estilo da legenda escolhido no Novo projeto (ausente = o do canal/skill) */
+  subtitleKind?: SubtitleStyle['kind'];
   /** narrar todas as cenas antes dos clipes (ausente = padrão das Configurações) */
   audioFirst?: boolean;
   /** trilha sonora por código (vence a da rota) */
@@ -286,7 +291,9 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
     /* legendas: opção do projeto (padrão: não gerar) — "gravar no vídeo" liga o burn do estilo */
     ...(input.freeEngine === '2d' || input.freeEngine === '3d' ? { freeEngine: input.freeEngine } : {}),
     subtitles: ['off', 'srt', 'burn'].includes(String(input.subtitles)) ? input.subtitles : (s.defaults?.subtitles ?? 'off'),
-    subtitleStyle: { ...DEFAULT_SUBTITLES, burn: (input.subtitles ?? s.defaults?.subtitles) === 'burn' },
+    subtitleStyle: { ...DEFAULT_SUBTITLES, burn: (input.subtitles ?? s.defaults?.subtitles) === 'burn',
+      ...(subtitleFontName(input.subtitleFont) ? { font: subtitleFontName(input.subtitleFont) } : {}),
+      ...(input.subtitleKind ? { kind: input.subtitleKind, box: input.subtitleKind === 'box' } : {}) },
     audioFirst: typeof input.audioFirst === 'boolean' ? input.audioFirst : undefined,
     thumbnailTemplate: input.thumbnailTemplate ?? skill?.thumbnailTemplate,
     pluginStyles: input.pluginStyles && Object.keys(input.pluginStyles).length ? { ...input.pluginStyles } : undefined,

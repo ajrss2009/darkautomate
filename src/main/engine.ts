@@ -173,7 +173,12 @@ export function cacheKey(project: Project, step: RouteStep, binding: Binding, sc
     agents: project.agents ? { o: project.agents.orchestrator?.id, w: project.agents.workers.map((w) => w.id) } : undefined,
     scene: scene ? { n: scene.narration, v: scene.visualIntent, k: scene.kind, d: step.kind === 'narration' ? undefined : scene.durationSec, notes: scene.notes, var: scene.variation, c: scene.camera, sp: scene.speaker } : undefined,
     sfx: step.kind === 'sfx' && scene && (scene.sfx?.length || scene.sfxCues?.length) ? { a: scene.sfx, b: scene.sfxCues } : undefined,
-    mix: step.kind === 'edit' && (project.musicVolume !== undefined || project.sfxVolume !== undefined) ? { m: project.musicVolume, x: project.sfxVolume } : undefined,
+    /* trilha e volumes (edit): mudar um slider muda a chave e a montagem é refeita na próxima execução */
+    mix: step.kind === 'edit' ? (() => {
+      const m = { n: project.narrationVolume, mu: project.musicVolume, x: project.sfxVolume,
+        tn: project.tracks?.narration?.muted || undefined, tm: project.tracks?.music?.muted || undefined, tx: project.tracks?.sfx?.muted || undefined };
+      return Object.values(m).some((v) => v !== undefined) ? m : undefined;
+    })() : undefined,
     nv: step.kind === 'narration' && project.narrationVoice ? project.narrationVoice : undefined,
     cast: step.kind === 'narration' && scene?.speaker && project.cast?.length ? project.cast.find((m) => m.speaker === scene.speaker) : undefined,
     /* skill/plugins trocados só nesta cena: outra chave (a cena é refeita com eles) */

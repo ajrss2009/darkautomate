@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createProject, defaultSettings } from '../main/settings';
+import { updateProject } from '../main/ops';
 import * as lib from '../main/library';
 import { importClaudeSkill, mapSkillSteps } from '../main/skill-import';
 import { titleStructure, youtubeVideoId } from '../main/youtube-craft';
@@ -85,6 +86,13 @@ async function main() {
   assert.equal(fresh.subtitles, 'off', 'padrão: sem legendas');
   assert.equal(fresh.subtitleStyle?.burn, false);
   assert.equal(createProject(s, { name: 'Leg2', idea: 'x', videoType: 'custom', routeId: 'explainer-mixed', subtitles: 'burn' }).subtitleStyle?.burn, true, 'gravar no vídeo liga o burn');
+  /* fonte e estilo escolhidos já na criação; o editor troca depois e o nome é sanitizado (vai para o ASS) */
+  const styled = createProject(s, { name: 'Leg3', idea: 'x', videoType: 'custom', routeId: 'explainer-mixed', subtitles: 'burn', subtitleFont: 'Impact', subtitleKind: 'karaoke' });
+  assert.equal(styled.subtitleStyle?.font, 'Impact');
+  assert.equal(styled.subtitleStyle?.kind, 'karaoke');
+  assert.equal(styled.subtitleStyle?.box, false, 'estilo escolhido manda no box');
+  assert.equal(createProject(s, { name: 'Leg4', idea: 'x', videoType: 'custom', routeId: 'explainer-mixed', subtitles: 'srt' }).subtitleStyle?.font, undefined, 'sem escolha: fonte padrão do tipo');
+  assert.equal(updateProject(s, styled.id, { subtitleStyle: { ...styled.subtitleStyle!, font: 'Arial,Black{1}' } }).subtitleStyle?.font, 'ArialBlack1', 'nome da fonte sem vírgulas/chaves');
   const scene = { id: 's01', index: 1, title: 't', narration: 'olá mundo', visualIntent: 'v', kind: 'code' as const, durationSec: 4, status: {}, artifacts: {} };
   const codeCtx = { ...ctx, project: { ...fresh, scenes: [scene] }, scene, sceneDir: path.join(dir, 'scenes', 's01'), step: { ...ctx.step, id: 'code_scene', kind: 'code_scene', scope: 'scene' } } as unknown as ExecContext;
   assert.match(buildPrompt(codeCtx), /NÃO escreva na tela o texto que está sendo narrado/);

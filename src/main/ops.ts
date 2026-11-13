@@ -4,6 +4,7 @@ import * as crypto from 'node:crypto';
 import type { ExecutorBypass, FinalEffects, Project, Watermark, Wan2gpPost, Route, Scene, SceneEffects, SceneKind, Settings, StepKind } from '../shared/types';
 import { WAN2GP_SMOOTH, WAN2GP_UPSCALE } from '../shared/types';
 import { compilationFields, projectDirOf, projectsDir } from './settings';
+import { subtitleFontName } from '../shared/subtitle-fonts';
 import { cleanSegments, migrateSceneFx } from '../shared/fx';
 import { sfxDef } from './sfx';
 
@@ -121,6 +122,11 @@ export function updateProject(s: Settings, id: string, patch: Partial<Pick<Proje
     const m = patch.subtitles;
     if (m === 'off' || m === 'srt' || m === 'burn') { p.subtitles = m; p.subtitleStyle = { ...(p.subtitleStyle ?? { burn: false, position: 'bottom', size: 46, color: '#ffffff', box: true }), burn: m === 'burn' }; }
     else delete p.subtitles;
+  }
+  /* fonte da legenda: só o nome da família (sem vírgulas/chaves — vai para o ASS) */
+  if ('subtitleStyle' in patch && p.subtitleStyle) {
+    const f = subtitleFontName(p.subtitleStyle.font);
+    if (f) p.subtitleStyle.font = f; else delete p.subtitleStyle.font;
   }
   // 0 ou vazio = sem limite / modo sequencial
   if (!(Number(p.maxProductionMin) > 0)) delete p.maxProductionMin; else p.maxProductionMin = Math.round(Number(p.maxProductionMin));

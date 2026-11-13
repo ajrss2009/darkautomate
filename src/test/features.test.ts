@@ -131,6 +131,14 @@ async function main() {
   const plain = { ...pr, refScript: undefined, refVideo: undefined } as Project;
   assert.equal(cacheKey(plain, st0, st0.bindings[0]!), cacheKey({ ...plain, agents: undefined, scriptStyle: undefined }, st0, st0.bindings[0]!));
   assert.notEqual(cacheKey(plain, st0, st0.bindings[0]!), cacheKey({ ...plain, scriptStyle: 'épico' }, st0, st0.bindings[0]!));
+  /* volumes e mudo das faixas entram na chave da montagem (mudar um slider refaz o final) */
+  const edit = { ...st0, kind: 'edit' as const, scope: 'project' as const, params: {} } as RouteStep;
+  assert.equal(cacheKey({ ...plain, narrationVolume: undefined, musicVolume: undefined }, edit, edit.bindings[0]!),
+    cacheKey({ ...plain, narrationVolume: undefined, musicVolume: undefined }, edit, edit.bindings[0]!), 'sem volumes definidos: chave estável');
+  assert.notEqual(cacheKey(plain, edit, edit.bindings[0]!), cacheKey({ ...plain, narrationVolume: 1.4 }, edit, edit.bindings[0]!), 'volume da narração muda a montagem');
+  assert.notEqual(cacheKey({ ...plain, narrationVolume: 1 }, edit, edit.bindings[0]!),
+    cacheKey({ ...plain, narrationVolume: 1, tracks: { narration: { muted: true } } }, edit, edit.bindings[0]!), 'mudo da faixa muda a montagem');
+  assert.notEqual(cacheKey({ ...plain, musicVolume: 0.15 }, edit, edit.bindings[0]!), cacheKey({ ...plain, musicVolume: 0.4 }, edit, edit.bindings[0]!), 'volume da música');
 
   // 7. semáforo
   { const lim = semaphore(2); let act = 0, peak = 0;
