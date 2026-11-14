@@ -264,7 +264,7 @@ async function fillAndSave(st: Studio, job: DetailsJob, total: number): Promise<
         ainda em andamento → "publicar/salvar mesmo assim". Sem isso o vídeo continua rascunho. */
   const closed = await until(async () => {
     await st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('ytcp-button, button').filter(vis).find((x) => /publicar mesmo assim|publish anyway|salvar mesmo assim|save anyway/i.test(x.innerText || '')); if (b) b.click(); return !!b; })()`).catch(() => false);
-    return st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('#done-button').find(vis); const share = deepAll('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog, #share-url').find(vis); return !b || !!share; })()`);
+    return st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('#done-button').find(vis); const share = deepAll('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog, #share-url').find(vis); const after = deepAll('tp-yt-paper-dialog, ytcp-dialog, [role=dialog]').filter(vis).some((d) => /processando v[ií]deo|processing video|v[ií]deo publicado|video published|v[ií]deo salvo|video saved/i.test(d.innerText || '')); return !b || !!share || after; })()`);
   }, 60_000, 1500);
   if (!closed) await st.fail('não salvou', `cliquei em Salvar mas o YouTube Studio não confirmou — o vídeo pode ter ficado como rascunho`);
   const shareUrl = await st.ev<string>(`(() => { ${DEEP} const a = deepAll('#share-url, ytcp-video-share-dialog a[href*="youtu"]').find(vis); return a ? (a.href || a.innerText || '') : ''; })()`).catch(() => '');
