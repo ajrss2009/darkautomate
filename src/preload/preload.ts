@@ -191,6 +191,7 @@ contextBridge.exposeInMainWorld('forge', {
   openFile: (o?: unknown) => call('dialog:open-file', o),
   saveText: (input: unknown) => call('file:save-text', input),
   openText: (input?: unknown) => call('file:open-text', input),
+  pickImage: (input?: unknown) => call('file:pick-image', input),
   openDir: (o?: unknown) => call('dialog:open-dir', o),
   importMedia: (src: string, kind: 'skill' | 'thumb') => call('media:import', src, kind),
   skillPreviews: () => call('skill:previews'),

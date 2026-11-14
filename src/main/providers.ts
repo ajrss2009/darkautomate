@@ -18,22 +18,30 @@ async function ok(r: Response, what: string): Promise<Response> {
 
 const gkey = (p: ProviderConfig) => encodeURIComponent(p.apiKey);
 
-/** Texto (chat completions, compatível com OpenAI/gateways; Gemini via generateContent). */
-export async function chat(p: ProviderConfig, model: string, prompt: string, signal: AbortSignal): Promise<string> {
+const mimeOf = (f: string) => /\.jpe?g$/i.test(f) ? 'image/jpeg' : /\.webp$/i.test(f) ? 'image/webp' : /\.gif$/i.test(f) ? 'image/gif' : 'image/png';
+
+/** Texto (chat completions, compatível com OpenAI/gateways; Gemini via generateContent).
+ * `images`: caminhos locais enviados como referência visual (visão) junto do prompt. */
+export async function chat(p: ProviderConfig, model: string, prompt: string, signal: AbortSignal, images: string[] = []): Promise<string> {
   if (p.kind === 'snapgen') throw new Error('Snapgen.AI não oferece chat de texto neste adaptador — use imagem/vídeo');
+  const pics = images.filter((f) => f && fs.existsSync(f));
   if (p.kind === 'gemini') {
+    const parts: any[] = [{ text: prompt }, ...pics.map((f) => ({ inline_data: { mime_type: mimeOf(f), data: fs.readFileSync(f).toString('base64') } }))];
     const r = await ok(await fetch(`${base(p)}/models/${model}:generateContent?key=${gkey(p)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      body: JSON.stringify({ contents: [{ parts }] }),
     }), 'gemini');
     const j = (await r.json()) as any;
     const text = (j?.candidates?.[0]?.content?.parts ?? []).map((x: any) => x.text ?? '').join('');
     if (!text) throw new Error('resposta do Gemini vazia');
     return text;
   }
+  const content = pics.length
+    ? [{ type: 'text', text: prompt }, ...pics.map((f) => ({ type: 'image_url', image_url: { url: `data:${mimeOf(f)};base64,${fs.readFileSync(f).toString('base64')}` } }))]
+    : prompt;
   const r = await ok(await fetch(`${base(p)}/chat/completions`, {
     method: 'POST', headers: headers(p), signal,
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model, messages: [{ role: 'user', content }] }),
   }), 'chat');
   const j = (await r.json()) as any;
   const text = j?.choices?.[0]?.message?.content;

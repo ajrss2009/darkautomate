@@ -33,11 +33,13 @@ export interface CharRow {
 }
 export const KIND_LABEL: Record<CharRow['kind'], string> = { pessoa: '🧑 Pessoa (realista)', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Animal / criatura', outro: '✨ Outro' };
 const STYLE_LABEL: Record<CharRow['kind'], string> = { pessoa: '📷 Realista', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Criatura', outro: '✨ Outro' };
-export const charImage = (forge: Api, c: CharRow) => (c.sheet || c.portrait ? forge.mediaUrl(`${c.dir}/${c.sheet ?? c.portrait}`) : undefined);
+export const charImage = (forge: Api, c: CharRow) => (c.sheet || c.portrait
+  ? forge.mediaUrl(`${c.dir}/${c.sheet ?? c.portrait}`)
+  : c.images?.[0] ? forge.mediaUrl(`${c.dir}/${c.images[0]}`) : undefined);
 
 const TABS: Array<[Entity | 'stories', string, string]> = [['character', '👥 Personagens', 'personagem'], ['location', '🏞 Cenários', 'cenário'], ['prop', '📦 Objetos', 'objeto'], ['stories', '📖 Histórias', 'história']];
 let tab: Entity | 'stories' = 'character';
-/** Aba interna: por imagem, por c�digo ou tudo (vale para personagens, cen�rios e objetos). */
+/** Aba interna: por imagem, por código ou tudo (vale para personagens, cenários e objetos). */
 let originFilter: 'all' | 'image' | 'code' = 'all';
 const isCodeItem = (x: CharRow) => x.kind === 'codigo' || !!x.code || !!x.models?.length;
 let selected: string | undefined;
@@ -60,7 +62,7 @@ export async function renderCharactersPage(c: CharactersCtx): Promise<void> {
   const cur = selected === 'new' ? undefined : filtered.find((x) => x.id === selected) ?? filtered[0];
   if (!selected && cur) selected = cur.id;
   const subTabs = h('div', { class: 'lib-subtabs' },
-    ...([['all', 'Tudo', list.length], ['image', 'Por imagem', list.length - codeN], ['code', 'Por c�digo', codeN]] as const).map(([k, l, n]) =>
+    ...([['all', 'Tudo', list.length], ['image', 'Por imagem', list.length - codeN], ['code', 'Por código', codeN]] as const).map(([k, l, n]) =>
       h('button', { class: `lib-subtab${originFilter === k ? ' on' : ''}`, 'data-origin': k, onclick: () => { originFilter = k; selected = undefined; again(); } }, `${l} (${n})`)));
   const head = h('div', { class: 'row pagehead' }, h('h2', {}, '📚 Biblioteca'), h('span', { class: 'sp' }),
     h('span', { class: 'muted' }, `${filtered.length} ${noun}(s)`), h('button', { class: 'primary', onclick: () => { selected = 'new'; again(); } }, `＋ Novo ${noun}`));
@@ -105,43 +107,77 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
   const voiceDesc = h('input', { value: ch?.voice?.description ?? '', placeholder: 'como soa: feminina, 25 anos, doce e hesitante' }) as HTMLInputElement;
   const code = h('textarea', { rows: '2', placeholder: 'Desenho por código (vídeos em código): formas, cores hex, traço, proporções' }) as HTMLTextAreaElement;
   code.value = ch?.code ?? '';
+  const drawBtn = h('button', { class: 'small', id: 'chr-draw-code', title: 'Desenha este código sem pedir outro desenho à IA (mostra a prévia para aceitar)' }, '🖼 Desenhar este código') as HTMLButtonElement;
   const genCodeBtn = h('button', { class: 'small', title: 'A IA escreve o desenho em código, desenha e mostra a prévia para você aceitar ou gerar outra' }, '✨ Gerar código com IA') as HTMLButtonElement;
   const previewBox = h('div', { class: 'chr-code-preview' });
+  /* imagem de referência OPCIONAL: o modelo olha a imagem e cria algo SEMELHANTE (silhueta, roupa, paleta) */
+  let refImage = '';
+  const refThumb = h('img', { class: 'chr-ref-thumb', alt: 'imagem de referência' }) as HTMLImageElement;
+  const refName = h('span', { class: 'muted small' }, 'nenhuma');
+  const refRow = h('div', { class: 'row chr-ref-row' });
+  const paintRef = () => {
+    refThumb.style.display = refImage ? '' : 'none';
+    if (refImage) refThumb.src = forge.mediaUrl(refImage);
+    refRow.replaceChildren(...(refImage
+      ? [refThumb, refName, h('button', { class: 'small', onclick: () => { refImage = ''; paintRef(); } }, '✕ remover')]
+      : [refName]));
+  };
+  const pickRef = () => void guard(async () => {
+    const f = (await forge['pickImage']({ title: 'Imagem de referência (opcional)' })) as string | null;
+    if (!f) return;
+    refImage = f; refName.textContent = f.split(/[\\/]/).pop() ?? 'imagem'; paintRef();
+  });
+  const useItemRef = () => {
+    const f = ch?.portrait ?? ch?.sheet ?? ch?.images?.[0];
+    if (!ch || !f) return;
+    refImage = `${ch.dir}/${f}`; refName.textContent = 'retrato/folha deste item'; paintRef();
+  };
+  paintRef();
   let lastPreview: { code?: string; png?: string; error?: string } | undefined;
   let previewTries = 0;
+  let lastMode: 'generate' | 'draw' = 'generate';
   const acceptPreview = () => void guard(async () => {
     if (!lastPreview?.png) return;
-    code.value = lastPreview.code ?? code.value;
+    if (lastMode !== 'draw') code.value = lastPreview.code ?? code.value;
     const saved = (await guard(() => forge['charactersSave'](collect()))) as CharRow | undefined;
     if (!saved) return;
     await forge['charactersAddGeneratedImage'](saved.id, lastPreview.png, isChar ? 'portrait' : 'sheet');
+    /* guarda também a imagem de referência usada (se veio de fora do item), para reaproveitar depois */
+    if (refImage && !refImage.startsWith(saved.dir)) {
+      try { await forge['charactersAddGeneratedImage'](saved.id, refImage, 'extra'); } catch { /* referência opcional: se falhar, o item já está salvo */ }
+    }
     selected = saved.id;
     toast(`${noun[0]!.toUpperCase()}${noun.slice(1)} salvo com a prévia na Biblioteca`);
     again();
   });
-  const genPreview = () => void guard(async () => {
-    if (!name.value.trim() || !look.value.trim()) { toast('Preencha o nome e a aparência antes de gerar o código.', true); return; }
-    genCodeBtn.disabled = true; genCodeBtn.textContent = '⏳ gerando e desenhando…';
-    previewBox.replaceChildren(h('div', { class: 'muted small' }, '⏳ a IA está escrevendo o código e desenhando a prévia…'));
+  const genPreview = (mode: 'generate' | 'draw' = 'generate') => void guard(async () => {
+    lastMode = mode;
+    const fromCode = mode === 'draw' ? code.value.trim() : '';
+    if (mode === 'draw' && !fromCode) { toast('Escreva (ou gere) o código antes de desenhar.', true); return; }
+    if (!fromCode && (!name.value.trim() || !look.value.trim())) { toast('Preencha o nome e a aparência antes de gerar o código.', true); return; }
+    genCodeBtn.disabled = true;
+    genCodeBtn.textContent = mode === 'draw' ? '⏳ desenhando…' : '⏳ gerando e desenhando…';
+    previewBox.replaceChildren(h('div', { class: 'muted small' }, mode === 'draw' ? '⏳ desenhando o código que está no campo…' : '⏳ a IA está escrevendo o código e desenhando a prévia…'));
     try {
-      const r = (await forge['charactersPreviewCode']({ name: name.value, look: look.value, entity, kind: kind.value, previous: lastPreview?.code })) as { code?: string; png?: string; error?: string; binding?: string } | undefined;
+      const r = (await forge['charactersPreviewCode']({ name: name.value, look: look.value, entity, kind: kind.value, previous: lastPreview?.code, refImage: refImage || undefined, fromCode: fromCode || undefined })) as { code?: string; png?: string; error?: string; binding?: string } | undefined;
       if (!r || r.error) {
         lastPreview = r;
         previewBox.replaceChildren(h('div', { class: 'muted' }, `⚠ ${r?.error ?? 'não consegui gerar a prévia'}`),
-          h('div', { class: 'row' }, h('button', { class: 'small', onclick: genPreview }, triesLabel()), h('button', { class: 'small', onclick: () => previewBox.replaceChildren() }, 'Fechar')));
+          h('div', { class: 'row' }, h('button', { class: 'small', onclick: () => genPreview(lastMode) }, triesLabel()), h('button', { class: 'small', onclick: () => previewBox.replaceChildren() }, 'Fechar')));
         return;
       }
       lastPreview = r; previewTries++;
       previewBox.replaceChildren(
         h('div', { class: 'row' }, h('strong', { class: 'grow' }, '🖼 Prévia do desenho'), h('span', { class: 'muted small' }, `${r.binding ? `gerado com ${r.binding} · ` : ''}versão ${previewTries}`)),
         ...(r.png ? [h('img', { class: 'chr-preview-img', src: forge.mediaUrl(r.png), alt: 'prévia do desenho por código' })] : []),
-        h('div', { class: 'muted small' }, r.code ?? ''),
-        h('div', { class: 'row' }, h('button', { class: 'primary small', id: 'chr-preview-accept', onclick: acceptPreview }, '✓ Aceitar e salvar'), h('button', { class: 'small', onclick: genPreview }, '↻ Gerar outro'),
+        h('div', { class: 'muted small' }, r.code ?? code.value),
+        h('div', { class: 'row' }, h('button', { class: 'primary small', id: 'chr-preview-accept', onclick: acceptPreview }, '✓ Aceitar e salvar'), h('button', { class: 'small', onclick: () => genPreview(lastMode) }, '↻ Desenhar outro'),
           h('span', { class: 'sp' }), h('button', { class: 'small', onclick: () => previewBox.replaceChildren() }, 'Fechar')));
     } finally { genCodeBtn.disabled = false; genCodeBtn.textContent = '✨ Gerar código com IA'; }
   });
   const triesLabel = () => '↻ Tentar de novo';
-  genCodeBtn.addEventListener('click', genPreview);
+  genCodeBtn.addEventListener('click', () => genPreview('generate'));
+  drawBtn.addEventListener('click', () => genPreview('draw'));
   /* importar imagens/modelos de uma vez (arquivos ou pasta inteira) — salva o item antes, se for novo */
   const importInto = (method: 'charactersAddFiles' | 'charactersAddFolder', what: string) => void guard(async () => {
     const saved = ch ?? await save();
@@ -247,7 +283,13 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
     isChar ? h('div', { class: 'muted small' }, 'Mesma pessoa com outra roupa, idade ou estado. No episódio da série, a variação escolhida troca a aparência (e a folha, se tiver).') : null,
     isChar ? vlist : null,
     isChar ? h('button', { class: 'small', onclick: () => addVariant() }, '＋ Variação') : null,
-    h('h4', {}, '💻 Em vídeos por código'), code, h('div', { class: 'row' }, genCodeBtn), previewBox,
+    h('h4', {}, '💻 Em vídeos por código'), code,
+    h('div', { class: 'row' },
+      h('button', { class: 'small', title: 'Opcional: escolha uma imagem e a IA desenha em código algo semelhante (silhueta, roupa, paleta)', onclick: pickRef }, '🖼 Referência (opcional)'),
+      ch && (ch.portrait || ch.sheet || ch.images?.length) ? h('button', { class: 'small', title: 'Usar o retrato/folha já salvo neste item como referência', onclick: useItemRef }, '↩ Usar o retrato do item') : null,
+      refRow),
+    h('div', { class: 'muted small' }, 'Com referência, a IA olha a imagem e cria um desenho SEMELHANTE (mesma silhueta, roupa e paleta) — não copia pixels.'),
+    h('div', { class: 'row' }, genCodeBtn, drawBtn), previewBox,
     h('h4', {}, '🧊 Modelos 3D'), modelsBox,
     h('div', { class: 'ch-grid' }, h('label', {}, 'Apelidos', aliases), h('label', {}, 'Etiquetas', tags)),
     h('div', { class: 'row' }, h('button', { class: 'primary', onclick: () => void save() }, ch ? 'Salvar' : `Criar ${noun}`), h('span', { class: 'sp' }),

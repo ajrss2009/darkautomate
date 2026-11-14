@@ -2077,10 +2077,11 @@ function registerIpc() {
     return { ...n, character: characters.getCharacter(settings, id) };
   });
   /** Assistente de código: gera a DESCRIÇÃO e uma PÁGINA que desenha o item; renderiza uma prévia PNG para aceitar/gerar outra. */
-  h('characters:preview-code', async (input: { name?: string; look?: string; entity?: string; kind?: string; style?: string; previous?: string }) => {
+  h('characters:preview-code', async (input: { name?: string; look?: string; entity?: string; kind?: string; style?: string; previous?: string; refImage?: string; fromCode?: string }) => {
     const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 600_000);
     try {
       const what = input.entity === 'location' ? 'cenário' : input.entity === 'prop' ? 'objeto' : 'personagem';
+      const refImage = input.refImage && fs.existsSync(String(input.refImage)) ? String(input.refImage) : '';
       /* modelo de TEXTO do primeiro provedor com chave (evita modelos de imagem/TTS) */
       const textish = (m: string) => !/(image|tts|audio|embed|vision|imagen|banana|live|realtime)/i.test(m) && /(gpt-4|gpt-4o|gpt-5|gemini|deepseek|claude|qwen|llama|mistral|command|sonnet|opus|haiku|chat|flash|pro|mini)/i.test(m);
       const apiText = settings.providers.find((p) => p.apiKey && Array.isArray(p.models) && p.models.some(textish));
@@ -2089,12 +2090,16 @@ function registerIpc() {
       const { json, binding } = await llmJson(chain, settings, path.join(settings.workspace, 'tools', 'library'),
         `Você é diretor de arte de animação por código. Crie o ${what} "${input.name ?? ''}" para reutilizar na Biblioteca.\n` +
         `Aparência/base: ${input.look ?? ''}\nEstilo: ${input.style ?? 'flat 2D, contorno limpo, cores sólidas'}\n` +
+        (refImage ? `Há uma IMAGEM DE REFERÊNCIA anexada. Recrie em código um ${what} SEMELHANTE a ela: mesma silhueta, proporções, roupa/materiais, paleta (extraia as cores em hex) e ângulo; não tente copiar pixels nem escrever o texto da imagem.\n` : '') +
+        (input.fromCode
+          ? `DESENHE EXATAMENTE o ${what} descrito no CÓDIGO abaixo — não invente outro desenho, não troque roupa/cores; apenas execute bem esse código, centralizado e legível:\n"""\n${String(input.fromCode).slice(0, 4000)}\n"""\n`
+          : '') +
         (input.previous ? `O usuário pediu OUTRA versão — mude pose/ângulo/paleta, mantendo a mesma identidade.\n` : '') +
         `Responda SOMENTE com JSON com DOIS campos:\n` +
         `1) "code": descrição curta do desenho em código (até 90 palavras, português) para o prompt das cenas: formas/proporções, cores em hex e um detalhe inconfundível; para cenário use camadas fundo/meio/frente; para objeto, uma vista clara.\n` +
         `2) "html": uma página HTML AUTOCONTIDA (uma única string; sem rede, sem bibliotecas, sem imports, sem imagens externas) que desenhe o ${what} num canvas 720x720, fundo neutro claro (#f4f6f8), centralizado e ocupando ~80% do quadro, sem texto. Use <script> comum (NÃO type="module") e defina window.__forge = { duration: 1, fps: 30, seek(t) { ...desenhe aqui... }, pause(){} } ANTES do fim do script; a página precisa funcionar chamando seek(0). Cores em hex.`,
-        ac.signal, () => {});
-      const code = String((json as { code?: string } | undefined)?.code ?? '').trim();
+        ac.signal, () => {}, refImage ? [refImage] : []);
+      const code = input.fromCode ? String(input.fromCode).trim() : String((json as { code?: string } | undefined)?.code ?? '').trim();
       const html = String((json as { html?: string } | undefined)?.html ?? '').trim();
       if (!html || !/__forge/.test(html)) return { error: 'a IA não devolveu uma página válida para a prévia', code };
       const dir = path.join(settings.workspace, 'cache', 'library-previews');
@@ -2124,6 +2129,12 @@ function registerIpc() {
         `Aparência/base: ${input.look ?? ''}\nEstilo: ${input.style ?? 'flat 2D, contorno limpo'}\nResponda SOMENTE com JSON: {"code":"..."}`, ac.signal, () => {});
       return String((json as { code?: string } | undefined)?.code ?? '').trim();
     } finally { clearTimeout(timer); }
+  });
+  /** Escolher uma imagem de referência (só devolve o caminho; nada é copiado). */
+  h('file:pick-image', async (input?: { title?: string }) => {
+    const r = await dialog.showOpenDialog(win!, { title: input?.title ?? 'Escolher imagem de referência', properties: ['openFile'], filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return r.filePaths[0];
   });
   /** Salvar texto (prompt/template) e abrir texto: diálogos nativos do app. */
   h('file:save-text', async (input: { defaultName?: string; content?: string; ext?: string; title?: string }) => {

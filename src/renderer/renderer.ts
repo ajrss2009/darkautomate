@@ -90,6 +90,7 @@ interface Forge {
   charactersAddFolder(id: string): Promise<unknown>;
   saveText(input: Record<string, unknown>): Promise<string | null>;
   openText(input?: Record<string, unknown>): Promise<{ file: string; content: string } | null>;
+  pickImage(input?: Record<string, unknown>): Promise<string | null>;
   projectAutoCast(id: string): Promise<{ added: string[]; cast: CastMember[] }>;
   styleExtract(o?: unknown): Promise<unknown>;
   storyEpisodeLink(id: string, n: number, projectId: string): Promise<unknown>;
@@ -133,7 +134,56 @@ interface Forge {
   mediaUrl(path: string): string;
   onEvent(cb: (e: EngineEvent & { projectId?: string }) => void): () => void;
 }
-const forge = (window as unknown as { forge: Forge }).forge;
+/* ───────── indicador global de atividade (tudo, menos pesquisas) ─────────
+ * Qualquer chamada longa ao processo principal mostra um selo discreto com spinner e o que está acontecendo.
+ * Pesquisas (Finder, redes, pesquisa de lacunas) ficam de fora: elas já têm a própria barra/status na tela. */
+const rawForge = (window as unknown as { forge: Forge }).forge;
+const BUSY_SKIP = /^(finder|social|research|web)/i;
+const BUSY_LABELS: Array<[RegExp, string]> = [
+  [/preview|generate|sheet|voicePreview/i, 'Desenhando / gerando…'],
+  [/render|final|run|resume|regenerate|redo|replan|derive|migrate/i, 'Produzindo o vídeo…'],
+  [/save|create|delete|duplicate|update|set|add|import|install|attach|detach|remove/i, 'Salvando…'],
+  [/cancel|stop/i, 'Parando…'],
+  [/list|get|catalog|meta|media|status|projects|characters|load|check|test/i, 'Carregando…'],
+];
+let busyCount = 0, busyShowTimer = 0, busyHideTimer = 0;
+function busyEl(): HTMLElement {
+  let el = document.getElementById('app-busy');
+  if (el) return el;
+  el = h('div', { id: 'app-busy', class: 'app-busy', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'app-busy-spin' }), h('span', { class: 'app-busy-lbl' }, 'Processando…'));
+  document.body.append(el);
+  return el;
+}
+function busyStart(label: string) {
+  busyCount++;
+  window.clearTimeout(busyHideTimer);
+  window.clearTimeout(busyShowTimer);
+  busyShowTimer = window.setTimeout(() => { const el = busyEl(); const lbl = el.querySelector('.app-busy-lbl'); if (lbl) lbl.textContent = label; el.classList.add('on'); }, 220);
+}
+function busyDone() {
+  busyCount = Math.max(0, busyCount - 1);
+  if (busyCount === 0) {
+    window.clearTimeout(busyShowTimer);
+    busyHideTimer = window.setTimeout(() => document.getElementById('app-busy')?.classList.remove('on'), 260);
+  }
+}
+/* O objeto do preload vem do contextBridge e é CONGELADO: usar Proxy violaria o invariante das propriedades
+ * somente-leitura (o app quebrava em "get on proxy property ... is read-only"). Montamos um objeto novo,
+ * copiando tudo e embrulhando só as funções. */
+const wrapFn = (key: string, value: (...a: unknown[]) => unknown) => (...args: unknown[]) => {
+  const out = value.apply(rawForge, args);
+  if (BUSY_SKIP.test(key) || !out || typeof (out as Promise<unknown>).then !== 'function') return out;
+  const label = BUSY_LABELS.find(([re]) => re.test(key))?.[1] ?? 'Processando…';
+  busyStart(label);
+  return (out as Promise<unknown>).finally(() => busyDone());
+};
+const forgePairs = Object.entries(rawForge as unknown as Record<string, unknown>);
+const forge = (forgePairs.length ? Object.fromEntries(forgePairs.map(([key, value]) =>
+  [key, typeof value === 'function' ? wrapFn(key, value as (...a: unknown[]) => unknown) : value])) : rawForge) as unknown as Forge;
+/** (diagnóstico/teste) quantas operações estão em andamento agora */
+(window as unknown as { __forgeBusy?: () => number }).__forgeBusy = () => busyCount;
+/** a mesma instância do Proxy, para diagnóstico e testes (window.forge continua o objeto cru do preload) */
+(window as unknown as { __forge?: Forge }).__forge = forge;
 interface SfxItem { id: string; label: string; icon: string; tags: string; dur: number }
 let sfxLib: SfxItem[] = [];
 const loadSfxLib = async () => { if (!sfxLib.length) sfxLib = (await forge.meta()).sfxLibrary ?? []; return sfxLib; };

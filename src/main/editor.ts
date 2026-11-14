@@ -36,8 +36,14 @@ export function extractJson(text: string): unknown {
 /** Cadeia de texto (harness/API) com fallback; devolve JSON da resposta. */
 export async function llmJson(
   chain: Binding[], settings: Settings, cwd: string, prompt: string, signal: AbortSignal, log: (l: string) => void,
+  images: string[] = [],
 ): Promise<{ json: unknown; binding: string }> {
   let last = 'nenhum executor de texto na rota';
+  const refPaths = images.filter((f) => f && fs.existsSync(f));
+  const refNote = refPaths.length
+    ? `\nImagem(ns) de referência (abra com sua ferramenta de leitura de arquivos): ${refPaths.map((f) => `"${f}"`).join(', ')}.` +
+      ` Use-a para criar ALGO SEMELHANTE — mesma silhueta/proporções/paleta/estilo — não uma cópia pixel a pixel.\n`
+    : '';
   for (const b of chain) {
     if (signal.aborted) throw new Error('cancelado');
     try {
@@ -46,7 +52,7 @@ export async function llmJson(
         fs.mkdirSync(cwd, { recursive: true });
         const out = path.join(cwd, 'patch.json');
         fs.rmSync(out, { force: true });
-        const full = `${prompt}\n\nGrave a resposta JSON em ${out} (e também a imprima).`;
+        const full = `${prompt}${refNote}\n\nGrave a resposta JSON em ${out} (e também a imprima).`;
         const res = await runHarness(cfg, { cwd, prompt: full, model, effort: b.effort, signal, onLine: log, env: id === 'antigravity' ? activeAgyEnv(settings) : undefined });
         if (!res.ok) throw new Error(`saiu com código ${res.code}: ${res.stderr.slice(-300)}`);
         const raw = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : res.stdout;
@@ -55,7 +61,7 @@ export async function llmJson(
       if (b.type === 'api') {
         const p = settings.providers.find((x) => x.id === b.provider);
         if (!p) throw new Error(`provider "${b.provider}" não configurado`);
-        return { json: extractJson(await prov.chat(p, resolveApiModel(p, 'text', b.model), prompt, signal)), binding: bindingLabel(b) };
+        return { json: extractJson(await prov.chat(p, resolveApiModel(p, 'text', b.model), `${prompt}${refNote}`, signal, refPaths)), binding: bindingLabel(b) };
       }
     } catch (e) {
       last = `${bindingLabel(b)}: ${(e as Error).message}`;
