@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { validateRoute } from '../main/library';
 import { ROUTES } from '../main/presets';
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
-import { ceilSeconds, lipsyncPrompt, minSpanStarts, productLabel, productRefFiles, productSubjectLines, sceneStartSec } from '../main/ugc-lipsync';
+import { ceilSeconds, fillStarts, lipsyncPrompt, minSpanStarts, productLabel, productRefFiles, productSubjectLines, sceneStartSec } from '../main/ugc-lipsync';
 import type { Attachment } from '../shared/types';
 
 /** Skills UGC de produto e Música com lipsync: rotas, skills, templates e funções puras. */
@@ -24,6 +24,9 @@ function main() {
   assert.equal(fixed[0], 0); assert.equal(fixed[2], 13.4, 'cenas longas no começo não mudam');
   assert.ok(Math.abs(lens.reduce((a, b) => a + b, 0) - 50) < 0.01, 'soma = duração da canção');
   assert.deepEqual(minSpanStarts([0, 0.1, 0.2], 3), [0, 1, 2], 'sem espaço: divide por igual');
+  /* intro instrumental (duas cenas sem letra antes do 1º verso em 9,16 s) reparte o intervalo; outro sem letra vai até o fim */
+  assert.deepEqual(fillStarts([0, undefined, 9.16, 13.4, undefined], 50), [0, 4.58, 9.16, 13.4, 31.7]);
+  assert.deepEqual(fillStarts([undefined, undefined, 6], 10), [0, 3, 6]);
 
   /* lipsync: pede boca sincronizada, sem letra e sem citar o áudio enviado */
   const lp = lipsyncPrompt('Seo-yeon', 'Seo-yeon on a neon stage, medium close-up.');

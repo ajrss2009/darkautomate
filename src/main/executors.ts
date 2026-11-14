@@ -39,7 +39,7 @@ import { freeLibImport, pluginContract, pluginPrompt, pluginsRoot, stageCartoon3
 import { contractProblem, smallModelBudget } from './contract';
 import { voiceAccepted } from '../shared/voices';
 import { attachmentPath, characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
-import { ceilSeconds, lipsyncPrompt, minSpanStarts, productLabel, productRefFiles, productSubjectLines, sceneStartSec } from './ugc-lipsync';
+import { ceilSeconds, fillStarts, lipsyncPrompt, minSpanStarts, productLabel, productRefFiles, productSubjectLines, sceneStartSec } from './ugc-lipsync';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt, spokenText } from './cast';
 import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Language, h3Mode, h3SpokenText, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
 import { styleNegative } from './style-ref';
@@ -664,7 +664,7 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     /* Muse/Meta AI fala: a linha entra no prompt e a voz sai no próprio clipe (sem TTS) */
     /* params.videoSpeech = false: a fala fica com a narração (TTS) e o clipe sai sem voz (ex.: UGC com voz fixa do OmniVoice) */
     const museTalk = /^(meta-ai|muse)/i.test(model) && !!c.scene?.narration?.trim() && (c.step.params as Record<string, unknown> | undefined)?.['videoSpeech'] !== false;
-    const prompt = museTalk ? museSpeechPrompt(c) : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound.` : visualPrompt(c);
+    const prompt = museTalk ? museSpeechPrompt(c) : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound. No text, captions, subtitles, titles or letters anywhere on screen.` : visualPrompt(c);
     await prov.snapgenVideo(p, model, prompt, { imagePath: img, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
     if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
     return { files: [file] };
@@ -2296,16 +2296,21 @@ async function lyricWords(c: ExecContext): Promise<ExecResult> {
   // quantos versos cada cena cobre: 1 cena por bloco quando os números batem; senão pelos versos da narração
   const counts = scenes.length === timing.blocks.length
     ? timing.blocks.map((b) => b.lines.length)
-    : scenes.map((s) => Math.max(1, s.narration.split(/\s*\/\s*|\r?\n/).filter((x) => x.trim()).length));
+    /* cena sem letra (intro/solo instrumental) não consome verso: antes ela "comia" um verso e a letra inteira atrasava */
+    : scenes.map((s) => s.narration.trim() ? Math.max(1, s.narration.split(/\s*\/\s*|\r?\n/).filter((x) => x.trim()).length) : 0);
   let li = 0;
   const spans = scenes.map((s, i) => {
-    const take = i === scenes.length - 1 ? Math.max(0, lines.length - li) : Math.min(counts[i]!, Math.max(0, lines.length - li - (scenes.length - 1 - i)));
+    const rest = counts.slice(i + 1).filter((n) => n > 0).length;      // um verso reservado por cena com letra que vem depois
+    const take = i === scenes.length - 1 ? Math.max(0, lines.length - li) : Math.min(counts[i]!, Math.max(0, lines.length - li - rest));
     const mine = lines.slice(li, li + take); li += take;
     return { s, mine };
   });
-  const startOf = (i: number) => (i === 0 ? 0 : spans[i]!.mine[0]?.start ?? spans[i - 1]!.mine[spans[i - 1]!.mine.length - 1]?.end ?? 0);
-  /* cena mínima de 2,5 s (versos amontoados no fim davam cena de 0,5 s; o lipsync do H3 pede ≥ 2 s) */
-  const starts = minSpanStarts(scenes.map((_, i) => startOf(i)), timing.duration);
+  /* início de cada cena = primeiro verso dela; cenas instrumentais repartem o intervalo até a próxima cena com letra;
+     mínimo de 2,5 s (versos amontoados no fim davam cena de 0,5 s; o lipsync do H3 pede ≥ 2 s) */
+  const starts = minSpanStarts(fillStarts(spans.map((sp, i) => (i === 0 ? 0 : sp.mine[0]?.start)), timing.duration), timing.duration);
+  /* TODAS as cenas recebem a duração: a etapa nem roda nas cenas sem letra, que ficavam com a duração do plano
+     (o vídeo de teste saiu com 45,9 s e cortou o fim da canção de 50 s) */
+  scenes.forEach((sc, j) => { sc.durationSec = Math.max(0.5, +((j + 1 < scenes.length ? starts[j + 1]! : timing.duration) - starts[j]!).toFixed(2)); sc.manualDuration = true; });
   const idx = scenes.findIndex((x) => x.id === c.scene!.id);
   const start = starts[idx]!;
   const end = idx + 1 < scenes.length ? starts[idx + 1]! : timing.duration;

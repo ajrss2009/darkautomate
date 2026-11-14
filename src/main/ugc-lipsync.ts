@@ -67,3 +67,21 @@ export function minSpanStarts(starts: number[], total: number, min = 2.5): numbe
   for (let i = n - 1; i >= 1; i--) s[i] = Math.min(s[i]!, (i + 1 < n ? s[i + 1]! : total) - m);
   return s.map((x) => Math.round(x * 100) / 100);
 }
+
+/**
+ * Inícios conhecidos (cenas com letra) + desconhecidos (cenas instrumentais, undefined): os desconhecidos repartem por
+ * igual o intervalo entre o início conhecido anterior e o próximo (ou o fim da canção). starts[0] vira 0 se faltar.
+ */
+export function fillStarts(raw: Array<number | undefined>, total: number): number[] {
+  const out = raw.slice();
+  if (out[0] === undefined) out[0] = 0;
+  for (let i = 1; i < out.length; i++) {
+    if (out[i] !== undefined) continue;
+    let j = i;
+    while (j < out.length && out[j] === undefined) j++;
+    const a = out[i - 1]!, b = j < out.length ? out[j]! : total, parts = j - i + 1;
+    for (let k = i; k < j; k++) out[k] = Math.round((a + ((b - a) * (k - i + 1)) / parts) * 100) / 100;
+    i = j - 1;
+  }
+  return out as number[];
+}
