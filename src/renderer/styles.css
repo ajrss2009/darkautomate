@@ -1045,7 +1045,7 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .chr-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:8px; max-height:72vh; overflow:auto; }
 .chr-card { display:flex; flex-direction:column; gap:4px; padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--panel); cursor:pointer; }
 .chr-card.on { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
-.chr-card img, .chr-ph { width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:8px; background:var(--panel2); display:grid; place-items:center; font-size:28px; font-weight:800; color:var(--mut); }
+.chr-card img, .chr-ph { width:100%; aspect-ratio:16/9; object-fit:contain; object-position:center top; border-radius:8px; background:var(--panel2); display:grid; place-items:center; font-size:28px; font-weight:800; color:var(--mut); }
 .chr-badges { display:flex; gap:4px; flex-wrap:wrap; }
 .chr-edit h4 { margin:14px 0 6px; }
 .chr-edit textarea { width:100%; }
@@ -1054,7 +1054,7 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .chr-pick { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
 .chr-chip { display:flex; align-items:center; gap:6px; padding:4px 10px 4px 4px; border-radius:999px; border:1px solid var(--line2); background:var(--panel2); color:var(--txt); }
 .chr-chip.on { border-color:var(--acc); background:color-mix(in srgb, var(--acc) 18%, var(--panel2)); }
-.chr-chip img, .chr-chip .chr-ph { width:32px; height:32px; aspect-ratio:auto; border-radius:50%; object-fit:cover; font-size:14px; }
+.chr-chip img, .chr-chip .chr-ph { width:32px; height:32px; aspect-ratio:auto; border-radius:50%; object-fit:cover; object-position:center top; font-size:14px; }
 /* Novo projeto: mistura de skills e paleta */
 .np-mix-list { display:flex; flex-direction:column; gap:6px; margin:8px 0; }
 .np-mix-list select { min-width:260px; }

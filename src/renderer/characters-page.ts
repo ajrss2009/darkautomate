@@ -75,7 +75,7 @@ export async function renderCharactersPage(c: CharactersCtx): Promise<void> {
     return h('div', { class: `chr-card${x.id === selected ? ' on' : ''}`, 'data-char': x.id, onclick: () => { selected = x.id; again(); } },
       img ? h('img', { src: img, alt: '' }) : h('div', { class: 'chr-ph' }, x.name.slice(0, 1).toUpperCase()),
       h('b', {}, x.name), h('span', { class: 'muted small' }, tab === 'character' ? KIND_LABEL[x.kind] ?? x.kind : STYLE_LABEL[x.kind] ?? ''),
-      h('span', { class: 'chr-badges' }, x.sheet ? h('span', { class: 'ch-badge ok' }, 'folha ✓') : h('span', { class: 'ch-badge warn' }, 'sem folha'),
+      h('span', { class: 'chr-badges' }, x.sheet ? h('span', { class: 'ch-badge ok' }, 'folha ✓') : x.portrait ? h('span', { class: 'ch-badge ok' }, 'retrato ✓') : h('span', { class: 'ch-badge warn' }, 'sem imagem'),
         x.voice?.refAudio || x.voice?.apiVoice ? h('span', { class: 'ch-badge ok' }, 'voz ✓') : null,
         x.variants?.length ? h('span', { class: 'ch-badge' }, `${x.variants.length} variação(ões)`) : null,
         x.models?.length ? h('span', { class: 'ch-badge ok' }, '3D ✓') : null,
