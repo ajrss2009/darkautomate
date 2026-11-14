@@ -246,7 +246,50 @@ const MUSIC_VIDEO_BANCO: Skill = {
   outputStyle: '🎬 Visual: imagens e vídeos de bancos de mídia, cortes de 3 a 5 s no ritmo da música.\n🎵 Música: gerada pela rota ou o áudio anexado.\n🔇 Sem narração.\n📤 Saída: final.mp4 com a trilha do projeto.',
 };
 
+/** UGC de produto: um especialista de marketing roteiriza; criador da biblioteca + fotos do produto como referência. */
+const UGC_PRODUTO: Skill = {
+  id: 'ugc-produto', name: 'UGC de produto (especialista de marketing)', builtin: true, scriptEnding: 'conclusion', multiVoice: true,
+  description: 'Vídeo UGC de 30 a 40 s que vende um produto como um criador real: gancho, dor, demonstração, prova e chamada para ação. O criador é um personagem da biblioteca (mesmo rosto e voz) e o produto vem das fotos de referência anexadas ao projeto.',
+  global: 'Você é um ESPECIALISTA EM MARKETING DE PERFORMANCE e diretor de UGC (user-generated content). O vídeo parece gravado por um criador real no celular — autêntico, próximo, nada de comercial de TV — e existe para VENDER o produto das fotos de referência. ' +
+    'Estrutura obrigatória (30–40 s): 1) GANCHO em até 3 s (frase que para a rolagem: pergunta, contraste ou resultado surpreendente); 2) DOR/CONTEXTO (o problema do público, em uma frase); 3) DEMONSTRAÇÃO (o produto em uso, mostrando 2–3 benefícios concretos e visíveis); 4) PROVA (resultado, antes × depois, número ou reação sincera); 5) CTA claro e curto (o que fazer agora). ' +
+    'Fale na primeira pessoa, frases curtas, vocabulário do dia a dia, sem jargão nem promessas impossíveis (nada de "cura", "garantido", "100%"). O PRODUTO é sempre o das fotos de referência: mesma forma, cor, rótulo e embalagem — nunca invente outro modelo nem outra marca.',
+  steps: {
+    script: 'Escreva em falas no formato "NOME: fala", com UM criador (personagem da biblioteca, se houver; senão crie um criador com nome curto). 70 a 95 palavras no total para 30–40 s. Marque as seções com comentários curtos em linhas próprias: [GANCHO], [DOR], [DEMO], [PROVA], [CTA]. O nome do produto aparece pelo menos 2 vezes; o CTA fecha o vídeo.',
+    asset_design: 'Na seção "## Personagens fixos", mantenha EXATAMENTE o criador da biblioteca (mesmo nome e aparência); acrescente roupa casual de criador de conteúdo. Em "## Objetos fixos", descreva o PRODUTO como está nas fotos de referência (forma, cores, rótulo, tamanho na mão). Cenário: um lugar real e simples (cozinha, quarto, academia, carro, banheiro) coerente com o uso do produto.',
+    scene_plan: 'Cenas de 3 a 5 s (UMA fala por cena, "speaker" = criador), todas "kind":"video". Alterne: (a) criador falando para a câmera segurando/usando o produto (selfie vertical, luz natural); (b) PLANO DE PRODUTO: close do produto em uso — nestas cenas preencha "userMedia" com o nome EXATO da foto de referência do produto, para o quadro ser a própria foto (o produto sai idêntico) e o vídeo só animar a câmera e a mão; (c) prova/resultado. Pelo menos 2 cenas de produto. visualIntent em inglês citando o criador PELO NOME e o produto pelo nome, com enquadramento de celular (handheld, eye level, close-up). A última cena é o CTA com o produto bem visível.',
+    image: 'Foto vertical de celular, luz natural, aparência real (não publicitária): o criador da biblioteca com o produto das fotos de referência na mão ou em uso; produto nítido e reconhecível, rótulo virado para a câmera; sem texto na imagem.',
+    video: 'Movimento de celular na mão (leve tremor), criador falando para a câmera com naturalidade; o produto continua idêntico à foto (mesma forma, cor e rótulo) e sempre visível; sem texto, sem logotipos inventados.',
+    narration: 'Voz do criador: natural, animada sem exagero, como quem conta uma descoberta para um amigo; ritmo rápido no gancho e mais calmo na demonstração.',
+    thumbnail: 'Criador surpreso segurando o produto perto do rosto, produto bem nítido, 2–3 palavras grandes com o benefício principal.',
+    metadata: 'Título com o benefício + nome do produto (até 60 caracteres); descrição com o problema, 3 benefícios em tópicos, o CTA e 5 hashtags; deixe claro que é um vídeo de demonstração do produto.',
+  },
+  reviewCriteria: 'Gancho nos 3 primeiros segundos; produto idêntico às fotos de referência em todas as cenas; criador com o mesmo rosto e voz; benefícios concretos e verdadeiros; CTA no final; 30–40 s.',
+  appearance: 'ad_product', routeId: 'ugc-produto', aspect: '9:16', durationSec: 35, language: 'pt-BR', presentation: 'generated', mediaSources: [],
+  outputStyle: '🎬 Visual: criador da biblioteca falando para a câmera + closes do produto (a foto de referência vira o quadro).\n🧠 Roteiro de especialista de marketing: gancho → dor → demo → prova → CTA.\n🎞 Vídeo: MiniMax H3 (Wan2GP, 4 passos) com criador + produto; reserva Snapgen Muse AI / MiniMax.\n🗣 Voz fixa do criador (OmniVoice/elenco).\n📐 Vertical 9:16, 30–40 s.',
+};
+
+/** Música com lipsync: canção no ACE-Step XL e cantor da biblioteca cantando no MiniMax H3 (LoRA de 4 passos). */
+const MUSICA_LIPSYNC: Skill = {
+  id: 'musica-lipsync', name: 'Música com lipsync (cantor da biblioteca)', builtin: true, multiVoice: true,
+  description: 'Clipe de música original: a canção é composta e gerada no ACE-Step 1.5 XL (Wan2GP) e o cantor — um personagem da biblioteca — canta cada verso com os lábios sincronizados no MiniMax H3 (Ref2VA + LoRA de aceleração de 4 passos).',
+  global: 'Você é COMPOSITOR e DIRETOR DE VIDEOCLIPE. A canção é original, cantável e curta; o clipe mostra o CANTOR (personagem da biblioteca, mesmo rosto em todas as cenas) cantando para a câmera, com cortes no ritmo da música. Não há narração: a canção é o único áudio e a letra vira legenda.',
+  steps: {
+    script: 'Grave `script.md` com: 1) `TITLE: <nome da canção>`; 2) `SINGER: <nome do cantor da biblioteca>` (se não houver, invente um nome curto); 3) `STYLE: <gênero, instrumentos, andamento em BPM, tipo de voz>` em inglês (ex.: "upbeat pop, acoustic guitar, 110 BPM, warm female vocals"); 4) `LYRICS:` com a letra no idioma do projeto, um verso por linha, blocos com rótulos [verse], [chorus], [bridge] e linha em branco entre blocos; 5) `VISUAL:` conceito do clipe (2–3 cenários, paleta, luz). Para 40–60 s: [verse] de 4 versos + [chorus] de 4 versos + [verse] curto ou [bridge] + [chorus] repetido. Versos de 5 a 9 palavras, rimas simples, refrão marcante.',
+    asset_design: 'Em "## Personagens fixos", use EXATAMENTE o cantor da biblioteca (mesmo nome e aparência) com o figurino do clipe; em "## Cenários", 2 a 3 locais do VISUAL (palco, rua à noite, estúdio, campo…), com luz e paleta.',
+    scene_plan: 'Use os tempos de `out/lyrics-timing.json`. Crie UMA cena por verso (ou por dois versos muito curtos), de 3 a 6 s, na ordem da canção, todas "kind":"video". `narration` = o(s) verso(s) EXATAMENTE como na letra (separados por " / "); `speaker` = o cantor quando há voz; intro/solo instrumental sem `speaker`. visualIntent em inglês: o cantor PELO NOME, cantando para a câmera em plano médio ou close (rosto e boca bem visíveis), o cenário e a luz; varie o enquadramento entre as cenas; o refrão é mais intenso (luz, movimento).',
+    image: 'Quadro de videoclipe: o cantor da biblioteca idêntico à folha de personagem, de frente para a câmera, boca visível, luz cinematográfica, sem texto e sem microfone cobrindo a boca.',
+    video: 'O cantor canta este trecho com os lábios sincronizados à voz, expressão coerente com a letra; movimento de câmera lento; nada passa na frente do rosto.',
+    thumbnail: 'Close do cantor cantando com luz forte e o título da música em até 3 palavras.',
+    metadata: 'Título com o nome da música e o clima; descrição com a letra completa e créditos (música gerada por IA); 5–10 tags de gênero.',
+  },
+  reviewCriteria: 'Boca do cantor acompanhando a voz em cada cena; o mesmo rosto em todas as cenas; cortes no começo dos versos; canção em volume cheio, sem narração; legendas com a letra certa.',
+  appearance: 'music_lyric', routeId: 'musica-lipsync', aspect: '16:9', durationSec: 50, language: 'pt-BR', presentation: 'generated', mediaSources: [],
+  outputStyle: '🎵 Canção original com letra (ACE-Step 1.5 XL no Wan2GP).\n🎤 Cantor da biblioteca cantando com lipsync (MiniMax H3 Ref2VA + LoRA de 4 passos; o trecho da canção de cada cena guia a boca).\n✂️ Uma cena por verso (3–6 s).\n🔇 Sem narração; letra como legenda.\n📤 Saída: final.mp4 com a canção em volume cheio.',
+};
+
 const SPECIAL: Skill[] = [
+  UGC_PRODUTO,
+  MUSICA_LIPSYNC,
   CARTOON_3D_SHORT,
   CARTOON_3D_LONG,
   LINK_EXPLAINER,

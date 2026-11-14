@@ -37,7 +37,7 @@ function main() {
   /* todos os templates: JSON válido, capability conhecida e só variáveis que o executor preenche */
   const dir = path.resolve(__dirname, '../../workflows');
   const known = new Set(['delivery', 'sfx_prompt', 'sfx_seconds', 'prompt', 'negative', 'text', 'seed', 'width', 'height', 'resolution', 'frames', 'fps', 'seconds', 'seconds_int', 'music_seconds', 'style', 'lyrics',
-    'init_image', 'ref_audio', 'ref_images', 'ref_prompt', 'language_name', 'language_code', 'language_label', 'speech_seconds']);
+    'init_image', 'ref_audio', 'ref_images', 'ref_prompt', 'language_name', 'language_code', 'language_label', 'speech_seconds', 'seconds_ceil', 'song_slice']);
   const files = fs.readdirSync(dir).filter((f) => /^wan2gp-.*\.json$/.test(f));
   assert.ok(files.length >= 17, `templates Wan2GP: ${files.length}`);
   for (const f of files) {

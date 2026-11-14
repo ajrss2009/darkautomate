@@ -1,0 +1,28 @@
+{
+  "_doc": "Wan2GP · UGC DE PRODUTO (MiniMax H3 Ref2VA Pruned + LoRA de aceleração Lightx2v Ref2V 4 passos). Referências em image_refs: a folha/retrato do criador (personagem da biblioteca) e as FOTOS DO PRODUTO anexadas ao projeto (referência), na ordem <Picture 1>, <Picture 2>… — o produto sai com a mesma forma, cor e rótulo. Na dublagem (padrão do app), a narração da cena entra como <Audio 1> e o H3 sincroniza os lábios do criador. Cena sem criador e sem foto de produto passa para o próximo provedor.",
+  "model_type": "minimax_h3_ref2va_pruned",
+  "needsRefs": true,
+  "productRefs": true,
+  "megapixels": 0.6,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{ref_prompt}}",
+    "resolution": "{{resolution}}",
+    "video_length": "{{seconds_ceil}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}",
+    "image_prompt_type": "",
+    "video_prompt_type": "I",
+    "image_refs": "{{ref_images}}",
+    "activated_loras": ["minimax_h3_lightx2v_ref2v_turbo_4step_alpha8_v0.1_bf16.safetensors"],
+    "loras_multipliers": "1.0",
+    "num_inference_steps": 4,
+    "guidance_scale": 1,
+    "flow_shift": 12,
+    "sample_solver": "euler",
+    "config": "gguf_q4_k_m",
+    "multi_prompts_gen_type": "FG"
+  },
+  "label": "Wan2GP · MiniMax H3 UGC com criador + produto (Ref2VA + LoRA 4 passos)",
+  "capability": "video"
+}

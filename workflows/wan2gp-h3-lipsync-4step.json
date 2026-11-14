@@ -1,0 +1,30 @@
+{
+  "_doc": "Wan2GP · MÚSICA COM LIPSYNC (MiniMax H3 Ref2VA Pruned + LoRA de aceleração Lightx2v Ref2V 4 passos, o mesmo perfil 'Lightx2v Ref2V 4 Steps v0.1' do Wan2GP). O trecho da canção que cai nesta cena (out/music.mp3 cortado no início/fim da cena) entra como TRILHA MANTIDA (audio_prompt_type AS, audio_guide): o H3 cria o vídeo em volta dela e a boca do cantor segue a voz. A folha/retrato do cantor (biblioteca) e o quadro da cena entram em image_refs. Sem cantor nesta cena (intro/instrumental), a etapa passa para o próximo provedor. O app NÃO escreve a letra no prompt (o H3 inventaria outra voz): pede 'singing with natural lip movements synchronized'.",
+  "model_type": "minimax_h3_ref2va_pruned",
+  "needsRefs": true,
+  "songSlice": true,
+  "megapixels": 0.6,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{ref_prompt}}",
+    "resolution": "{{resolution}}",
+    "video_length": "{{seconds_ceil}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}",
+    "image_prompt_type": "",
+    "video_prompt_type": "I",
+    "image_refs": "{{ref_images}}",
+    "audio_prompt_type": "AS",
+    "audio_guide": "{{song_slice}}",
+    "activated_loras": ["minimax_h3_lightx2v_ref2v_turbo_4step_alpha8_v0.1_bf16.safetensors"],
+    "loras_multipliers": "1.0",
+    "num_inference_steps": 4,
+    "guidance_scale": 1,
+    "flow_shift": 12,
+    "sample_solver": "euler",
+    "config": "gguf_q4_k_m",
+    "multi_prompts_gen_type": "FG"
+  },
+  "label": "Wan2GP · MiniMax H3 lipsync da canção (Ref2VA + LoRA 4 passos)",
+  "capability": "video"
+}

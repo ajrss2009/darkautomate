@@ -38,7 +38,8 @@ import { forceCartoon3dImports, framingFixPrompt, framingIssues, storyboardFor, 
 import { freeLibImport, pluginContract, pluginPrompt, pluginsRoot, stageCartoon3d, stageThree, THREE_VERSION } from './plugins';
 import { contractProblem, smallModelBudget } from './contract';
 import { voiceAccepted } from '../shared/voices';
-import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
+import { attachmentPath, characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
+import { ceilSeconds, lipsyncPrompt, minSpanStarts, productLabel, productRefFiles, productSubjectLines, sceneStartSec } from './ugc-lipsync';
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt, spokenText } from './cast';
 import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Language, h3Mode, h3SpokenText, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
 import { styleNegative } from './style-ref';
@@ -661,8 +662,9 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
   if (k === 'video' && p.kind === 'snapgen') {
     const img = c.scene?.artifacts['image']?.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
     /* Muse/Meta AI fala: a linha entra no prompt e a voz sai no próprio clipe (sem TTS) */
-    const museTalk = /^(meta-ai|muse)/i.test(model) && !!c.scene?.narration?.trim();
-    const prompt = museTalk ? museSpeechPrompt(c) : visualPrompt(c);
+    /* params.videoSpeech = false: a fala fica com a narração (TTS) e o clipe sai sem voz (ex.: UGC com voz fixa do OmniVoice) */
+    const museTalk = /^(meta-ai|muse)/i.test(model) && !!c.scene?.narration?.trim() && (c.step.params as Record<string, unknown> | undefined)?.['videoSpeech'] !== false;
+    const prompt = museTalk ? museSpeechPrompt(c) : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound.` : visualPrompt(c);
     await prov.snapgenVideo(p, model, prompt, { imagePath: img, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
     if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
     return { files: [file] };
@@ -741,11 +743,26 @@ function commonVars(c: ExecContext, side: { maxSide?: number; multiple?: number;
     seed: (seedBase + (c.scene?.index ?? 0) + (c.scene?.variation ?? 0) * 1000) % 2147483647, ...size,
     resolution: `${size.width}x${size.height}`,
     frames: Math.round(sceneSec * 24) + 1, fps: 24,
-    seconds: clamp(Math.round(sceneSec * 2) / 2, 2, 15), seconds_int: clamp(Math.round(sceneSec), 2, 15),
+    seconds: clamp(Math.round(sceneSec * 2) / 2, 2, 15), seconds_int: clamp(Math.round(sceneSec), 2, 15), seconds_ceil: ceilSeconds(sceneSec),
     music_seconds: clamp(Math.round(total), 10, 360),
     style: `Instrumental background music for a ${vt?.label ?? 'video'} video, no vocals. ${c.project.idea}`.slice(0, 600),
     lyrics: '[Instrumental]',
+    ...songVars(c),
   };
+}
+
+/** Canção com letra (lyric video, música com lipsync): estilo e letra do script.md (TITLE/STYLE/LYRICS) em vez da trilha instrumental. */
+function songVars(c: ExecContext): Record<string, string | number> {
+  if (c.step.kind !== 'music' || !(c.step.params as Record<string, unknown> | undefined)?.['song']) return {};
+  try {
+    const parsed = parseLyricScript(fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8'));
+    if (!parsed.blocks.length) return {};
+    return {
+      style: [parsed.style, c.project.musicStyle, 'clear lead vocals, catchy chorus'].filter(Boolean).join('; ').slice(0, 600),
+      lyrics: parsed.raw,
+      music_seconds: clamp(Math.round(c.project.targetDurationSec || 60), 20, 360),
+    };
+  } catch { return {}; }
 }
 
 /** Retrato de referência de um personagem (assets/characters/<nome>.png), gerado uma vez com o workflow de imagem padrão. */
@@ -912,7 +929,11 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   if (!cfg?.root) throw new Error('Wan2GP não configurado (Provedores → wan2gp.root e wan2gp.python)');
   const tplPath = path.join(o.workflowsDir, b.template);
   if (!fs.existsSync(tplPath)) throw new Error(`template Wan2GP não encontrado: ${b.template}`);
-  const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8')) as { model_type: string; settings: Record<string, unknown>; maxSide?: number; multiple?: number; megapixels?: number; refAudio?: string; vars?: Record<string, string | number>; needsRefs?: boolean; needsRefAudio?: boolean };
+  const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8')) as { model_type: string; settings: Record<string, unknown>; maxSide?: number; multiple?: number; megapixels?: number; refAudio?: string; vars?: Record<string, string | number>; needsRefs?: boolean; needsRefAudio?: boolean;
+    /** música com lipsync: o trecho da canção desta cena vira a trilha mantida do H3 (audio_guide) */
+    songSlice?: boolean;
+    /** UGC: as fotos do produto anexadas ao projeto entram em image_refs depois do elenco */
+    productRefs?: boolean };
   const lang = wan2gpLanguage(c.project.language);
   const vars: Record<string, string | number> = { ...commonVars(c, tpl), language_name: lang.name, language_code: lang.code, language_label: lang.label, ...(tpl.vars ?? {}) };
   vars['speech_seconds'] = speechSeconds(String(vars['text'] ?? ''));
@@ -920,11 +941,29 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   if (prevImg) vars['init_image'] = prevImg;                       // caminho absoluto local
   /* elenco como referência (image_refs): foto do usuário ou retrato já gerado de cada personagem da cena */
   if (c.scene && (tpl.needsRefs || placeholders(tpl.settings).includes('ref_images'))) {
-    const refs = charactersInScene(c.projectDir, c.scene, 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file));
-    if (!refs.length) throw new Error(`${b.template}: nenhum retrato do elenco nesta cena (adicione fotos dos personagens ou gere os retratos antes) — usando o próximo provedor`);
-    (vars as Record<string, unknown>)['ref_images'] = refs.map((r) => r.file);
-    vars['ref_prompt'] = refPrompt(refs.map((r) => r.name), String(vars['prompt'] ?? ''));
-    c.log(`Wan2GP: elenco como referência — ${refs.map((r) => r.name).join(', ')}`);
+    const refs = charactersInScene(c.projectDir, c.scene, tpl.productRefs ? 2 : 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file));
+    /* UGC: fotos do produto (anexos de referência / objetos da biblioteca) depois do elenco — o produto sai igual à foto */
+    const prods = tpl.productRefs ? productRefFiles(c.project.attachments).map((a) => ({ label: productLabel(a), file: attachmentPath(c.projectDir, a) })).filter((r) => fs.existsSync(r.file)) : [];
+    if (tpl.songSlice && !refs.length) throw new Error(`${b.template}: ninguém canta nesta cena (intro/instrumental ou cantor sem retrato) — usando o próximo provedor`);
+    if (!refs.length && !prods.length) throw new Error(`${b.template}: nenhum retrato do elenco${tpl.productRefs ? ' nem foto do produto' : ''} nesta cena (adicione fotos dos personagens ou gere os retratos antes) — usando o próximo provedor`);
+    (vars as Record<string, unknown>)['ref_images'] = [...refs.map((r) => r.file), ...prods.map((r) => r.file)];
+    const body = tpl.songSlice ? lipsyncPrompt(refs[0]!.name, String(vars['prompt'] ?? '')) : String(vars['prompt'] ?? '');
+    vars['ref_prompt'] = prods.length
+      ? ['subject_definitions:', ...refs.map((r, i) => `<Subject ${i + 1}> is ${r.name}, the person in <Picture ${i + 1}>, preserving their face, hair and outfit.`), ...productSubjectLines(prods.map((p) => p.label), refs.length + 1), '', body].join('\n')
+      : refPrompt(refs.map((r) => r.name), body);
+    c.log(`Wan2GP: referências — ${[...refs.map((r) => r.name), ...prods.map((p) => `produto "${p.label}"`)].join(', ')}`);
+  }
+  /* música com lipsync: o trecho da canção que cai nesta cena (início/fim da cena na linha do tempo) */
+  if (tpl.songSlice && c.scene) {
+    const song = fs.readdirSync(c.outDir).filter((x) => /^music\.(mp3|wav|m4a|ogg|flac)$/i.test(x)).map((x) => path.join(c.outDir, x))[0];
+    if (!song) throw new Error(`${b.template}: a canção ainda não existe (out/music.*) — gere a etapa da música antes`);
+    const start = sceneStartSec(c.project.scenes, c.scene.id), secs = ceilSeconds(c.scene.durationSec ?? 4);
+    const slice = path.join(c.sceneDir ?? c.outDir, 'audio', 'song-slice.wav');
+    fs.mkdirSync(path.dirname(slice), { recursive: true });
+    /* trecho exato da cena + silêncio se a canção acabar antes (o H3 pede pelo menos 2 s de trilha) */
+    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-ss', start.toFixed(3), '-t', String(secs), '-i', song, '-af', `apad=whole_dur=${secs}`, '-ac', '2', '-ar', '44100', slice], c.signal);
+    vars['song_slice'] = slice;
+    c.log(`MiniMax H3 lipsync: trecho da canção ${start.toFixed(2)}–${(start + secs).toFixed(2)} s como trilha mantida (boca segue a voz)`);
   }
   const member = c.step.kind === 'narration' ? castFor(c.project, c.scene?.speaker) : undefined;
   const refAudio = member?.refAudio || (c.step.kind === 'narration' ? c.project.narrationVoice?.refAudio : undefined) || b.refAudio || tpl.refAudio;
@@ -946,7 +985,7 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   /* dublagem (padrão): a narração TTS da cena vira o <Audio 1> copiado 1:1 e o H3 só sincroniza os lábios (modelo Ref2VA);
      sem como passar o áudio, o vídeo sai sem fala e a narração TTS fica. Clonagem: o H3 gera a voz a partir da referência. */
   const dubAudio = c.step.kind === 'video' && h3Mode(c.project) === 'dub' && c.sceneDir && /ref2va/i.test(tpl.model_type) ? sceneAudio(c.sceneDir) : undefined;
-  const h3Talk = c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b) && (h3Mode(c.project) !== 'dub' || !!dubAudio);
+  const h3Talk = !tpl.songSlice && c.step.kind === 'video' && !!c.scene && isH3Video(b) && h3SpeechScene(c.project, c.scene, b) && (h3Mode(c.project) !== 'dub' || !!dubAudio);
   if (h3Talk && typeof settings['prompt'] === 'string') {
     const names = String(vars['ref_prompt'] ?? '') ? charactersInScene(c.projectDir, c.scene!, 3).map((ch) => ch.name) : [];
     const idx = c.scene!.speaker ? names.findIndex((n) => n.toLowerCase() === c.scene!.speaker!.toLowerCase()) + 1 : 0;
@@ -2190,7 +2229,16 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
   const md = fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8');
   const parsed = parseLyricScript(md);
   if (!parsed.blocks.length) throw new Error('script.md sem letra (seção LYRICS:)');
-  const seconds = clamp(Math.round(c.project.targetDurationSec || 120), 30, 360);
+  const seconds = clamp(Math.round(c.project.targetDurationSec || 120), 20, 360);
+  /* canção no Wan2GP (ex.: ACE-Step 1.5 XL): params.template = template de música do Wan2GP; a letra e o estilo vêm do script.md */
+  const tplName = String((c.step.params as Record<string, unknown>)['template'] ?? '');
+  if (tplName) {
+    c.log(`canção "${parsed.title || c.project.name}": ${parsed.blocks.length} bloco(s), ${seconds}s, Wan2GP ${tplName}`);
+    const got = await wan2gpExec(o)({ ...c, step: { ...c.step, params: { ...(c.step.params ?? {}), song: true } }, binding: { type: 'wan2gp', template: tplName } as Binding });
+    const raw = got.files[0];
+    if (!raw || !fs.existsSync(raw)) throw new Error(`Wan2GP ${tplName} não gerou a canção`);
+    return songTiming(c, o, parsed, raw, seconds);
+  }
   const server = c.settings.comfyServers.find((x) => x.id === 'local') ?? c.settings.comfyServers[0];
   if (!server) throw new Error('ComfyUI não configurado (a canção é gerada no Yue 2)');
   const wfName = String((c.step.params as Record<string, unknown>)['workflow'] ?? 'yue2-text2music.json');
@@ -2211,9 +2259,18 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
   if (!audio) throw new Error('Yue 2 não retornou áudio');
   const raw = path.join(c.outDir, 'song.raw' + (path.extname(audio.filename) || '.mp3'));
   await client.download(audio, raw);
-  const song = primaryFile('music', c);          // out/music.mp3 → a montagem usa como trilha (volume cheio)
-  await ff.run(c.settings.ffmpeg, ['-y', '-i', raw, '-af', 'apad', '-t', String(seconds), '-ar', '44100', '-ac', '2', '-c:a', 'libmp3lame', '-b:a', '192k', song], c.signal);
   if (server.freeAfter) await client.freeMemory();
+  return songTiming(c, o, parsed, raw, seconds);
+}
+
+/** Canção pronta (Yue 2 ou Wan2GP) → out/music.mp3 na duração do projeto + tempos de cada verso (Whisper ou estimativa). */
+async function songTiming(c: ExecContext, o: ExecutorOptions, parsed: ReturnType<typeof parseLyricScript>, raw0: string, seconds: number): Promise<ExecResult> {
+  const song = primaryFile('music', c);          // out/music.mp3 → a montagem usa como trilha (volume cheio)
+  /* o Wan2GP grava out/music.wav e o primário é out/music.mp3: converte de uma cópia para não ler e escrever o mesmo arquivo */
+  const raw = path.join(c.outDir, `song.raw${path.extname(raw0) || '.mp3'}`);
+  if (path.resolve(raw0) !== path.resolve(raw)) fs.copyFileSync(raw0, raw);
+  for (const f of fs.readdirSync(c.outDir).filter((x) => /^music\.(wav|m4a|ogg|flac)$/i.test(x))) fs.rmSync(path.join(c.outDir, f), { force: true });
+  await ff.run(c.settings.ffmpeg, ['-y', '-i', raw, '-af', 'apad', '-t', String(seconds), '-ar', '44100', '-ac', '2', '-c:a', 'libmp3lame', '-b:a', '192k', song], c.signal);
   const duration = (await ff.duration(c.settings.ffprobe, song)) || seconds;
 
   // tempos dos versos: Whisper na canção (com voz) ou estimativa proporcional
@@ -2247,9 +2304,11 @@ async function lyricWords(c: ExecContext): Promise<ExecResult> {
     return { s, mine };
   });
   const startOf = (i: number) => (i === 0 ? 0 : spans[i]!.mine[0]?.start ?? spans[i - 1]!.mine[spans[i - 1]!.mine.length - 1]?.end ?? 0);
+  /* cena mínima de 2,5 s (versos amontoados no fim davam cena de 0,5 s; o lipsync do H3 pede ≥ 2 s) */
+  const starts = minSpanStarts(scenes.map((_, i) => startOf(i)), timing.duration);
   const idx = scenes.findIndex((x) => x.id === c.scene!.id);
-  const start = startOf(idx);
-  const end = idx + 1 < scenes.length ? startOf(idx + 1) : timing.duration;
+  const start = starts[idx]!;
+  const end = idx + 1 < scenes.length ? starts[idx + 1]! : timing.duration;
   const dur = Math.max(0.5, +(end - start).toFixed(2));
   c.scene.durationSec = dur; c.scene.manualDuration = true;
   const ws: WordTime[] = [];
