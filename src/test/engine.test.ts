@@ -210,6 +210,24 @@ async function main() {
   assert.equal((await runRoute({ project: pc, route: chain, projectDir: dc, deps: mk(), signal: new AbortController().signal })).ok, true);
   assert.equal(plans, 2, 'roteiro mais novo que o plano → plano refeito');
 
+  // 11. trilha guardada mais velha que os arquivos das cenas (vídeo refeito mais longo) → trilha refeita
+  const mus: Route = { id: 'm', name: 'm', description: '', videoTypes: [], steps: [
+    asm.steps[0]!, asm.steps[1]!,
+    { id: 'music', kind: 'music', label: 'm', scope: 'project', dependsOn: ['image'], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'builtin', tool: 'assemble' }] },
+  ] };
+  const pm = createProject(settings, { name: 'Trilha', idea: 'ideia', videoType: 'custom', routeId: 'shorts-autopilot' });
+  const dm = path.join(ws, 'projects', pm.id);
+  let tracks = 0;
+  executors.harness = async (c) => { const f = path.join(c.projectDir, 'scenes.json'); fs.writeFileSync(f, JSON.stringify([{ title: 'A', narration: 'a', visualIntent: 'a' }])); return { files: [f] }; };
+  executors.builtin = async (c) => { tracks++; const f = path.join(c.outDir, 'music.wav'); fs.writeFileSync(f, 'm'); return { files: [f] }; };
+  assert.equal((await runRoute({ project: pm, route: mus, projectDir: dm, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal((await runRoute({ project: pm, route: mus, projectDir: dm, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal(tracks, 1, 'nada mudou: trilha do cache');
+  const frame = pm.scenes[0]!.artifacts['image']![0]!;
+  fs.utimesSync(frame, later, later);
+  assert.equal((await runRoute({ project: pm, route: mus, projectDir: dm, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal(tracks, 2, 'cena mais nova que a trilha → trilha refeita');
+
   console.log('engine tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

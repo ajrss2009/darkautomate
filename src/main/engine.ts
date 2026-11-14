@@ -915,7 +915,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   /** dependência de escopo projeto cujo arquivo é mais novo que o resultado em cache desta etapa (ex.: roteiro refeito, plano antigo) */
   function olderThanDeps(step: RouteStep, hit: string[]): string | undefined {
     const mine = Math.min(...hit.map((f) => fs.statSync(f).mtimeMs));
-    for (const d of step.dependsOn) for (const f of projectOut.get(d) ?? []) {
+    /* dependência de escopo projeto: arquivos desta execução; de escopo cena: artefatos das cenas (ex.: trilha de 84 s guardada e cenas novas) */
+    for (const d of step.dependsOn) for (const f of projectOut.get(d) ?? project.scenes.flatMap((sc) => sc.artifacts?.[d] ?? [])) {
       try { if (fs.statSync(f).mtimeMs > mine + 1000) return d; } catch { /* sumiu: o próprio passo trata */ }
     }
     return undefined;
