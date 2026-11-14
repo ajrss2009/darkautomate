@@ -97,6 +97,26 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
   const voiceDesc = h('input', { value: ch?.voice?.description ?? '', placeholder: 'como soa: feminina, 25 anos, doce e hesitante' }) as HTMLInputElement;
   const code = h('textarea', { rows: '2', placeholder: 'Desenho por código (vídeos em código): formas, cores hex, traço, proporções' }) as HTMLTextAreaElement;
   code.value = ch?.code ?? '';
+  const genCodeBtn = h('button', { class: 'small', title: 'A IA escreve o desenho em código a partir do nome e da aparência (Canvas/SVG/Three.js)' }, '✨ Gerar código com IA') as HTMLButtonElement;
+  genCodeBtn.addEventListener('click', () => void guard(async () => {
+    if (!name.value.trim() || !look.value.trim()) { toast('Preencha o nome e a aparência antes de gerar o código.', true); return; }
+    genCodeBtn.disabled = true; genCodeBtn.textContent = '⏳ gerando o desenho…';
+    try {
+      const txt = (await forge['charactersGenerateCode']({ name: name.value, look: look.value, entity, kind: kind.value })) as string;
+      if (txt) { code.value = txt; toast('Desenho em código gerado — revise e salve'); } else toast('Nenhum modelo de IA configurado (Provedores).', true);
+    } finally { genCodeBtn.disabled = false; genCodeBtn.textContent = '✨ Gerar código com IA'; }
+  }));
+  /* importar imagens/modelos de uma vez (arquivos ou pasta inteira) — salva o item antes, se for novo */
+  const importInto = (method: 'charactersAddFiles' | 'charactersAddFolder', what: string) => void guard(async () => {
+    const saved = ch ?? await save();
+    if (!saved) return;
+    const r = (await forge[method](saved.id)) as { files?: number } | null;
+    if (r) { toast(typeof r.files === 'number' ? `${r.files} arquivo(s) importado(s)` : `${what} importado(s)`); again(); }
+  });
+  const importBar = h('div', { class: 'row' },
+    h('button', { class: 'small', title: 'Imagens (folha/retrato/referência) ou modelos 3D, vários de uma vez', onclick: () => importInto('charactersAddFiles', 'Arquivos') }, '🖼 Importar imagens/modelos…'),
+    h('button', { class: 'small', title: 'Importa uma pasta inteira (imagens e modelos 3D, recursivo)', onclick: () => importInto('charactersAddFolder', 'Pasta') }, '📁 Importar pasta…'),
+    h('span', { class: 'muted small' }, 'vai para referências/modelos do item; use “Enviar folha” para escolher a folha principal'));
   const aliases = h('input', { value: (ch?.aliases ?? []).join(', '), placeholder: 'outros nomes/apelidos no texto' }) as HTMLInputElement;
   const tags = h('input', { value: (ch?.tags ?? []).join(', '), placeholder: 'etiquetas: dorama, protagonista, romance' }) as HTMLInputElement;
   /* variações (roupa, idade, ferimento) — por episódio */
@@ -185,13 +205,13 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
       h('label', {}, 'Nome *', name), h('label', {}, isChar ? 'Tipo' : 'Estilo', kind),
       isChar ? h('label', {}, 'Gênero', gender) : null, isChar ? h('label', {}, 'Idade', age) : null,
       h('label', { class: 'ch-wide' }, 'Aparência fixa *', look), h('label', { class: 'ch-wide' }, 'Descrição', desc)),
-    h('h4', {}, isChar ? '🖼 Folha de personagem' : entity === 'location' ? '🖼 Folha do cenário' : '🖼 Folha do objeto (três vistas)'), sheetBox,
+    h('h4', {}, isChar ? '🖼 Folha de personagem' : entity === 'location' ? '🖼 Folha do cenário' : '🖼 Folha do objeto (três vistas)'), sheetBox, importBar,
     ...voiceSec,
     isChar ? h('h4', {}, '👗 Variações (por episódio)') : null,
     isChar ? h('div', { class: 'muted small' }, 'Mesma pessoa com outra roupa, idade ou estado. No episódio da série, a variação escolhida troca a aparência (e a folha, se tiver).') : null,
     isChar ? vlist : null,
     isChar ? h('button', { class: 'small', onclick: () => addVariant() }, '＋ Variação') : null,
-    h('h4', {}, '💻 Em vídeos por código'), code,
+    h('h4', {}, '💻 Em vídeos por código'), code, h('div', { class: 'row' }, genCodeBtn),
     h('h4', {}, '🧊 Modelos 3D'), modelsBox,
     h('div', { class: 'ch-grid' }, h('label', {}, 'Apelidos', aliases), h('label', {}, 'Etiquetas', tags)),
     h('div', { class: 'row' }, h('button', { class: 'primary', onclick: () => void save() }, ch ? 'Salvar' : `Criar ${noun}`), h('span', { class: 'sp' }),

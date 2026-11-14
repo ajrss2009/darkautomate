@@ -113,6 +113,30 @@ export function saveCharacter(s: Settings, raw: Partial<LibraryCharacter>): Libr
   return c;
 }
 
+/** Copia um arquivo para o item: imagem vira "extra" (referência) e modelo 3D entra em models. */
+export function addCharacterFile(s: Settings, id: string, file: string): LibraryCharacter | undefined {
+  if (IMG.test(file)) return addCharacterImage(s, id, file, 'extra');
+  if (MODEL.test(file)) return addCharacterModel(s, id, file);
+  return undefined;
+}
+
+/** Importa uma pasta inteira (imagens e modelos 3D, recursivo) para o item da biblioteca. */
+export function addCharacterFolder(s: Settings, id: string, dir: string, limit = 24): { files: number; skipped: number } {
+  let files = 0, skipped = 0;
+  const walk = (d: string) => {
+    let entries: fs.Dirent[] = [];
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (files >= limit) return;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (addCharacterFile(s, id, p)) files++; else skipped++;
+    }
+  };
+  walk(dir);
+  return { files, skipped };
+}
+
 /** Copia um modelo 3D (GLB/GLTF/OBJ/FBX) para a pasta do item — usado pelas cenas feitas por código (Three.js). */
 export function addCharacterModel(s: Settings, id: string, file: string): LibraryCharacter {
   const c = getCharacter(s, id);

@@ -2061,6 +2061,48 @@ function registerIpc() {
     return characters.addCharacterImage(settings, id, r.filePaths[0], role);
   });
   h('characters:sheet-prompt', (id: string, variantId?: string) => { const ch = characters.getCharacter(settings, id); return characters.sheetPrompt(ch, '', variantId ? ch.variants?.find((v) => v.id === variantId) : undefined); });
+  /** Importa várias imagens (ou modelos) de uma vez para o item da biblioteca. */
+  h('characters:add-files', async (id: string) => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Imagens ou modelos 3D do item', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Imagens e modelos', extensions: ['png', 'jpg', 'jpeg', 'webp', 'glb', 'gltf', 'obj', 'fbx'] }] });
+    if (r.canceled || !r.filePaths.length) return null;
+    let c: unknown;
+    for (const f of r.filePaths.slice(0, 24)) c = characters.addCharacterFile(settings, id, f);
+    return c ?? characters.getCharacter(settings, id);
+  });
+  /** Importa uma pasta (recursivo): imagens viram referências e modelos 3D vão para o item. */
+  h('characters:add-folder', async (id: string) => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Pasta com imagens/Modelos do item', properties: ['openDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const n = characters.addCharacterFolder(settings, id, r.filePaths[0]);
+    return { ...n, character: characters.getCharacter(settings, id) };
+  });
+  /** Assistente de código: a IA escreve o desenho do personagem/cenário/objeto para as cenas por código. */
+  h('characters:generate-code', async (input: { name?: string; look?: string; entity?: string; kind?: string; style?: string }) => {
+    const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 180_000);
+    try {
+      const what = input.entity === 'location' ? 'cenário' : input.entity === 'prop' ? 'objeto' : 'personagem';
+      const { json } = await llmJson([{ type: 'harness', harness: 'auto' }], settings, path.join(settings.workspace, 'tools', 'library'),
+        `Você é diretor de arte de animação por código (Canvas/SVG/Three.js). Escreva o DESENHO EM CÓDIGO do ${what} "${input.name ?? ''}", em português, curto e objetivo (até 90 palavras):\n` +
+        `- formas e proporções (cabeça, corpo, membros; para cenário: camadas fundo/meio/frente; para objeto: vistas);\n` +
+        `- cores em hexadecimal (pele, cabelo, roupa, materiais);\n- um traço/ detalhe inconfundível que mantenha o ${what} igual em todas as cenas.\n` +
+        `Aparência/base: ${input.look ?? ''}\nEstilo: ${input.style ?? 'flat 2D, contorno limpo'}\nResponda SOMENTE com JSON: {"code":"..."}`, ac.signal, () => {});
+      return String((json as { code?: string } | undefined)?.code ?? '').trim();
+    } finally { clearTimeout(timer); }
+  });
+  /** Salvar texto (prompt/template) e abrir texto: diálogos nativos do app. */
+  h('file:save-text', async (input: { defaultName?: string; content?: string; ext?: string; title?: string }) => {
+    const ext = (input.ext ?? 'txt').replace(/^\./, '');
+    const r = await dialog.showSaveDialog(win!, { title: input.title ?? 'Salvar', defaultPath: path.join(app.getPath('documents'), input.defaultName ?? `filmforge.${ext}`), filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, String(input.content ?? ''), 'utf8');
+    return r.filePath;
+  });
+  h('file:open-text', async (input?: { title?: string; ext?: string }) => {
+    const ext = (input?.ext ?? 'json').replace(/^\./, '');
+    const r = await dialog.showOpenDialog(win!, { title: input?.title ?? 'Abrir', properties: ['openFile'], filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return { file: r.filePaths[0], content: fs.readFileSync(r.filePaths[0], 'utf8') };
+  });
   h('characters:generate-sheet', (id: string, binding: Binding, variantId?: string) => characters.generateCharacterSheet(settings,
     createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }), id, binding,
     (line) => send({ t: 'log', line: `biblioteca: ${line}` } as EngineEvent), variantId));

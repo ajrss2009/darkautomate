@@ -1227,3 +1227,4 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .gp-steps span.on { color:var(--txt); border-color:var(--acc); background:rgba(124,92,255,.14); }
 .gp-warn summary { cursor:pointer; color:var(--warn); font-size:11px; }
 .gp-warn ul { margin:6px 0 0; padding-left:18px; color:var(--mut); font-size:11px; }
+.chr-pick-panel { max-height: 52vh; overflow: auto; padding: 4px; } .chr-pick-panel .chr-chip { width: 108px; }

@@ -84,6 +84,13 @@ interface Forge {
   openFolder(id: string): Promise<string>;
   /* biblioteca de personagens e canais (Novo projeto) */
   charactersList(entity?: string): Promise<CharRow[]>;
+  charactersSave(c: Record<string, unknown>): Promise<CharRow>;
+  charactersGenerateCode(input: Record<string, unknown>): Promise<string>;
+  charactersAddFiles(id: string): Promise<unknown>;
+  charactersAddFolder(id: string): Promise<unknown>;
+  saveText(input: Record<string, unknown>): Promise<string | null>;
+  openText(input?: Record<string, unknown>): Promise<{ file: string; content: string } | null>;
+  projectAutoCast(id: string): Promise<{ added: string[]; cast: CastMember[] }>;
   styleExtract(o?: unknown): Promise<unknown>;
   storyEpisodeLink(id: string, n: number, projectId: string): Promise<unknown>;
   storyboardPick(id: string, sceneId: string, kind: 'frame' | 'sketch', rel: string | null): Promise<unknown>;
@@ -1060,7 +1067,8 @@ async function renderNew() {
     const group = (e: string, title: string) => { const g = rows.filter((x) => (x.entity ?? 'character') === e); return g.length ? h('div', {}, h('div', { class: 'muted small' }, title), h('div', { class: 'chr-pick' }, ...g.map(chip))) : null; };
     const paintChars = () => charsBox.replaceChildren(...([
       h('div', { class: 'row' }, h('strong', {}, '📚 Biblioteca (personagens, cenários, objetos)'), h('span', { class: 'muted small' }, rows.length ? ` ${pickedChars.size} escolhido(s) — folhas como referência de imagem, aparência fixa, voz e modelos 3D em todas as cenas` : ' nada ainda — crie na aba Biblioteca'), h('span', { class: 'sp' }),
-        h('button', { class: 'small', onclick: () => go('characters') }, '＋ Abrir a Biblioteca')),
+        h('button', { class: 'small', onclick: () => go('characters') }, '＋ Abrir a Biblioteca'),
+        h('button', { class: 'small', id: 'np-char-panel', title: 'Abre um painel com busca e filtros para escolher personagens, cenários e objetos', onclick: openPanel }, '🔎 Escolher em painel')),
       group('character', '👥 Personagens'), group('location', '🏞 Cenários'), group('prop', '📦 Objetos'),
       false ? h('div', { class: 'chr-pick' }, ...rows.map((ch) => {
         const img = charImage(forge as never, ch);
@@ -1068,6 +1076,38 @@ async function renderNew() {
           onclick: () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); paintChars(); } },
           img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name), h('small', { class: 'muted' }, KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
       })) : null] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
+    const openPanel = () => {
+      let filter: 'all' | 'character' | 'location' | 'prop' = 'all';
+      let term = '';
+      const grid = h('div', { class: 'chr-pick chr-pick-panel' });
+      const paintPanel = () => {
+        const list = rows.filter((c) => (filter === 'all' || (c.entity ?? 'character') === filter) && (!term || `${c.name} ${c.look}`.toLowerCase().includes(term)));
+        grid.replaceChildren(...(list.length ? list.map((ch) => {
+          const img = charImage(forge as never, ch);
+          const btn = h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}`, onclick: () => {
+            if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id);
+            btn.classList.toggle('on', pickedChars.has(ch.id));
+          } }, img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name),
+            h('small', { class: 'muted' }, ch.entity === 'location' ? 'cenário' : ch.entity === 'prop' ? 'objeto' : KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
+          return btn;
+        }) : [h('div', { class: 'muted small' }, rows.length ? 'Nada com esse filtro.' : 'A Biblioteca está vazia — crie personagens/cenários lá.')]));
+      };
+      const tabs = ([['all', 'Tudo'], ['character', '👥 Personagens'], ['location', '🏞 Cenários'], ['prop', '📦 Objetos']] as const).map(([k, l]) =>
+        h('button', { class: `small${filter === k ? ' primary' : ''}`, onclick: (e) => { filter = k as typeof filter; for (const b of tabs) b.classList.toggle('primary', b.textContent === l); paintPanel(); } }, l));
+      const q = h('input', { placeholder: 'Buscar por nome ou aparência', class: 'grow', oninput: () => { term = q.value.toLowerCase(); paintPanel(); } }) as HTMLInputElement;
+      let bg: HTMLElement;
+      const close = () => { bg.remove(); paintChars(); };
+      bg = h('div', { class: 'modal-bg', id: 'np-char-panel-modal', onclick: (e) => { if (e.target === bg) close(); } },
+        h('div', { class: 'modal' },
+          h('div', { class: 'row' }, h('h3', { class: 'grow' }, '📚 Escolher da Biblioteca'), h('button', { onclick: close }, '✕')),
+          h('p', { class: 'muted small' }, 'Selecione personagens, cenários e objetos. Eles entram no projeto com folha/aparência fixa, voz e modelos 3D — e economizam tokens porque o app reutiliza o que já existe.'),
+          h('div', { class: 'row' }, ...tabs), q,
+          grid,
+          h('div', { class: 'row actions' }, h('span', { class: 'muted small' }, `${pickedChars.size} escolhido(s)`), h('span', { class: 'sp' }),
+            h('button', { class: 'primary', onclick: close }, 'Concluir'))));
+      document.body.append(bg);
+      paintPanel();
+    };
     paintChars();
     repaintChars = paintChars;
   });
@@ -1481,6 +1521,74 @@ async function renderNew() {
   }) }, '＋ Criar e pôr no lote');
   const createRun = h('button', { id: 'np-create-run', onclick: () => void guard(async () => { const p = await make(); runProject(p.id, p.name); }) }, '▶ Criar e executar');
 
+  const templateOf = () => ({
+    kind: 'filmforge-project-template', version: 1, savedAt: new Date().toISOString(),
+    name: name.value.trim(), idea: idea.value.trim(), skillId: skill.value, routeId: route.value,
+    aspect: aspect.value, targetDurationSec: Number(dsec.value) || 60, quality: quality.value, profile: profile.value, language: lang.value,
+    scriptStyle: scriptStyle.value, videoStyle: videoStyle.value, musicStyle: musicStyle.value, musicMode: musicMode.value,
+    musicMinMin: musMin.value, musicMaxMin: musMax.value, musicTrackSec: musTrack.value, waveform: waveform.value,
+    codeMusic: codeMusicCb.checked, audioFirst: audioFirstCb.checked, subtitles: subsSel.value, subtitleFont: subsFont.value, subtitleKind: subsKind.value,
+    freeEngine: npFreeEngine.value, thumbnailTemplate: thumbId || undefined,
+    palette: palOn.checked ? { video: palVideo.value(), thumbnail: palThumb.value() } : undefined,
+    pluginIds: pluginBoxes.filter((x) => x.cb.checked).map((x) => x.k.id), pluginStyles: { ...pluginStyles },
+    characterIds: [...pickedChars], characterVariants: { ...charVariants },
+    storyboard: storyCb.checked ? { enabled: true, approval: storyApproveCb.checked, sketches: storyApproveCb.checked && sketchMode.value ? { mode: sketchMode.value, count: Number(sketchCount.value) || 2 } : undefined } : undefined,
+    h3Speech: h3SpeechCb.checked, h3SpeechMode: h3SpeechCb.checked ? h3ModeSel.value : undefined,
+  });
+  const savePrompt = () => void guard(async () => {
+    const lines = [
+      `# ${name.value.trim() || 'Projeto'}`, '',
+      '## Ideia', idea.value.trim() || '(sem ideia)', '',
+      '## Configuração',
+      `- Skill: ${skill.value}`, `- Rota: ${route.value}`, `- Formato: ${aspect.value} · ${dsec.value || 60}s · ${quality.value}`,
+      `- Perfil de executores: ${profile.value}`, `- Idioma: ${lang.value}`,
+      scriptStyle.value ? `- Estilo de roteiro: ${scriptStyle.value}` : '', videoStyle.value ? `- Estilo de vídeo: ${videoStyle.value}` : '',
+      `- Legendas: ${subsSel.value}${subsKind.value ? ` · ${subsKind.value}` : ''}${subsFont.value ? ` · ${subsFont.value}` : ''}`,
+      `- Trilha: ${codeMusicCb.checked ? 'por código' : 'da rota'} · narrar primeiro: ${audioFirstCb.checked ? 'sim' : 'não'}`,
+      pickedChars.size ? `- Elenco/cenários da Biblioteca: ${charRows.filter((c) => pickedChars.has(c.id)).map((c) => c.name).join(', ')}` : '',
+      pluginBoxes.some((x) => x.cb.checked) ? `- Plugins: ${pluginBoxes.filter((x) => x.cb.checked).map((x) => x.k.name).join(', ')}` : '',
+      '', '## Template', 'Use "📥 Importar template" no Novo projeto para reaplicar exatamente estas configurações.', '',
+    ].filter(Boolean).join('\n');
+    const file = await forge['saveText']({ title: 'Salvar prompt do projeto', defaultName: `${(name.value.trim() || 'projeto').replace(/[^\w\-À-ÿ ]+/g, '').replace(/\s+/g, '-').toLowerCase().slice(0, 50)}-prompt.md`, content: lines, ext: 'md' });
+    if (file) toast('Prompt salvo');
+  });
+  const saveTemplate = () => void guard(async () => {
+    const file = await forge['saveText']({ title: 'Salvar template do projeto', defaultName: `${(name.value.trim() || 'projeto').replace(/[^\w\-À-ÿ ]+/g, '').replace(/\s+/g, '-').toLowerCase().slice(0, 50)}.fftemplate.json`, content: JSON.stringify(templateOf(), null, 2), ext: 'json' });
+    if (file) toast('Template salvo — use "📥 Importar template" em outro projeto');
+  });
+  const importTemplate = () => void guard(async () => {
+    const r = (await forge['openText']({ title: 'Abrir template do projeto', ext: 'json' })) as { file: string; content: string } | null;
+    if (!r) return;
+    let t: Record<string, any>;
+    try { t = JSON.parse(r.content) as Record<string, any>; } catch { throw new Error('arquivo não é um template JSON válido'); }
+    if (t['kind'] !== 'filmforge-project-template') throw new Error('este arquivo não é um template do Dark Automate');
+    const set = (el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, v: unknown) => { if (v !== undefined && v !== null) el.value = String(v); };
+    if (t['skillId']) { skill.value = String(t['skillId']); skill.dispatchEvent(new Event('change')); }
+    if (t['routeId']) { route.value = String(t['routeId']); route.dispatchEvent(new Event('change')); }
+    set(aspect, t['aspect']); set(dsec, t['targetDurationSec']); set(quality, t['quality']); set(profile, t['profile']); set(lang, t['language']);
+    set(scriptStyle, t['scriptStyle']); set(videoStyle, t['videoStyle']); set(musicStyle, t['musicStyle']); set(musicMode, t['musicMode']);
+    set(musMin, t['musicMinMin']); set(musMax, t['musicMaxMin']); set(musTrack, t['musicTrackSec']); set(waveform, t['waveform']);
+    codeMusicCb.checked = !!t['codeMusic']; audioFirstCb.checked = !!t['audioFirst'];
+    set(subsSel, t['subtitles']); set(subsFont, t['subtitleFont']); set(subsKind, t['subtitleKind']); paintSubs();
+    set(npFreeEngine, t['freeEngine']);
+    if (t['thumbnailTemplate']) thumbId = String(t['thumbnailTemplate']);
+    const pal = t['palette'] as { video?: unknown; thumbnail?: unknown } | undefined;
+    if (pal) { palOn.checked = true; palVideo.set(pal.video as never); palThumb.set(pal.thumbnail as never); } else palOn.checked = false;
+    const ids = new Set<string>(Array.isArray(t['characterIds']) ? t['characterIds'].map(String) : []);
+    pickedChars.clear(); for (const id of ids) pickedChars.add(id);
+    for (const [k, v] of Object.entries((t['characterVariants'] ?? {}) as Record<string, unknown>)) charVariants[k] = String(v);
+    repaintChars();
+    const pl = new Set<string>(Array.isArray(t['pluginIds']) ? t['pluginIds'].map(String) : []);
+    for (const x of pluginBoxes) x.cb.checked = pl.has(x.k.id);
+    if (t['pluginStyles'] && typeof t['pluginStyles'] === 'object') Object.assign(pluginStyles, t['pluginStyles']);
+    const sb = t['storyboard'] as { enabled?: boolean; approval?: boolean; sketches?: { mode?: string; count?: number } } | undefined;
+    storyCb.checked = !!sb?.enabled; storyApproveCb.checked = !!sb?.approval; storyApproveCb.disabled = !storyCb.checked;
+    if (sb?.sketches?.mode) sketchMode.value = sb.sketches.mode; if (sb?.sketches?.count) sketchCount.value = String(sb.sketches.count); paintSketch();
+    h3SpeechCb.checked = !!t['h3Speech']; h3ModeSel.value = String(t['h3SpeechMode'] ?? 'dub');
+    if (t['name']) name.value = String(t['name']); if (t['idea']) idea.value = String(t['idea']);
+    sums.forEach((f) => f()); paintReview(); toast('Template importado');
+  });
+
   main.replaceChildren(h('h2', {}, 'Novo projeto'),
     h('div', { class: 'card' },
       h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Nome / título do vídeo', name),
@@ -1551,7 +1659,11 @@ async function renderNew() {
           h('div', { class: 'row', id: 'np-plugins' }, ...pluginBoxes.map((x) => x.el)))
         : h('div', {}, h('h3', {}, 'Plugins (opcional)'),
           h('div', { class: 'muted' }, 'Nenhum plugin instalado. Na aba Plugins você instala de uma pasta ou de uma URL do GitHub (formato Claude ou coleção de prompts de estilo).')),
-      h('div', { class: 'row actions' }, create, createQ, createRun)));
+      /* ── salvar prompt/template e importar template (todas as configurações, sem conteúdo) ── */
+  h('div', { class: 'row actions' }, create, createQ, createRun,
+    h('button', { class: 'small', id: 'np-save-prompt', title: 'Salva a ideia e todas as configurações em um arquivo Markdown', onclick: savePrompt }, '💾 Prompt'),
+    h('button', { class: 'small', id: 'np-save-template', title: 'Salva todas as configurações deste projeto em um template JSON', onclick: saveTemplate }, '💾 Template'),
+    h('button', { class: 'small', id: 'np-import-template', title: 'Aplica um template salvo anteriormente', onclick: importTemplate }, '📥 Template'))));
   /* ── redesenho: 5 campos sempre visíveis + 5 gavetas com resumo, revisão e guiado ── */
   const sums: Array<() => void> = [];
   const drawer = (id: string, title: string, summary: () => string, ...dkids: Array<HTMLElement | null>) => {
@@ -3391,6 +3503,51 @@ function castCard(p: Project): HTMLElement {
     toast(r.added.length ? `Elenco: ${r.added.join(', ')} — vozes distribuidas` : 'O elenco já tem todos os falantes do roteiro.');
     current = await forge.getProject(p.id); renderEditor(true);
   });
+  let libCache: CharRow[] | undefined;
+  const loadLib = async () => (libCache ??= ((await forge['charactersList']('character')) as CharRow[]));
+  /** Painel simples para escolher personagens já criados na Biblioteca. */
+  const importLib = () => void guard(async () => {
+    const rows = await loadLib();
+    if (!rows.length) { toast('A Biblioteca ainda não tem personagens — crie um lá.', true); return; }
+    const pickedId = new Set<string>();
+    const grid = h('div', { class: 'chr-pick chr-pick-panel' }, ...rows.map((c) => {
+      const img = charImage(forge as never, c);
+      const btn = h('button', { class: 'chr-chip', title: `${c.look}${c.voice?.description ? ` · voz: ${c.voice.description}` : ''}`, onclick: () => {
+        if (pickedId.has(c.id)) pickedId.delete(c.id); else pickedId.add(c.id);
+        btn.classList.toggle('on', pickedId.has(c.id));
+      } }, img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, c.name.slice(0, 1)), h('span', {}, c.name));
+      return btn;
+    }));
+    let bg: HTMLElement;
+    const close = () => bg.remove();
+    bg = h('div', { class: 'modal-bg', id: 'cast-lib-modal', onclick: (e) => { if (e.target === bg) close(); } },
+      h('div', { class: 'modal' },
+        h('div', { class: 'row' }, h('h3', { class: 'grow' }, '📚 Importar da Biblioteca'), h('button', { onclick: close }, '✕')),
+        h('p', { class: 'muted small' }, 'Escolha personagens já criados (folha, aparência fixa e voz). Eles entram no elenco com os mesmos nomes do roteiro.'),
+        grid,
+        h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { onclick: close }, 'Cancelar'),
+          h('button', { class: 'primary', onclick: () => {
+            for (const id of pickedId) {
+              const c = rows.find((x) => x.id === id); if (!c) continue;
+              if (list.some((m) => m.speaker.toLowerCase() === c.name.toLowerCase())) continue;
+              list.push({ speaker: c.name, refAudio: c.voice?.refAudio, voice: c.voice?.apiVoice, description: [c.look, c.voice?.description && `voz: ${c.voice.description}`].filter(Boolean).join(' - ') });
+            }
+            close(); paint(); toast(`${pickedId.size} personagem(ns) adicionado(s) ao elenco — clique em "Salvar vozes"`);
+          } }, 'Adicionar ao elenco'))));
+    document.body.append(bg);
+  });
+  /** Salva no elenco da Biblioteca os personagens que só existem neste projeto (nome, aparência e voz). */
+  const saveToLib = () => void guard(async () => {
+    const rows = await loadLib();
+    let created = 0;
+    for (const m of list) {
+      if (!m.speaker.trim() || rows.some((c) => c.name.toLowerCase() === m.speaker.trim().toLowerCase())) continue;
+      await forge['charactersSave']({ name: m.speaker.trim(), look: m.description?.trim() || m.speaker.trim(), kind: 'pessoa', entity: 'character', voice: { refAudio: m.refAudio, apiVoice: m.voice, description: m.description } });
+      created++;
+    }
+    libCache = undefined;
+    toast(created ? `${created} personagem(ns) salvo(s) na Biblioteca` : 'Todos os personagens do elenco já estão na Biblioteca');
+  });
   const paint = () => {
     const rows = list.map((m, i) => {
       const nm = h('input', { value: m.speaker, placeholder: 'Nome (o mesmo de "NOME: fala")', class: 'grow' }) as HTMLInputElement;
@@ -3408,7 +3565,12 @@ function castCard(p: Project): HTMLElement {
         h('button', { class: 'small', id: 'pj-cast-auto', title: 'Lê todas as falas "NOME: ..." do roteiro e das cenas, cria quem falta e distribui vozes', onclick: auto }, '🧩 Criar do roteiro'),
         h('button', { class: 'primary small', id: 'pj-cast-save', onclick: save }, 'Salvar vozes')),
       h('div', { class: 'muted small' }, 'Cada fala "NOME: …" usa a voz do personagem: a de referência (clonagem) e a da API (quando a narração cai para a API). O NARRADOR é um personagem como outro. Sem tocar aqui, o app cria o elenco sozinho depois da bíblia.'),
-      ...rows,
+      h('div', { class: 'row' },
+        h('button', { class: 'small', id: 'pj-cast-import', title: 'Escolhe personagens da Biblioteca (folha, aparência e voz) para o elenco', onclick: importLib }, '📚 Importar da Biblioteca'),
+        h('button', { class: 'small', id: 'pj-cast-to-lib', title: 'Cria na Biblioteca os personagens do elenco que ainda não existem lá', onclick: saveToLib }, '💾 Salvar na Biblioteca'),
+        h('span', { class: 'muted small' }, list.length ? `${list.length} no elenco` : ''),
+        h('span', { class: 'sp' })),
+      ...(list.length ? rows : [h('div', { class: 'muted small' }, 'Nenhum personagem ainda. Use 🧩 Criar do roteiro (lê "NOME: fala"), ＋ Personagem, ou importe da Biblioteca.')]),
       h('button', { class: 'small', onclick: () => { list.push({ speaker: '' }); paint(); } }, '＋ Personagem'),
       h('datalist', { id: 'cast-api-voices' }, ...['nova', 'shimmer', 'coral', 'sage', 'onyx', 'echo', 'ash', 'fable', 'Kore', 'Aoede', 'Puck', 'Charon', 'Fenrir'].map((v) => h('option', { value: v }))));
   };
