@@ -775,7 +775,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
         /* elenco e cenários do motor do plugin: o agente lê a API inteira e grava vários arquivos (rotas antigas tinham 900 s) */
         /* vídeo livre em planos de 3–4 s (modelo local): cada plano é uma página — até 15 min por plano */
         const shotsFree = step.kind === 'free' && binding.type === 'harness' && shotsWanted(binding.harness, project.targetDurationSec || 15);
-        const timeoutSec = shotsFree ? Math.max(stepTimeoutSec(step), shotDurations(Math.min(180, project.targetDurationSec || 15)).length * 1500 + 600) : stepTimeoutSec(step);
+        const timeoutSec = shotsFree ? Math.max(stepTimeoutSec(step, project.targetDurationSec), shotDurations(Math.min(180, project.targetDurationSec || 15)).length * 1500 + 600) : stepTimeoutSec(step, project.targetDurationSec);
         for (let attempt = 1; attempt <= maxTries; attempt++) {
           if (signal.aborted) return { ok: false, reason: 'cancelado' };
           emit({ t: 'step.attempt', stepId: step.id, sceneId, binding: label, attempt });

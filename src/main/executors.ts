@@ -187,7 +187,7 @@ async function freeViaHtmlOnce(c: ExecContext, o: ExecutorOptions, hh: { id: str
         cwd: c.projectDir, prompt, model: hh.model, effort: hh.effort, sampling,
         /* sem ferramentas: o HTML dentro do JSON de um write_file quase dobra os tokens e, cortado, o
            Ollama rejeita a chamada ("invalid tool call arguments… unexpected end of JSON input") */
-        signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step) + 30,
+        signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step, c.project.targetDurationSec) + 30,
       });
       if (!res.ok) {
         if (res.stdout.trim()) fs.writeFileSync(path.join(c.outDir, raw), res.stdout);   // ex.: laço interrompido — o que veio até ali
@@ -451,7 +451,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
   /* modelos locais em modo estrito: etapas que gravam JSON (plano de cenas, metadados) usam decodificação guiada —
      a resposta só pode ser JSON no esquema da etapa (sem ferramentas: o app grava o arquivo) */
   const schema = isHttpHarness(cfg) && cfg.strict !== false ? stepSchema(c.step.kind) : undefined;
-  try { res = await runHarness(cfg, { cwd, prompt: buildPromptMarked(c) + (schema ? `\nResponda SOMENTE com o JSON de ${path.basename(file)} (o app grava o arquivo).` : ''), model, effort, signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step) + 30, env, schema,
+  try { res = await runHarness(cfg, { cwd, prompt: buildPromptMarked(c) + (schema ? `\nResponda SOMENTE com o JSON de ${path.basename(file)} (o app grava o arquivo).` : ''), model, effort, signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step, c.project.targetDurationSec) + 30, env, schema,
     tools: schema ? undefined : { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
   finally { stopWatch(); }
   if (!res.ok) {
@@ -548,7 +548,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
         const stop = watchOutputs(cwd, c.log);
         let r: Awaited<ReturnType<typeof runHarness>>;
         const beforeLint = (() => { try { return fs.statSync(file).mtimeMs; } catch { return 0; } })();
-        try { r = await runHarness(cfg, { cwd, prompt, model, effort, signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step) + 30, env,
+        try { r = await runHarness(cfg, { cwd, prompt, model, effort, signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step, c.project.targetDurationSec) + 30, env,
           tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
         finally { stop(); }
         const wroteLint = (() => { try { return fs.statSync(file).mtimeMs > beforeLint; } catch { return false; } })();
@@ -583,7 +583,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       c.log(`agente de revisão de cena: ${issues.length} problema(s) — ${issues.join('; ').slice(0, 500)}`);
       if (framingRounds >= 2 || c.signal.aborted) { c.log('⚠ revisão de cena ainda com problemas depois de 2 correções — cena mantida assim'); return done; }
       /* orçamento: a correção + o render novo têm que caber no prazo da etapa; sem tempo, fica o render que já passou */
-      const budget = stepTimeoutSec(c.step) * 1000, left = budget - (Date.now() - stepT0), renderMs = Math.max(120_000, budget * 0.2);
+      const budget = stepTimeoutSec(c.step, c.project.targetDurationSec) * 1000, left = budget - (Date.now() - stepT0), renderMs = Math.max(120_000, budget * 0.2);
       if (left < renderMs + 180_000) { c.log(`⚠ revisão de cena: sem tempo para outra correção (${Math.round(left / 60000)} min restantes) — cena mantida com o último render`); return done; }
       framingRounds++;
       c.log(`agente de revisão de cena: pedindo ao ${id} para corrigir (${framingRounds}/2)`);
@@ -614,7 +614,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       const stop = watchOutputs(cwd, c.log);
       let r: Awaited<ReturnType<typeof runHarness>>;
       const before = (() => { try { return fs.statSync(file).mtimeMs; } catch { return 0; } })();
-      try { r = await runHarness(cfg, { cwd, prompt, model, effort, signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step) + 30, env,
+      try { r = await runHarness(cfg, { cwd, prompt, model, effort, signal: c.signal, onLine: c.log, timeoutSec: stepTimeoutSec(c.step, c.project.targetDurationSec) + 30, env,
         tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
       finally { stop(); }
       /* o agy pode gravar a correção e ainda assim terminar com status != success: o arquivo é a verdade */

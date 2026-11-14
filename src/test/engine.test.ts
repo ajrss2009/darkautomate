@@ -27,6 +27,8 @@ async function main() {
   assert.equal(stepTimeoutSec({ id: 'motion', kind: 'motion_graphics', timeoutSec: 600 }), SLOW_STEP_TIMEOUT_SEC);
   assert.equal(stepTimeoutSec({ id: 'script', kind: 'script', timeoutSec: 600 }), 600, 'etapa normal mantém o prazo');
   assert.equal(stepTimeoutSec({ id: 'script', kind: 'script' } as never), 900, 'sem prazo na rota: 15 min');
+  assert.equal(stepTimeoutSec({ id: 'scene_plan', kind: 'scene_plan', timeoutSec: 900 }, 540), 1980, 'plano de cenas de 9 min ganha prazo maior');
+  assert.equal(stepTimeoutSec({ id: 'scene_plan', kind: 'scene_plan', timeoutSec: 900 }, 60), 900, 'vídeo curto mantém 15 min');
 
   // 2. perfil local remove APIs
   const local = applyProfile(getRoute('shorts-autopilot')!, 'local');
