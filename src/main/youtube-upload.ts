@@ -32,7 +32,10 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DEEP = String.raw`
   const deepAll = (sel, root = document) => { const out = [...root.querySelectorAll(sel)]; for (const el of root.querySelectorAll('*')) if (el.shadowRoot) out.push(...deepAll(sel, el.shadowRoot)); return out; };
   const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
-  const deep = (sel) => deepAll(sel).find(vis) || deepAll(sel)[0];
+  /* com o diálogo de envio aberto, a página do fundo (detalhes do vídeo) tem OUTRO título/descrição/IA/capa visíveis:
+     prefere sempre o elemento de dentro do diálogo (senão o título ia para o campo do fundo e o vídeo ficava 'final') */
+  const inDlg = (els) => { const d = document.querySelector('ytcp-uploads-dialog'); if (!d) return els; const f = els.filter((e) => d.contains(e)); return f.some(vis) ? f : els; };
+  const deep = (sel) => { const a = inDlg(deepAll(sel)); return a.find(vis) || a[0]; };
   const checked = (el) => !!el && (el.hasAttribute('checked') || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-selected') === 'true');
 `;
 const TITLE = '#title-textarea #textbox, ytcp-social-suggestions-textbox#title-textarea #textbox';
@@ -113,7 +116,7 @@ class Studio {
       /* o seletor de arquivos só abre com gesto de verdade: clique de mouse no centro do botão */
       /* a página muda de altura enquanto carrega (extensões, sugestões): rola, espera assentar e só clica quando o
          ponto do clique cai DENTRO do botão (senão o clique ia parar na descrição) */
-      const FIND = `deepAll('#custom-still-editor-wrapper, ytcp-thumbnail-uploader #select-button, ytcp-thumbnails-compact-editor-uploader button, ytcp-thumbnail-uploader')
+      const FIND = `inDlg(deepAll('#custom-still-editor-wrapper, ytcp-thumbnail-uploader #select-button, ytcp-thumbnails-compact-editor-uploader button, ytcp-thumbnail-uploader'))
           .filter(vis).find((x) => /enviar arquivo|upload file|upload thumbnail|enviar miniatura/i.test(x.innerText || x.getAttribute('aria-label') || ''))`;
       let box: number[] | null = null;
       for (let i = 0; i < 6 && !box; i++) {
@@ -266,7 +269,7 @@ async function fillAndSave(st: Studio, job: DetailsJob, total: number): Promise<
         ainda em andamento → "publicar/salvar mesmo assim". Sem isso o vídeo continua rascunho. */
   const closed = await until(async () => {
     await st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('ytcp-button, button').filter(vis).find((x) => /publicar mesmo assim|publish anyway|salvar mesmo assim|save anyway/i.test(x.innerText || '')); if (b) b.click(); return !!b; })()`).catch(() => false);
-    return st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('#done-button').find(vis); const share = deepAll('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog, #share-url').find(vis); const after = deepAll('tp-yt-paper-dialog, ytcp-dialog, [role=dialog]').filter(vis).some((d) => /processando v[ií]deo|processing video|v[ií]deo publicado|video published|v[ií]deo salvo|video saved/i.test(d.innerText || '')); return !b || !!share || after; })()`);
+    return st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('#done-button').find(vis); const share = deepAll('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog, #share-url').find(vis); const dl = deepAll('tp-yt-paper-dialog, ytcp-dialog, [role=dialog]').filter(vis); const after = dl.some((d) => /v[ií]deo publicado|video published|v[ií]deo salvo|video saved/i.test(d.innerText || '')) || dl.filter((d) => !deepAll('#done-button', d).some(vis)).some((d) => /processando v[ií]deo|processing video/i.test(d.innerText || '')); return !b || !!share || after; })()`);
   }, 60_000, 1500);
   if (!closed) await st.fail('não salvou', `cliquei em Salvar mas o YouTube Studio não confirmou — o vídeo pode ter ficado como rascunho`);
   const shareUrl = await st.ev<string>(`(() => { ${DEEP} const a = deepAll('#share-url, ytcp-video-share-dialog a[href*="youtu"]').find(vis); return a ? (a.href || a.innerText || '') : ''; })()`).catch(() => '');
@@ -315,10 +318,20 @@ export async function youtubeUpload(job: UploadJob): Promise<{ url?: string; stu
  * (vídeos ou Shorts), acha a linha em rascunho com a duração do vídeo ("0:51"), clica "Editar rascunho" e faz
  * os mesmos passos do envio (título, descrição, thumbnail, visibilidade, Salvar), conferidos.
  */
-export async function youtubeFinishDraft(job: DetailsJob & { duration: string; shorts?: boolean; studioUrl?: string }): Promise<{ url?: string }> {
+export async function youtubeFinishDraft(job: DetailsJob & { duration: string; shorts?: boolean; studioUrl?: string; videoId?: string }): Promise<{ url?: string }> {
   const cdp = await Cdp.connect(job.port);
   const st = new Studio(cdp, job);
   try {
+    /* com o id do vídeo: abre a página de detalhes do rascunho e clica "Editar rascunho" (não depende da lista nem da duração) */
+    if (job.videoId) {
+      await st.open(`https://studio.youtube.com/video/${job.videoId}/edit`);
+      const ok = await until(() => st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('ytcp-button, button, a').filter(vis).find((x) => /^\\s*(editar rascunho|edit draft)\\s*$/i.test(x.innerText || '')); if (!b) return false; b.click(); return true; })()`), 40_000, 1500);
+      if (!ok) await st.fail('rascunho não achado', `o vídeo ${job.videoId} não está como rascunho (ou o botão Editar rascunho não apareceu)`);
+      await wait(3000);
+      const r = await fillAndSave(st, job, (job.timeoutSec ?? 600) * 1000);
+      job.log(`YouTube: rascunho ${job.videoId} salvo`);
+      return { url: r.url ?? `https://youtu.be/${job.videoId}` };
+    }
     await st.open(job.studioUrl ?? 'https://studio.youtube.com/');
     const base = await until(async () => { const h = await st.ev<string>('location.href', 5000); const m = /^(https:\/\/studio\.youtube\.com\/channel\/[^/?#]+)/.exec(h); return m?.[1]; }, 60_000, 1000);
     if (!base && !job.studioUrl) await st.fail('canal do Studio', 'não consegui abrir o YouTube Studio da conta');
@@ -366,7 +379,7 @@ export function uploadMeta(outDir: string, fallbackTitle: string): { title: stri
  * e troca a thumbnail, e salva conferindo (o botão Salvar volta a ficar desabilitado = nada pendente).
  * Thumbnail recusada por falta de verificação do canal (telefone) não impede salvar o resto: vem em `thumb`.
  */
-export async function youtubeEditVideo(job: { port: number; videoId: string; thumbnail?: string; aiContent?: boolean; log: (l: string) => void; debugDir?: string }): Promise<{ thumb?: string; ai?: boolean }> {
+export async function youtubeEditVideo(job: { port: number; videoId: string; title?: string; description?: string; thumbnail?: string; aiContent?: boolean; log: (l: string) => void; debugDir?: string }): Promise<{ thumb?: string; ai?: boolean }> {
   const cdp = await Cdp.connect(job.port);
   const st = new Studio(cdp, job);
   const res: { thumb?: string; ai?: boolean } = {};
@@ -374,6 +387,9 @@ export async function youtubeEditVideo(job: { port: number; videoId: string; thu
     await st.open(`https://studio.youtube.com/video/${job.videoId}/edit`);
     if (!(await until(() => st.ev<boolean>(`(() => { ${DEEP} return !!deep(${JSON.stringify(TITLE)}); })()`), 60_000, 1500))) await st.fail('detalhes do vídeo', 'a página de detalhes do vídeo não abriu');
     await wait(3000);
+    /* título/descrição (ex.: vídeo que ficou com o nome do arquivo) */
+    if (job.title && !sameText(await st.text(TITLE), job.title.slice(0, 100)) && !(await st.setText(TITLE, job.title.slice(0, 100)))) await st.fail('campo título', 'não consegui trocar o título');
+    if (job.description && !sameText(await st.text(DESC), job.description.slice(0, 4900)) && !(await st.setText(DESC, job.description.slice(0, 4900)))) await st.fail('campo descrição', 'não consegui trocar a descrição');
     if (job.thumbnail && fs.existsSync(job.thumbnail)) {
       res.thumb = (await st.chooseThumbnail(job.thumbnail)) ?? 'sem campo';
       if (res.thumb === 'phone') job.log('⚠ YouTube: thumbnail NÃO enviada — o canal precisa confirmar o número de telefone (youtube.com/verify)');
