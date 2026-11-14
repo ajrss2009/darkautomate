@@ -190,6 +190,26 @@ async function main() {
   assert.equal((await runRoute({ project: pa, route: asm, projectDir: da, deps: mk(), signal: new AbortController().signal })).ok, true);
   assert.equal(edits, 2, 'imagem refeita → montagem refeita');
 
+  // 10. roteiro refeito numa execução que falhou depois → na próxima, o plano de cenas guardado (mais velho) não vem do cache
+  const chain: Route = { id: 'c', name: 'c', description: '', videoTypes: [], steps: [
+    { id: 'script', kind: 'script', label: 's', scope: 'project', dependsOn: [], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'harness', harness: 'claude' }] },
+    { id: 'scene_plan', kind: 'scene_plan', label: 'p', scope: 'project', dependsOn: ['script'], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'harness', harness: 'claude' }] },
+  ] };
+  const pc = createProject(settings, { name: 'Cadeia', idea: 'ideia', videoType: 'custom', routeId: 'shorts-autopilot' });
+  const dc = path.join(ws, 'projects', pc.id);
+  let plans = 0;
+  executors.harness = async (c) => {
+    if (c.step.kind === 'script') { const f = path.join(c.projectDir, 'script.md'); fs.writeFileSync(f, 'roteiro'); return { files: [f] }; }
+    plans++; const f = path.join(c.projectDir, 'scenes.json'); fs.writeFileSync(f, JSON.stringify([{ title: 'A', narration: 'a', visualIntent: 'a' }])); return { files: [f] };
+  };
+  assert.equal((await runRoute({ project: pc, route: chain, projectDir: dc, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal((await runRoute({ project: pc, route: chain, projectDir: dc, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal(plans, 1, 'nada mudou: plano do cache');
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(path.join(dc, 'script.md'), later, later);
+  assert.equal((await runRoute({ project: pc, route: chain, projectDir: dc, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal(plans, 2, 'roteiro mais novo que o plano → plano refeito');
+
   console.log('engine tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

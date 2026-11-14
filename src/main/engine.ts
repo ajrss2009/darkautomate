@@ -283,6 +283,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   let lastEmit = 0, labelNow = '';
   let mode: 'scenes' | 'deliverables' = 'deliverables';
   const finishedProject = new Set<string>();     // etapas de escopo projeto concluídas
+  /* arquivos de cada etapa de escopo projeto nesta execução: o cache de quem depende dela confere se está mais velho */
+  const projectOut = new Map<string, string[]>();
   let planRef: { ordered: RouteStep[]; active: (st: RouteStep) => boolean } | null = null;
   /* fala do MiniMax H3: cenas cujo vídeo não trouxe fala voltam para a narração por TTS */
   const ttsFallback = new Set<string>();
@@ -708,6 +710,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       for (const b of bindings) {
         const hit = cache[cacheKey(project, step, b, scene)];
         if (hit && hit.length > 0 && hit.every((f) => fs.existsSync(f)) && !emptyPlan(step, hit)) {
+          const older = !scene && olderThanDeps(step, hit);
+          if (older) { emit({ t: 'log', stepId: step.id, line: `"${older}" é mais nova que o resultado guardado → ${step.id} refeita (sem cache)` }); break; }
           emit({ t: 'step.cache_hit', stepId: step.id, sceneId });
           finish(step, scene, hit);
           return { ok: true, cached: true };
@@ -908,7 +912,16 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
     if (added.length || JSON.stringify(project.cast ?? []) !== before) saveProject(projectDir, project);
   }
 
+  /** dependência de escopo projeto cujo arquivo é mais novo que o resultado em cache desta etapa (ex.: roteiro refeito, plano antigo) */
+  function olderThanDeps(step: RouteStep, hit: string[]): string | undefined {
+    const mine = Math.min(...hit.map((f) => fs.statSync(f).mtimeMs));
+    for (const d of step.dependsOn) for (const f of projectOut.get(d) ?? []) {
+      try { if (fs.statSync(f).mtimeMs > mine + 1000) return d; } catch { /* sumiu: o próprio passo trata */ }
+    }
+    return undefined;
+  }
   function finish(step: RouteStep, scene: Scene | undefined, files: string[]) {
+    if (!scene) projectOut.set(step.id, files);
     if (scene) {
       scene.status[step.id] = 'done';
       scene.artifacts[step.id] = files;
