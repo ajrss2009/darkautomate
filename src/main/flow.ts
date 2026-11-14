@@ -17,10 +17,12 @@ type Json = Record<string, unknown>;
 export class Cdp {
   private id = 0;
   private pending = new Map<number, { res: (v: Json) => void; rej: (e: Error) => void }>();
+  /** ouvintes de eventos do CDP (ex.: Page.fileChooserOpened) */
+  private listeners = new Set<(method: string, params: Json, sessionId?: string) => void>();
   private constructor(private ws: WebSocket) {
     ws.on('message', (data) => {
-      const m = JSON.parse(String(data)) as { id?: number; result?: Json; error?: { message: string } };
-      if (m.id === undefined) return;
+      const m = JSON.parse(String(data)) as { id?: number; result?: Json; error?: { message: string }; method?: string; params?: Json; sessionId?: string };
+      if (m.id === undefined) { if (m.method) for (const l of this.listeners) { try { l(m.method, m.params ?? {}, m.sessionId); } catch { /* ouvinte com erro */ } } return; }
       const p = this.pending.get(m.id); if (!p) return;
       this.pending.delete(m.id);
       if (m.error) p.rej(new Error(m.error.message)); else p.res(m.result ?? {});
@@ -42,6 +44,14 @@ export class Cdp {
       const t = setTimeout(() => { this.pending.delete(id); rej(new Error(`tempo esgotado em ${method}`)); }, timeoutMs);
       this.pending.set(id, { res: (v) => { clearTimeout(t); res(v); }, rej: (e) => { clearTimeout(t); rej(e); } });
       this.ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+    });
+  }
+  /** espera um evento do CDP (opcionalmente de uma sessão) até `timeoutMs`; undefined se não vier */
+  waitEvent(method: string, sessionId: string | undefined, timeoutMs: number): Promise<Json | undefined> {
+    return new Promise((res) => {
+      const l = (m: string, p: Json, s?: string) => { if (m === method && (!sessionId || s === sessionId)) { clearTimeout(t); this.listeners.delete(l); res(p); } };
+      const t = setTimeout(() => { this.listeners.delete(l); res(undefined); }, timeoutMs);
+      this.listeners.add(l);
     });
   }
   close() { try { this.ws.close(); } catch { /* já fechado */ } }

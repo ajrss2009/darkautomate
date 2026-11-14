@@ -27,6 +27,21 @@ async function main() {
   assert.ok(small.score <= 100 && big.score >= 0);
   assert.equal(cleanWindow([3], 2, 6), 0); assert.equal(cleanWindow([1, 5], 3, 6), 1.2); assert.equal(cleanWindow([1, 2, 3, 4, 5], 3, 6), undefined);
 
+  /* pasta "publicar" manda no título, descrição, tags e capa do envio */
+  const od = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-pub-'));
+  fs.writeFileSync(path.join(od, 'metadata.json'), JSON.stringify({ title: 'Do SEO', description: 'desc SEO', tags: ['x'] }));
+  fs.writeFileSync(path.join(od, 'thumbnail.png'), 'x');
+  fs.mkdirSync(path.join(od, 'publicar'));
+  fs.writeFileSync(path.join(od, 'publicar', 'titulo.txt'), '﻿Título da pasta publicar\r\n\r\nAlternativas:\r\n- outro');
+  fs.writeFileSync(path.join(od, 'publicar', 'descricao.txt'), '﻿Descrição revisada.\r\n\r\n0:00 Início\r\n#tag');
+  fs.writeFileSync(path.join(od, 'publicar', 'tags.txt'), 'a, b c, d');
+  fs.writeFileSync(path.join(od, 'publicar', 'Título da pasta publicar - thumbnail.png'), 'x');
+  const pm = uploadMeta(od, 'fallback');
+  assert.equal(pm.title, 'Título da pasta publicar');
+  assert.equal(pm.description, 'Descrição revisada.\n\n0:00 Início\n#tag');
+  assert.deepEqual(pm.tags, ['a', 'b c', 'd']);
+  assert.equal(path.basename(pm.thumbnail!), 'Título da pasta publicar - thumbnail.png');
+
   /* clonar canal: URL da aba de vídeos e métricas */
   assert.equal(channelTabUrl('https://www.youtube.com/@abelhas/featured'), 'https://www.youtube.com/@abelhas/videos');
   assert.equal(channelTabUrl('@abelhas', 'shorts'), 'https://www.youtube.com/@abelhas/shorts');
@@ -56,6 +71,11 @@ async function main() {
       <ytcp-thumbnails-compact-editor-uploader><input type="file" id="file-loader" accept="image/*"></ytcp-thumbnails-compact-editor-uploader>
       <tp-yt-paper-radio-button name="VIDEO_MADE_FOR_KIDS_MFK" style="display:block">para crianças</tp-yt-paper-radio-button>
       <tp-yt-paper-radio-button name="VIDEO_MADE_FOR_KIDS_NOT_MFK" style="display:block">não é para crianças</tp-yt-paper-radio-button>
+      <button id="toggle-button" style="display:block">Mostrar mais</button>
+      <div id="more" hidden>
+        <tp-yt-paper-radio-button name="VIDEO_HAS_ALTERED_CONTENT_YES" style="display:block">Sim</tp-yt-paper-radio-button>
+        <tp-yt-paper-radio-button name="VIDEO_HAS_ALTERED_CONTENT_NO" style="display:block">Não</tp-yt-paper-radio-button>
+      </div>
       <div id="step-vis" hidden>
         <tp-yt-paper-radio-button name="PRIVATE" style="display:block">Privado</tp-yt-paper-radio-button>
         <tp-yt-paper-radio-button name="UNLISTED" style="display:block">Não listado</tp-yt-paper-radio-button>
@@ -64,18 +84,25 @@ async function main() {
       <ytcp-video-upload-progress uploading="">Enviando 37%</ytcp-video-upload-progress>
       <span class="video-url-fadeable"><a href="https://youtu.be/TESTE123abc">https://youtu.be/TESTE123abc</a></span>
       <button id="next-button" style="display:block">Próximo</button>
-      <button id="done-button" style="display:block">Salvar</button>
+      <button id="done-button" style="display:block" disabled>Salvar</button>
     </div>
     <script>
-      const st = { kids: '', vis: '', next: 0, thumb: '' , video: '' };
+      const st = { kids: '', vis: '', next: 0, thumb: '' , video: '', altered: '' };
+      document.getElementById('toggle-button').addEventListener('click', () => { document.getElementById('more').hidden = false; });
       document.getElementById('vid').addEventListener('change', (e) => { st.video = e.target.files[0].name; document.getElementById('dlg').hidden = false;
-        setTimeout(() => { const p = document.querySelector('ytcp-video-upload-progress'); p.removeAttribute('uploading'); p.textContent = 'Upload concluído'; }, 2500); });
+        /* como o Studio: põe o nome do arquivo no título logo e REPÕE de novo ~1,5 s depois (quem digitou cedo perdia o título) */
+        const tb = document.querySelector('#title-textarea #textbox'); tb.innerText = 'final';
+        setTimeout(() => { tb.innerText = 'final'; }, 1500);
+        setTimeout(() => { const p = document.querySelector('ytcp-video-upload-progress'); p.removeAttribute('uploading'); p.textContent = 'Upload concluído'; document.getElementById('done-button').disabled = false; }, 2500); });
       document.getElementById('file-loader').addEventListener('change', (e) => { st.thumb = e.target.files[0].name; });
-      document.querySelectorAll('tp-yt-paper-radio-button').forEach((r) => r.addEventListener('click', () => { const n = r.getAttribute('name'); if (/KIDS/.test(n)) st.kids = n; else st.vis = n; }));
+      document.querySelectorAll('tp-yt-paper-radio-button').forEach((r) => r.addEventListener('click', () => { const n = r.getAttribute('name'); if (/KIDS/.test(n)) st.kids = n; else if (/ALTERED/.test(n)) st.altered = n; else st.vis = n;
+        document.querySelectorAll('tp-yt-paper-radio-button').forEach((o) => { if (/KIDS/.test(o.getAttribute('name')) === /KIDS/.test(n)) o.setAttribute('aria-checked', String(o === r)); });
+        if (/ALTERED/.test(n)) document.querySelectorAll('[name^=VIDEO_HAS_ALTERED]').forEach((o) => o.setAttribute('aria-checked', String(o === r))); }));
       document.getElementById('next-button').addEventListener('click', () => { st.next++; if (st.next >= 3) document.getElementById('step-vis').hidden = false; });
       document.getElementById('done-button').addEventListener('click', async () => {
         const boxes = document.querySelectorAll('#textbox');
         await fetch('/done', { method: 'POST', body: JSON.stringify({ ...st, title: boxes[0].innerText, desc: boxes[1].innerText, uploadingWhenSaved: document.querySelector('ytcp-video-upload-progress').hasAttribute('uploading') }) });
+        document.getElementById('dlg').hidden = true; /* salvo: o diálogo fecha */
       });
     </script></body></html>`;
   const server = http.createServer((req, res) => {
@@ -104,6 +131,7 @@ async function main() {
     assert.equal(d['video'], 'final.mp4'); assert.equal(d['thumb'], 'thumbnail.png');
     assert.equal(d['title'], 'O segredo das abelhas', 'título do SEO (substitui o nome do arquivo)');
     assert.match(String(d['desc']), /Tudo sobre abelhas/);
+    assert.equal(d['altered'], 'VIDEO_HAS_ALTERED_CONTENT_YES', 'feito com IA: marcado como conteúdo alterado/sintético');
     assert.equal(d['kids'], 'VIDEO_MADE_FOR_KIDS_NOT_MFK'); assert.equal(d['vis'], 'UNLISTED', 'NÃO LISTADO');
     assert.equal(d['uploadingWhenSaved'], false, 'só salva depois do envio terminar');
     assert.equal(r.url, 'https://youtu.be/TESTE123abc');

@@ -44,7 +44,7 @@ import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portrait
 import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Language, h3Mode, h3SpokenText, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
 import { styleNegative } from './style-ref';
 import { inScene } from './characters';
-import { projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
+import { isPerson, projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 import { mark, stepSchema } from '../shared/strict';
 import { backdropRef, fallbackPlan, mergeShotSfx, parsePlan, planPrompt, planSchema, shotDurations, shotIdea, shotsWanted, type ShotPlan } from './free-shots';
@@ -2407,7 +2407,11 @@ export function createExecutors(o: ExecutorOptions): Record<Binding['type'], Exe
  * "quadro do vídeo" → o fundo é um quadro do final.mp4.
  */
 async function visualThumb(c: ExecContext, o: ExecutorOptions, ex: Executor): Promise<ExecResult> {
-  const fromFrame = c.binding.type === 'builtin' && c.binding.tool === 'frame-thumbnail';
+  /* personagem da biblioteca no projeto e nenhum design escolhido: a capa usa um QUADRO do vídeo (o rosto certo) com o
+     texto escrito por código — o gerador de imagem sem referência inventava outra pessoa (cantor homem no clipe da
+     Seo-yeon) e escrevia o texto com erro ("Ela ainda especa") */
+  const castFrame = !projectThumbDesign(c.settings, c.project) && (c.project.characters ?? []).some(isPerson) && fs.existsSync(primaryFile('edit', c));
+  const fromFrame = castFrame || (c.binding.type === 'builtin' && c.binding.tool === 'frame-thumbnail');
   const design = projectThumbDesign(c.settings, c.project) ?? (fromFrame ? THUMB_DESIGN_TEMPLATES[0]!.design : undefined);
   if (!design || !o.snapHtml) return ex(c);
   let bgFile: string | undefined;

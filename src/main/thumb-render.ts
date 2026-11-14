@@ -59,13 +59,26 @@ export function frameScore(rgb: Uint8Array): number {
   return colorful * light;
 }
 
+/** Personagem que é gente (não cenário/objeto da biblioteca). */
+export const isPerson = (c: { entity?: string; kind?: string }) => (!c.entity || c.entity === 'character') && c.kind !== 'outro';
+
 /** Instantes candidatos: o meio de cada cena (até 10) + 25/50/75% do vídeo. */
 export function frameCandidates(p: Project, total: number): number[] {
-  const out: number[] = []; let acc = 0;
-  for (const s of p.scenes) { const d = s.durationSec ?? 4; out.push(acc + d / 2); acc += d; }
-  const step = Math.max(1, Math.ceil(out.length / 10));
-  const pick = out.filter((_, i) => i % step === 0);
-  for (const f of [0.25, 0.5, 0.75]) pick.push(total * f);
+  const out: number[] = [], withCast: number[] = []; let acc = 0;
+  /* personagem da biblioteca: só as cenas em que ele aparece (fala/canta ou é citado) — a capa do clipe pegava a
+     ponte vazia da intro em vez da cantora */
+  const names = (p.characters ?? []).filter(isPerson).map((c) => c.name.toLowerCase()).filter(Boolean);
+  for (const s of p.scenes) {
+    const d = s.durationSec ?? 4, mid = acc + d / 2;
+    out.push(mid);
+    const txt = `${s.speaker ?? ''} ${s.visualIntent ?? ''}`.toLowerCase();
+    if (names.length && names.some((n) => txt.includes(n))) withCast.push(mid);
+    acc += d;
+  }
+  const base = withCast.length ? withCast : out;
+  const step = Math.max(1, Math.ceil(base.length / 10));
+  const pick = base.filter((_, i) => i % step === 0);
+  if (!withCast.length) for (const f of [0.25, 0.5, 0.75]) pick.push(total * f);
   return [...new Set(pick.map((t) => Math.round(Math.max(0.5, Math.min(t, total - 0.2)) * 10) / 10))].filter((t) => t >= 0 && t <= total);
 }
 
