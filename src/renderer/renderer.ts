@@ -1078,10 +1078,12 @@ async function renderNew() {
       })) : null] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
     const openPanel = () => {
       let filter: 'all' | 'character' | 'location' | 'prop' = 'all';
+      let mode: 'all' | 'image' | 'code' = 'all';
+      const isCode = (c: CharRow) => c.kind === 'codigo' || !!c.code || !!c.models?.length;
       let term = '';
       const grid = h('div', { class: 'chr-pick chr-pick-panel' });
       const paintPanel = () => {
-        const list = rows.filter((c) => (filter === 'all' || (c.entity ?? 'character') === filter) && (!term || `${c.name} ${c.look}`.toLowerCase().includes(term)));
+        const list = rows.filter((c) => (filter === 'all' || (c.entity ?? 'character') === filter) && (mode === 'all' || (mode === 'code' ? isCode(c) : !isCode(c))) && (!term || `${c.name} ${c.look}`.toLowerCase().includes(term)));
         grid.replaceChildren(...(list.length ? list.map((ch) => {
           const img = charImage(forge as never, ch);
           const btn = h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}`, onclick: () => {
@@ -1094,6 +1096,8 @@ async function renderNew() {
       };
       const tabs = ([['all', 'Tudo'], ['character', '👥 Personagens'], ['location', '🏞 Cenários'], ['prop', '📦 Objetos']] as const).map(([k, l]) =>
         h('button', { class: `small${filter === k ? ' primary' : ''}`, onclick: (e) => { filter = k as typeof filter; for (const b of tabs) b.classList.toggle('primary', b.textContent === l); paintPanel(); } }, l));
+      const modeTabs = ([['all', 'Todas as origens'], ['image', 'Por imagem'], ['code', 'Por código']] as const).map(([k, l]) =>
+        h('button', { class: `small${mode === k ? ' primary' : ''}`, onclick: () => { mode = k; for (const b of modeTabs) b.classList.toggle('primary', b.textContent === l); paintPanel(); } }, l));
       const q = h('input', { placeholder: 'Buscar por nome ou aparência', class: 'grow', oninput: () => { term = q.value.toLowerCase(); paintPanel(); } }) as HTMLInputElement;
       let bg: HTMLElement;
       const close = () => { bg.remove(); paintChars(); };
@@ -1101,7 +1105,7 @@ async function renderNew() {
         h('div', { class: 'modal' },
           h('div', { class: 'row' }, h('h3', { class: 'grow' }, '📚 Escolher da Biblioteca'), h('button', { onclick: close }, '✕')),
           h('p', { class: 'muted small' }, 'Selecione personagens, cenários e objetos. Eles entram no projeto com folha/aparência fixa, voz e modelos 3D — e economizam tokens porque o app reutiliza o que já existe.'),
-          h('div', { class: 'row' }, ...tabs), q,
+          h('div', { class: 'row' }, ...tabs), h('div', { class: 'row' }, ...modeTabs), q,
           grid,
           h('div', { class: 'row actions' }, h('span', { class: 'muted small' }, `${pickedChars.size} escolhido(s)`), h('span', { class: 'sp' }),
             h('button', { class: 'primary', onclick: close }, 'Concluir'))));

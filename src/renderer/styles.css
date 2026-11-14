@@ -1228,3 +1228,5 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .gp-warn summary { cursor:pointer; color:var(--warn); font-size:11px; }
 .gp-warn ul { margin:6px 0 0; padding-left:18px; color:var(--mut); font-size:11px; }
 .chr-pick-panel { max-height: 52vh; overflow: auto; padding: 4px; } .chr-pick-panel .chr-chip { width: 108px; }
+.chr-code-preview { display:flex; flex-direction:column; gap:8px; margin-top:8px; } .chr-code-preview:empty { display:none; } .chr-preview-img { width:100%; max-width:360px; aspect-ratio:1; object-fit:contain; background:#f4f6f8; border:1px solid var(--line2); border-radius:10px; align-self:center; }
+.lib-subtabs { display:flex; gap:6px; margin:8px 0 4px; flex-wrap:wrap; } .lib-subtab { background:var(--panel2); border:1px solid var(--line); color:var(--mut); border-radius:99px; padding:3px 10px; font-size:11px; cursor:pointer; } .lib-subtab.on { color:var(--txt); border-color:var(--acc); background:rgba(124,92,255,.16); }

@@ -109,6 +109,8 @@ contextBridge.exposeInMainWorld('forge', {
   charactersAddFiles: (id: string) => call('characters:add-files', id),
   charactersAddFolder: (id: string) => call('characters:add-folder', id),
   charactersGenerateCode: (input: unknown) => call('characters:generate-code', input),
+  charactersPreviewCode: (input: unknown) => call('characters:preview-code', input),
+  charactersAddGeneratedImage: (id: string, file: string, role: string) => call('characters:add-generated-image', id, file, role),
   charactersRemoveModel: (id: string, name: string) => call('characters:remove-model', id, name),
   storyImport: (o: unknown) => call('story:import', o),
   storyCancel: () => call('story:cancel'),

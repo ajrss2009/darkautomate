@@ -2076,7 +2076,40 @@ function registerIpc() {
     const n = characters.addCharacterFolder(settings, id, r.filePaths[0]);
     return { ...n, character: characters.getCharacter(settings, id) };
   });
-  /** Assistente de código: a IA escreve o desenho do personagem/cenário/objeto para as cenas por código. */
+  /** Assistente de código: gera a DESCRIÇÃO e uma PÁGINA que desenha o item; renderiza uma prévia PNG para aceitar/gerar outra. */
+  h('characters:preview-code', async (input: { name?: string; look?: string; entity?: string; kind?: string; style?: string; previous?: string }) => {
+    const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 600_000);
+    try {
+      const what = input.entity === 'location' ? 'cenário' : input.entity === 'prop' ? 'objeto' : 'personagem';
+      const apiText = settings.providers.find((p) => p.apiKey && Array.isArray(p.models) && p.models.length > 0);
+      const chain: Binding[] = apiText ? [{ type: 'api', provider: apiText.id, model: apiText.models?.[0] ?? '' }, { type: 'harness', harness: 'auto' }] : [{ type: 'harness', harness: 'auto' }];
+      const { json } = await llmJson(chain, settings, path.join(settings.workspace, 'tools', 'library'),
+        `Você é diretor de arte de animação por código. Crie o ${what} "${input.name ?? ''}" para reutilizar na Biblioteca.\n` +
+        `Aparência/base: ${input.look ?? ''}\nEstilo: ${input.style ?? 'flat 2D, contorno limpo, cores sólidas'}\n` +
+        (input.previous ? `O usuário pediu OUTRA versão — mude pose/ângulo/paleta, mantendo a mesma identidade.\n` : '') +
+        `Responda SOMENTE com JSON com DOIS campos:\n` +
+        `1) "code": descrição curta do desenho em código (até 90 palavras, português) para o prompt das cenas: formas/proporções, cores em hex e um detalhe inconfundível; para cenário use camadas fundo/meio/frente; para objeto, uma vista clara.\n` +
+        `2) "html": uma página HTML AUTOCONTIDA (uma única string; sem rede, sem bibliotecas, sem imports, sem imagens externas) que desenhe o ${what} num canvas 720x720, fundo neutro claro (#f4f6f8), centralizado e ocupando ~80% do quadro, sem texto. Use <script> comum (NÃO type="module") e defina window.__forge = { duration: 1, fps: 30, seek(t) { ...desenhe aqui... }, pause(){} } ANTES do fim do script; a página precisa funcionar chamando seek(0). Cores em hex.`,
+        ac.signal, () => {});
+      const code = String((json as { code?: string } | undefined)?.code ?? '').trim();
+      const html = String((json as { html?: string } | undefined)?.html ?? '').trim();
+      if (!html || !/__forge/.test(html)) return { error: 'a IA não devolveu uma página válida para a prévia', code };
+      const dir = path.join(settings.workspace, 'cache', 'library-previews');
+      fs.mkdirSync(dir, { recursive: true });
+      const base = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const htmlFile = path.join(dir, `${base}.html`);
+      const png = path.join(dir, `${base}.png`);
+      fs.writeFileSync(htmlFile, html, 'utf8');
+      try { await snapHtml(htmlFile, png, { w: 720, h: 720 }); }
+      catch (e) { return { error: `a página não renderizou: ${(e as Error).message.slice(0, 180)}`, code, html: htmlFile }; }
+      return { code, png, html: htmlFile };
+    } finally { clearTimeout(timer); }
+  });
+  /** Copia para o item uma imagem já gerada (prévia aceita), sem abrir diálogo. */
+  h('characters:add-generated-image', (id: string, file: string, role: 'sheet' | 'portrait' | 'extra') => {
+    if (!fs.existsSync(String(file))) throw new Error('imagem da prévia não encontrada');
+    return characters.addCharacterImage(settings, id, String(file), role);
+  });
   h('characters:generate-code', async (input: { name?: string; look?: string; entity?: string; kind?: string; style?: string }) => {
     const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 180_000);
     try {
