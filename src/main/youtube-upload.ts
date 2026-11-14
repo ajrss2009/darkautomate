@@ -249,13 +249,15 @@ async function fillAndSave(st: Studio, job: DetailsJob, total: number): Promise<
   job.log(`YouTube: visibilidade ${visName}`);
 
   /* 5) espera o envio terminar e o botão Salvar ficar habilitado (salvar antes deixa rascunho) */
-  const done = await until(() => st.ev<boolean>(`(() => { ${DEEP}
+  const done = await until(() => st.ev<boolean | string>(`(() => { ${DEEP}
+    if (deepAll('*').some((e) => e.children.length === 0 && vis(e) && /limite di[aá]rio de envios|daily upload limit/i.test(e.textContent || ''))) return 'limit';
     const p = deep('ytcp-video-upload-progress'); const txt = (p && (p.innerText || p.textContent) || '').toLowerCase();
     const uploading = p && p.hasAttribute('uploading');
     const b = deep('#done-button');
     const off = !b || b.hasAttribute('disabled') || b.getAttribute('aria-disabled') === 'true';
     return !uploading && !/uploading|enviando|carregando|\\d+ ?%/.test(txt) && !off;
   })()`), total, 3000);
+  if (done === 'limit') await st.fail('limite diário', 'o YouTube atingiu o LIMITE DIÁRIO DE ENVIOS deste canal — faça a verificação do canal (youtube.com/verify) ou espere 24 h; o vídeo ficou como rascunho');
   if (!done) await st.fail('upload não terminou', 'o upload não terminou (ou o botão Salvar não habilitou) no tempo limite');
   const url = await st.ev<string>(`(() => { ${DEEP} const a = deep('span.video-url-fadeable a, a.ytcp-video-info, ytcp-video-info a'); return a ? a.href : ''; })()`).catch(() => '');
   if (!(await st.click('#done-button'))) await st.fail('botão salvar', 'não encontrei o botão Salvar/Concluir');
