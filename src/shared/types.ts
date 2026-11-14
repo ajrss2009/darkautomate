@@ -255,6 +255,8 @@ export interface Skill {
   thumbnailTemplate?: string;
   /** Sem cenas nem narração: o prompt vai direto ao harness (rota vídeo livre). */
   freeform?: boolean;
+  /** Videoclipe: sem fala/narração; o plano visual são cortes de 3–5 s sobre a música (pasta do usuário ou banco). */
+  musicVideo?: boolean;
   /** Cenas por código em Three.js com a biblioteca local "cartoon3d" (personagens 2D em mundo 3D, contorno a tinta). */
   codeKit?: 'cartoon3d';
   /** link na ideia: o app abre a página num navegador invisível, lê o conteúdo e grava a rolagem (anexos em web/) antes da rota */

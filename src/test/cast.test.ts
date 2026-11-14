@@ -2,7 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { autoCast, castApiVoice, castRefPrompt, charactersInScene, genderOf, injectCastRefs, portraitFile, voiceSheet } from '../main/cast';
+import { autoCast, castApiVoice, castRefPrompt, charactersInScene, genderOf, injectCastRefs, portraitFile, splitSpeakerTag, spokenText, voiceSheet } from '../main/cast';
 import { buildPrompt, codeCastText, isCastStory, routeSceneKinds } from '../main/prompts';
 import { ROUTES } from '../main/presets';
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
@@ -91,6 +91,27 @@ async function main() {
   assert.match(buildPrompt(ctx('code_scene', 'code_scene', { scene: scene as never, sceneDir: path.join(dir, 'scenes', 's01') })), /ELENCO \(bíblia de personagens/);
   const plain = createProject(s, { name: 'Normal', idea: 'x', videoType: 'custom', routeId: 'shorts-autopilot' });
   assert.ok(!isCastStory(plain), 'rota comum não vira história com elenco');
+
+  /* diálogo "NOME: fala": o nome vira speaker e NÃO é falado; falante diferente mantém o texto */
+  assert.deepEqual(splitSpeakerTag('ANA: Eu não vou.'), { speaker: 'ANA', text: 'Eu não vou.' });
+  assert.deepEqual(splitSpeakerTag('João Silva: Calma, eu explico.'), { speaker: 'João Silva', text: 'Calma, eu explico.' });
+  assert.deepEqual(splitSpeakerTag('Veja bem: o problema é outro'), { text: 'Veja bem: o problema é outro' }, 'nome com minúscula não é personagem');
+  assert.equal(spokenText({ narration: 'ANA: Eu não vou.', speaker: 'ana' }), 'Eu não vou.');
+  assert.equal(spokenText({ narration: 'BETO: Calma.', speaker: 'ANA' }), 'BETO: Calma.');
+  assert.equal(spokenText({ narration: 'Texto normal.', speaker: 'ANA' }), 'Texto normal.');
+
+  /* elenco automático: nomes vindos do "NOME:" das falas (planos antigos inclusive) e vozes distintas */
+  const voicesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-cast-narr-'));
+  const vozes = createProject(s, { name: 'Vozes', idea: 'x', videoType: 'custom', skillId: 'historia-codigo' });
+  vozes.scenes = [
+    { id: 's01', index: 1, title: 'a', narration: 'NARRADOR: Era uma vez.', visualIntent: 'x', kind: 'code', durationSec: 4, status: {}, artifacts: {} },
+    { id: 's02', index: 2, title: 'b', narration: 'ANA: Eu não vou.', visualIntent: 'x', kind: 'code', durationSec: 4, status: {}, artifacts: {} },
+    { id: 's03', index: 3, title: 'c', narration: 'BETO: Calma.', visualIntent: 'x', kind: 'code', durationSec: 4, status: {}, artifacts: {} },
+  ] as never;
+  const added2 = autoCast(vozes, voicesDir, []);
+  assert.deepEqual([...added2].sort(), ['ANA', 'BETO', 'NARRADOR'], 'todo falante do roteiro entra no elenco');
+  assert.equal(new Set((vozes.cast ?? []).map((m) => m.voice)).size, 3, 'uma voz de API distinta por personagem');
+  fs.rmSync(voicesDir, { recursive: true, force: true });
 
   /* trilha por código em qualquer rota: reserva em toda etapa de trilha e opção do projeto */
   for (const r of ROUTES) for (const st of r.steps.filter((x) => x.kind === 'music' && x.id === 'music'))

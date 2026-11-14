@@ -968,6 +968,9 @@ export function buildPromptMarked(c: ExecContext): string {
     case 'ideation':
       return head + `\nTema/canal/ideia: ${p.idea}\nGere 10 ideias de vídeo com gancho forte em JSON: [{"title","hook","angle"}].`;
     case 'script':
+      if (p.skill?.musicVideo) {
+        return head + `\nIdeia: ${p.idea}\nEscreva ${file} como um PLANO VISUAL de videoclipe: clima, paleta, luz, enquadramentos e a ordem dos planos no ritmo da música. NÃO escreva narração falada nem letra para cantar (a trilha é instrumental ou já existe); sem texto na tela além do nome da faixa, se quiser. Duração alvo: ${p.targetDurationSec} s.`;
+      }
       if (isMusicClip(p) || isLyricVideo(p)) {
         return head + `\nIdeia: ${p.idea}\nEscreva ${file} EXATAMENTE no formato pedido pela skill (conceito visual, plano de músicas/letra). Não escreva narração falada.` +
           (isMusicClip(p) ? (() => { const cp = compilationPlan(p); return `\nCOLETÂNEA DEFINIDA PELO USUÁRIO (prevalece sobre números da skill): duração total entre ${Math.round(cp.minSec / 60)} e ${Math.round(cp.maxSec / 60)} minutos. ` +
@@ -987,6 +990,22 @@ export function buildPromptMarked(c: ExecContext): string {
         `Apenas o texto a ser falado, organizado por blocos` +
         (p.skill?.multiVoice ? ' — como é um diálogo, escreva cada fala numa linha no formato "NOME: fala".' : '.');
     case 'scene_plan': {
+      if (p.skill?.musicVideo) {
+        const target = p.targetDurationSec;
+        const soma = `SOMA OBRIGATÓRIA: a soma de "durationSec" DEVE ficar entre ${Math.round(target * 0.95)} e ${Math.round(target * 1.05)} s (~ ${target} s da música). `;
+        const schema = `Grave um ARRAY JSON em scenes.json: [{"id":"s01","title","narration":"","visualIntent","kind":KIND,"durationSec":3-5${p.skill.id === 'clipe-musical-pasta' ? ',"userMedia","clipStart","manualDuration"' : ',"searchTerms"'}]. `;
+        if (p.skill.id === 'clipe-musical-pasta') {
+          return head + `\nLeia ${path.join(c.projectDir, 'script.md')} e monte o VIDEOCLIPE com os arquivos da pasta do usuário. ` +
+            'Cada cena é UM CORTE de 3 a 5 s (nunca menos de 3, nunca mais de 5), sem narração ("narration": ""). ' +
+            'VÍDEO: "kind":"video", "userMedia" com o nome exato do arquivo, "clipStart" no segundo inicial, "manualDuration": true e "durationSec" entre 3 e 5; os trechos de um mesmo vídeo são contíguos (o próximo clipStart = fim do anterior) e podem parar antes do fim (ignore o resto se sobrarem menos de 3 s). ' +
+            'FOTO: "kind":"image", "userMedia" com o nome exato e "durationSec" entre 3 e 5. ' +
+            'Use CADA arquivo marcado "usar numa cena" pelo menos uma vez e repita em ciclo quando faltar duração para fechar a música. ' + soma + schema +
+            `\n${attachmentsText(p, c.projectDir, 'scene_plan')}`;
+        }
+        return head + `\nLeia ${path.join(c.projectDir, 'script.md')} e monte o VIDEOCLIPE com bancos de mídia. ` +
+          'Cada cena é UM CORTE de 3 a 5 s (nunca menos de 3, nunca mais de 5), "kind":"stock", "narration": "" e "searchTerms" com 2–4 palavras EM INGLÊS descrevendo exatamente o plano (os bancos são consultados por tema). ' +
+          'Varie enquadramentos (geral, detalhe, movimento) e cubra a música sem repetir o mesmo assunto em cenas seguidas. ' + soma + schema;
+      }
       const codeMusic = isMusicClip(p) && sceneKinds.has('code') && !sceneKinds.has('video');
       const clip = clipParams(p);
       const timing = isLyricVideo(p) ? excerpt(path.join(c.outDir, 'lyrics-timing.json'), 6000) : '';

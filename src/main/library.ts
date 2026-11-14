@@ -124,7 +124,7 @@ export function skillMarkdown(k: Skill): string {
     ['aspect', k.aspect], ['durationSec', k.durationSec], ['language', k.language], ['presentation', k.presentation],
     ['mediaSources', k.mediaSources], ['mixSources', k.mixSources], ['previewMedia', k.previewMedia], ['thumbnailTemplate', k.thumbnailTemplate],
     ['freeform', k.freeform ? true : undefined],
-    ['scriptEnding', k.scriptEnding], ['multiVoice', k.multiVoice ? true : undefined], ['reviewCriteria', k.reviewCriteria],
+    ['scriptEnding', k.scriptEnding], ['multiVoice', k.multiVoice ? true : undefined], ['musicVideo', k.musicVideo ? true : undefined], ['reviewCriteria', k.reviewCriteria],
     ['plugins', k.plugins],
   ];
   for (const [key, value] of scalar) { const v = yamlScalar(value); if (v !== undefined) lines.push(`${key}: ${v}`); }
@@ -212,6 +212,7 @@ export function parseSkillMarkdown(text: string, fallbackId?: string): Skill | u
   if (meta.freeform === true) k.freeform = true;
   if (meta.scriptEnding === 'loop' || meta.scriptEnding === 'next' || meta.scriptEnding === 'conclusion') k.scriptEnding = meta.scriptEnding;
   if (meta.multiVoice === true) k.multiVoice = true;
+  if (meta.musicVideo === true) k.musicVideo = true;
   if (meta.reviewCriteria) k.reviewCriteria = String(meta.reviewCriteria);
   if (Array.isArray(meta.plugins) && meta.plugins.length) k.plugins = meta.plugins.map(String);
   else if (typeof meta.plugins === 'string' && meta.plugins.trim()) k.plugins = [meta.plugins.trim()];

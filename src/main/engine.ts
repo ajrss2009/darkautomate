@@ -8,7 +8,7 @@ import type {
 import { bindingLabel, termsText } from '../shared/types';
 import { AUTO_ORDER, abortMessage, isHttpHarness, resolveHarness, resolveHarnessCommand } from './harness';
 import { duration as probeDuration } from './ffmpeg';
-import { autoCast } from './cast';
+import { autoCast, splitSpeakerTag } from './cast';
 import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
 import { pluginsRoot } from './plugins';
 import { stepTimeoutSec } from './timeouts';
@@ -543,37 +543,45 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       }
     }
     const prevScenes = new Map(project.scenes.map((x) => [x.id, x]));
-    project.scenes = list.map((s, i) => ({
-      id: s.id ?? `s${String(i + 1).padStart(2, '0')}`,
-      index: i + 1,
-      title: s.title ?? `Cena ${i + 1}`,
-      narration: s.narration ?? '',
-      visualIntent: s.visualIntent ?? '',
-      durationSec: s.durationSec,
-      manualDuration: s.manualDuration,
-      subtitle: s.subtitle,
-      effects: s.effects,
-      variation: s.variation,
-      kind: s.kind ?? 'image',
-      camera: s.camera,
-      searchTerms: termsText(s.searchTerms) || [s.title, s.visualIntent].filter(Boolean).join(' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length > 2).slice(0, 6).join(' ') || undefined,
-      videoPrompt: s.videoPrompt,
-      speaker: typeof s.speaker === 'string' && s.speaker.trim() ? s.speaker.trim() : undefined,
-      emotion: normalizeEmotion(s.emotion),
-      delivery: typeof s.delivery === 'string' && s.delivery.trim() ? s.delivery.trim().slice(0, 120) : undefined,
-      userMedia: typeof s.userMedia === 'string' && s.userMedia.trim() ? s.userMedia.trim() : undefined,
-      clipStart: Number(s.clipStart) > 0 ? Math.round(Number(s.clipStart) * 100) / 100 : undefined,
-      trimStart: Number(s.trimStart) > 0 ? Math.round(Number(s.trimStart) * 1000) / 1000 : undefined,
-      clipCrop: s.clipCrop && Number(s.clipCrop.w) > 0 && Number(s.clipCrop.h) > 0
-        ? { w: Math.round(Number(s.clipCrop.w)), h: Math.round(Number(s.clipCrop.h)), x: Math.max(0, Math.round(Number(s.clipCrop.x) || 0)), y: Math.max(0, Math.round(Number(s.clipCrop.y) || 0)) }
-        : undefined,
-      notes: s.notes,
-      sfx: Array.isArray(s.sfx) ? s.sfx.map(String) : undefined,
-      sfxCues: Array.isArray(s.sfxCues) ? s.sfxCues : undefined,
-      overrides: s.overrides,
-      status: {},
-      artifacts: {},
-    }));
+    project.scenes = list.map((s, i) => {
+      /* diálogo: "NOME: fala" numa linha só vira "speaker" + fala (o nome não é falado) */
+      const raw = s.narration ?? '';
+      const single = !/[\r\n]/.test(raw.trim()) ? splitSpeakerTag(raw) : undefined;
+      const declared = typeof s.speaker === 'string' && s.speaker.trim() ? s.speaker.trim() : undefined;
+      const speaker = declared ?? single?.speaker;
+      const narration = single?.speaker && (!declared || declared.toLowerCase() === single.speaker.toLowerCase()) ? single.text : raw;
+      return {
+        id: s.id ?? `s${String(i + 1).padStart(2, '0')}`,
+        index: i + 1,
+        title: s.title ?? `Cena ${i + 1}`,
+        narration,
+        visualIntent: s.visualIntent ?? '',
+        durationSec: s.durationSec,
+        manualDuration: s.manualDuration,
+        subtitle: s.subtitle,
+        effects: s.effects,
+        variation: s.variation,
+        kind: s.kind ?? 'image',
+        camera: s.camera,
+        searchTerms: termsText(s.searchTerms) || [s.title, s.visualIntent].filter(Boolean).join(' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length > 2).slice(0, 6).join(' ') || undefined,
+        videoPrompt: s.videoPrompt,
+        speaker,
+        emotion: normalizeEmotion(s.emotion),
+        delivery: typeof s.delivery === 'string' && s.delivery.trim() ? s.delivery.trim().slice(0, 120) : undefined,
+        userMedia: typeof s.userMedia === 'string' && s.userMedia.trim() ? s.userMedia.trim() : undefined,
+        clipStart: Number(s.clipStart) > 0 ? Math.round(Number(s.clipStart) * 100) / 100 : undefined,
+        trimStart: Number(s.trimStart) > 0 ? Math.round(Number(s.trimStart) * 1000) / 1000 : undefined,
+        clipCrop: s.clipCrop && Number(s.clipCrop.w) > 0 && Number(s.clipCrop.h) > 0
+          ? { w: Math.round(Number(s.clipCrop.w)), h: Math.round(Number(s.clipCrop.h)), x: Math.max(0, Math.round(Number(s.clipCrop.x) || 0)), y: Math.max(0, Math.round(Number(s.clipCrop.y) || 0)) }
+          : undefined,
+        notes: s.notes,
+        sfx: Array.isArray(s.sfx) ? s.sfx.map(String) : undefined,
+        sfxCues: Array.isArray(s.sfxCues) ? s.sfxCues : undefined,
+        overrides: s.overrides,
+        status: {},
+        artifacts: {},
+      };
+    });
     /* opções/escolhas do storyboard sobrevivem ao recarregar o plano (mesma cena, mesmo visual) */
     for (const sc of project.scenes) {
       const pv = prevScenes.get(sc.id);
@@ -867,12 +875,13 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
     const dir = path.join(deps.settings.workspace, 'voices');
     let files: string[] = [];
     try { files = fs.readdirSync(dir).filter((f) => /\.(mp3|wav|m4a|flac|ogg)$/i.test(f)).sort().map((f) => path.join(dir, f)); } catch { /* sem pasta de vozes */ }
+    const before = JSON.stringify(project.cast ?? []);
     const added = autoCast(project, projectDir, files);
-    if (!added.length) return;
     for (const m of (project.cast ?? []).filter((x) => added.includes(x.speaker))) {
       emit({ t: 'log', line: `elenco: ${m.speaker} → ${m.refAudio ? `voz ${path.basename(m.refAudio)}` : 'voz padrão da rota'}${m.voice ? ` · API ${m.voice}` : ''}` });
     }
-    saveProject(projectDir, project);
+    /* vozes que faltavam em membros já existentes também precisam ser gravadas */
+    if (added.length || JSON.stringify(project.cast ?? []) !== before) saveProject(projectDir, project);
   }
 
   function finish(step: RouteStep, scene: Scene | undefined, files: string[]) {

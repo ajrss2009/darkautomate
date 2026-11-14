@@ -39,7 +39,7 @@ import { freeLibImport, pluginContract, pluginPrompt, pluginsRoot, stageCartoon3
 import { contractProblem, smallModelBudget } from './contract';
 import { voiceAccepted } from '../shared/voices';
 import { characterPhoto, musicAttachment, sceneUserMedia } from './attachments';
-import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt } from './cast';
+import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt, spokenText } from './cast';
 import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Language, h3Mode, h3SpokenText, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
 import { styleNegative } from './style-ref';
 import { inScene } from './characters';
@@ -681,7 +681,7 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     const voice = memberVoice || projVoice || b.voice || (p.kind === 'gemini' ? 'Kore' : p.kind === 'fish' ? '' : 'alloy');
     if (memberVoice) c.log(`voz de ${member!.speaker}: ${voice}`);
     if (p.kind === 'fish' && !voice) c.log('Fish Audio: nenhuma voz escolhida — usando a voz padrão da conta (escolha a voz na etapa de narração)');
-    const written = await prov.tts(p, model, voice, c.scene.narration, file, c.signal, narrationInstructions(c.project, c.scene));
+    const written = await prov.tts(p, model, voice, spokenText(c.scene), file, c.signal, narrationInstructions(c.project, c.scene));
     /* Gemini grava .wav: remove narrações antigas com outra extensão para a cena não ter duas */
     if (written !== file) try { fs.rmSync(file, { force: true }); } catch { /* ok */ }
     await trimNarration(c, written);
@@ -731,7 +731,7 @@ function commonVars(c: ExecContext, side: { maxSide?: number; multiple?: number;
   const sceneSec = c.scene?.durationSec ?? 4;
   const total = c.project.scenes.reduce((a, x) => a + (x.durationSec ?? 4), 0) || c.project.targetDurationSec;
   return {
-    prompt: isThumb ? thumbnailPrompt(c) : visualPrompt(c), negative: [vt?.negativePrompt, styleNegative(c.project)].filter(Boolean).join(', '), text: c.scene?.narration ?? c.project.idea,
+    prompt: isThumb ? thumbnailPrompt(c) : visualPrompt(c), negative: [vt?.negativePrompt, styleNegative(c.project)].filter(Boolean).join(', '), text: c.scene ? spokenText(c.scene) : c.project.idea,
     /* como dizer a fala (emoção do plano): templates de voz usam {{delivery}} */
     delivery: c.scene ? deliveryEnglish(c.scene) : 'natural and clear narration',
     /* efeitos sonoros por IA (Stable Audio 3): o que soa na cena e por quanto tempo */

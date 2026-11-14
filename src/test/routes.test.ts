@@ -178,6 +178,28 @@ async function main() {
     if (edit) assert.ok(redo.includes(edit.id), 'a montagem depende das cenas');
     assert.deepEqual(downstreamSteps(r, []), []);
   }
+  /* ── videoclipes: pasta do usuário (cortes 3–5 s) e banco de mídia (cortes 3–5 s) ── */
+  for (const id of ['clipe-musical-pasta', 'clipe-musical-banco']) {
+    const k = skills.find((x) => x.id === id);
+    assert.ok(k && k.musicVideo, `skill ${id} de videoclipe`);
+    const r = ROUTES.find((x) => x.id === k!.routeId);
+    assert.ok(r, `rota ${k!.routeId}`);
+    assert.ok(!r!.steps.some((st) => st.kind === 'narration'), 'sem TTS: videoclipe não tem narração');
+    assert.ok(r!.steps.some((st) => st.kind === 'music'), 'com trilha');
+    assert.ok(r!.steps.some((st) => st.kind === 'edit'), 'com montagem');
+    const p = createProject(s, { name: id, idea: 'cidade à noite, neon', videoType: 'custom', skillId: id });
+    const compat = checkSkillRoute(k, r, 'image', r);
+    assert.equal(compat.errors.length, 0, `${id}: rota compatível (${compat.errors.join('; ')})`);
+    const planCtx = { settings: s, project: p, projectDir: path.join(ws, 'projects', p.id), outDir: path.join(ws, 'projects', p.id, 'out'), step: { ...p.route!.steps.find((st) => st.kind === 'scene_plan')!, params: {} }, binding: { type: 'harness', harness: 'claude' }, signal: new AbortController().signal, log: () => {} } as unknown as ExecContext;
+    const plan = buildPrompt(planCtx);
+    assert.match(plan, /3 a 5 s/, `${id}: cortes de 3 a 5 s`);
+    assert.match(plan, /"narration": ""|narração vazia/i, `${id}: sem fala`);
+    if (id === 'clipe-musical-pasta') assert.match(plan, /userMedia/, 'pasta: usa os arquivos do usuário');
+    else assert.match(plan, /"kind":"stock"[\s\S]*searchTerms|searchTerms[\s\S]*EM INGLÊS/, 'banco: termos de busca em inglês');
+    const scriptCtx = { ...planCtx, step: { ...p.route!.steps.find((st) => st.kind === 'script')!, params: {} } } as unknown as ExecContext;
+    assert.match(buildPrompt(scriptCtx), /NÃO escreva narração falada|Não escreva narração/i, `${id}: roteiro sem narração`);
+  }
+
   console.log('routes/skills/profiles tests: OK');
 }
 

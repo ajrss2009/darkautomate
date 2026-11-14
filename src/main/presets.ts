@@ -470,6 +470,36 @@ export const ROUTES: Route[] = [
       step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] }),
     ],
   },
+  {
+    id: 'clipe-musical-pasta', name: 'Clipe musical com a sua pasta (fotos e vídeos)',
+    description: 'Conceito visual → plano de cortes de 3 a 5 s com os arquivos da pasta → fotos/vídeos do usuário (trechos) → música (anexada ou gerada) → montagem. Sem narração.',
+    videoTypes: ['anime_2d', 'cartoon_3d', 'motion_graphics', 'custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Conceito visual (sem narração)', scope: 'project', bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Plano de cortes (3–5 s)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'image', kind: 'image', label: 'Fotos da pasta (cena)', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['image'], bindings: imageChain, onFail: 'skip' }),
+      step({ id: 'video', kind: 'video', label: 'Vídeos da pasta (trecho de 3–5 s)', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['video'], bindings: videoChain, onFail: 'skip' }),
+      step({ id: 'music', kind: 'music', label: 'Música (da pasta ou gerada)', scope: 'project', dependsOn: ['scene_plan'], optional: true, bindings: musicChain }),
+      step({ id: 'edit', kind: 'edit', label: 'Montagem final (ffmpeg)', scope: 'project', dependsOn: ['scene_plan', 'image', 'video', 'music'], params: { autoMotion: true }, bindings: [{ type: 'builtin', tool: 'assemble' }] }),
+      step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),
+      step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: thumbChain, timeoutSec: 900 }),
+    ],
+  },
+  {
+    id: 'clipe-musical-banco', name: 'Clipe musical com banco de mídia (cortes de 3–5 s)',
+    description: 'Conceito visual → cortes de 3 a 5 s → imagens e vídeos de bancos por tema → música → montagem. Sem narração.',
+    videoTypes: ['anime_2d', 'cartoon_3d', 'motion_graphics', 'custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Conceito visual (sem narração)', scope: 'project', bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Plano de cortes (3–5 s)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'stock', kind: 'stock_media', label: 'Bancos de mídia (cortes de 3–5 s)', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['stock'], optional: true, onFail: 'skip',
+        params: { maxSeconds: 5 }, bindings: [{ type: 'stock', sources: MIXED_STOCK_SOURCES, media: 'both' }], retry: { max: 1, backoffMs: 500 }, timeoutSec: 900 }),
+      step({ id: 'music', kind: 'music', label: 'Música', scope: 'project', dependsOn: ['scene_plan'], optional: true, bindings: musicChain }),
+      step({ id: 'edit', kind: 'edit', label: 'Montagem final (ffmpeg)', scope: 'project', dependsOn: ['scene_plan', 'stock', 'music'], bindings: [{ type: 'builtin', tool: 'assemble' }] }),
+      step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),
+      step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: thumbChain, timeoutSec: 900 }),
+    ],
+  },
 ];
 
 export const BUILTIN_SKILLS: Skill[] = [

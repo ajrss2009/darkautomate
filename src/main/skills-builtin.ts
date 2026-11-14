@@ -142,13 +142,13 @@ const CAST_STORIES: Skill[] = [
     description: 'Dorama animado por código (Canvas/SVG): personagens desenhados sempre iguais pela bíblia, uma voz por personagem.',
     global: 'Dorama: emoção contida, olhares e uma reviravolta por episódio. Diálogos curtos; cada fala na voz do próprio personagem. Cliffhanger no final.',
     script: 'Roteiro de cena: cada fala numa linha "NOME: fala" (2 a 4 personagens, nomes curtos e fixos). Até 2 frases por fala. Termine em cliffhanger.',
-    scene: 'Cenas "code" com 1 a 3 falas seguidas do mesmo momento; "speaker" = quem fala primeiro; visualIntent com o local, quem está em quadro (pelo NOME), enquadramento e emoção.',
+    scene: 'Cenas "code" com UMA fala por cena; "speaker" = quem fala; "narration" = só a fala, sem o nome. Para manter o mesmo momento, repita cenário/posição no visualIntent das cenas seguidas; enquadramento e emoção no visualIntent.',
     visual: 'Ilustração 2D flat com paleta pastel de dorama, luz suave, personagens chibi elegantes.' }),
   castStory({ id: 'historia-codigo', name: 'História com personagens em código (narrador + falas)', code: true, aspect: '16:9', durationSec: 180, appearance: 'custom',
     description: 'Conto com narrador e diálogos animado por código: personagens da bíblia desenhados sempre iguais, voz própria para cada um e para o NARRADOR.',
     global: 'História contada: o NARRADOR conduz e os personagens falam nas cenas-chave, cada um com a própria voz. Começo, conflito, virada e desfecho.',
     script: 'Cada bloco numa linha "NOME: texto": "NARRADOR: …" para a narração e "Personagem: fala" para os diálogos. 2 a 4 personagens com nomes fixos.',
-    scene: 'Cenas "code" com 1 a 3 linhas seguidas do mesmo momento; "speaker" = quem fala primeiro; visualIntent com o local da bíblia, personagens em quadro (pelo NOME), ação e câmera.',
+    scene: 'Cenas "code" com UMA linha do roteiro por cena; "speaker" = NARRADOR ou o personagem; "narration" = só a fala (sem o nome). Para manter o mesmo momento, repita cenário/posição no visualIntent das cenas seguidas; ação e câmera no visualIntent.',
     visual: 'Livro ilustrado animado: recortes de papel ou flat 2D, paleta quente, cenários fixos da bíblia.' }),
 ];
 
@@ -216,10 +216,41 @@ const LINK_EXPLAINER: Skill = {
 };
 
 /** Skills especiais: vídeo livre (vazia) e o misto motion + bancos + vídeo IA. */
+const MUSIC_VIDEO_PASTA: Skill = {
+  id: 'clipe-musical-pasta', name: 'Clipe musical com a sua pasta (fotos e vídeos, cortes de 3–5 s)', builtin: true, musicVideo: true,
+  description: 'Videoclipe montado com as fotos e os vídeos de uma pasta: cada corte dura 3 a 5 s e entra no ritmo da música. Sem narração.',
+  global: 'Você monta um VIDEOCLIPE, não uma narração. A música manda no ritmo; as fotos e os vídeos escolhidos pelo usuário são o visual. Nada de fala: a trilha é a única voz.',
+  steps: {
+    script: 'Grave `script.md` com um plano visual curto: clima, paleta, ordem dos arquivos e como cada corte conversa com a música. NÃO escreva narração falada.',
+    scene_plan: 'Monte o videoclipe com os arquivos da pasta do usuário: UMA cena por corte, de 3 a 5 s, sem narração. Para VÍDEO: "kind":"video", "userMedia" com o nome exato, "clipStart" no segundo inicial do trecho, "manualDuration": true e "durationSec" 3–5. Para FOTO: "kind":"image", "userMedia" com o nome exato e "durationSec" 3–5. Use cada arquivo pelo menos uma vez e repita em ciclo quando faltar duração para fechar a música. Os cortes de um mesmo vídeo são contíguos (o próximo clipStart = fim do anterior) e não precisam esgotar o arquivo (ignore o resto se sobrarem menos de 3 s).',
+    image: 'Foto do usuário (a cena usa o arquivo; não gere outra imagem).',
+    video: 'Trecho do vídeo do usuário (3 a 5 s; a cena usa o arquivo; não gere outro vídeo).',
+    thumbnail: 'O corte de maior impacto, com o nome da música em até 3 palavras.',
+  },
+  appearance: 'custom', routeId: 'clipe-musical-pasta', aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'mixed', mediaSources: [], mixSources: [],
+  outputStyle: '🎬 Visual: fotos e vídeos da pasta do usuário, cortes de 3 a 5 s no ritmo da música.\n🎵 Música: o arquivo de áudio anexado ou gerada pela rota.\n🔇 Sem narração e sem texto falado.\n📤 Saída: final.mp4 com a trilha do projeto.',
+};
+
+const MUSIC_VIDEO_BANCO: Skill = {
+  id: 'clipe-musical-banco', name: 'Clipe musical com banco de mídia (cortes de 3–5 s)', builtin: true, musicVideo: true,
+  description: 'Videoclipe com imagens e vídeos de bancos de mídia: cada corte dura 3 a 5 s, escolhido pelos termos de busca, no ritmo da música. Sem narração.',
+  global: 'Você monta um VIDEOCLIPE, não uma narração. A música manda no ritmo; os bancos de mídia (Pexels, Pixabay, Wikimedia, NASA, Internet Archive e YouTube) trazem o visual. Nada de fala.',
+  steps: {
+    script: 'Grave `script.md` com o conceito visual: clima, paleta e a sequência de imagens que a música pede. NÃO escreva narração falada.',
+    scene_plan: 'Monte o videoclipe em cortes de 3 a 5 s, sem narração: cada cena tem "kind":"stock", "durationSec" 3–5 e "searchTerms" com 2–4 palavras EM INGLÊS descrevendo exatamente o plano (o banco é consultado por tema). Varie os planos (geral, detalhe, movimento) e cubra a duração da música.',
+    stock_media: 'Escolha o trecho/imagem do banco que corresponde aos searchTerms da cena (3 a 5 s).',
+    thumbnail: 'O quadro de maior impacto, com o nome da música em até 3 palavras.',
+  },
+  appearance: 'motion_graphics', routeId: 'clipe-musical-banco', aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'mixed', mediaSources: STOCK, mixSources: ['stock'],
+  outputStyle: '🎬 Visual: imagens e vídeos de bancos de mídia, cortes de 3 a 5 s no ritmo da música.\n🎵 Música: gerada pela rota ou o áudio anexado.\n🔇 Sem narração.\n📤 Saída: final.mp4 com a trilha do projeto.',
+};
+
 const SPECIAL: Skill[] = [
   CARTOON_3D_SHORT,
   CARTOON_3D_LONG,
   LINK_EXPLAINER,
+  MUSIC_VIDEO_PASTA,
+  MUSIC_VIDEO_BANCO,
   ...CAST_STORIES,
   { id: 'video-livre', name: 'Vídeo livre (só o seu prompt)', builtin: true, freeform: true,
     description: 'Skill vazia: não gera roteiro, cenas nem narração. O que você escrever no prompt vai direto ao harness pela rota "Vídeo livre".',

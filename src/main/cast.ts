@@ -55,6 +55,31 @@ export function castApiVoice(kind: string, cast: CastMember[], member: CastMembe
 const norm = (s: string) => s.trim().toLowerCase();
 const isNarrator = (s: string) => /^(narrador|narradora|narrator|narração)$/i.test(s.trim());
 
+/** "NOME: fala" → { speaker, text }. Nome curto; usado no plano e na fala (sem falar o nome em voz alta). */
+export function splitSpeakerTag(line: string): { speaker?: string; text: string } {
+  const s = (line ?? '').trim();
+  /* nomes de personagem: 1 a 3 palavras, cada uma começando com maiúscula (evita "Veja bem: ...") */
+  const m = /^([\p{Lu}][\p{L}\d'’-]*(?:\s+[\p{Lu}][\p{L}\d'’-]*){0,2})\s*:\s+([\s\S]+)$/u.exec(s);
+  if (!m) return { text: s };
+  const name = m[1]!.trim();
+  if (name.split(/\s+/).length > 4) return { text: s };
+  return { speaker: name, text: m[2]!.trim() };
+}
+
+/** Texto que o TTS fala: tira o prefixo "NOME:" quando é o próprio falante (legado ou modelo teimoso). */
+export function spokenText(scene: Pick<Scene, 'narration' | 'speaker'>): string {
+  const raw = (scene.narration ?? '').trim();
+  if (!raw) return raw;
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  /* uma fala por cena: remove só o prefixo do falante desta cena */
+  if (lines.length === 1 && scene.speaker) {
+    const tag = splitSpeakerTag(lines[0]!);
+    if (tag.speaker && norm(tag.speaker) === norm(scene.speaker)) return tag.text;
+  }
+  return raw;
+}
+
+
 /**
  * Completa o elenco do projeto: um membro por personagem da bíblia (e por "speaker" das cenas),
  * com aparência fixa, voz de referência (arquivo da pasta voices, preferindo o gênero certo, sem repetir)
@@ -66,15 +91,18 @@ export function autoCast(project: Project, projectDir: string, voiceFiles: strin
   const voices = voiceSheet(projectDir);
   const names: string[] = [];
   const add = (n: string) => { if (n.trim() && !names.some((x) => norm(x) === norm(n))) names.push(n.trim()); };
-  for (const s of project.scenes) if (s.speaker) add(s.speaker);
+  for (const s of project.scenes) {
+    if (s.speaker) add(s.speaker);
+    /* fala no formato "NOME: ..." (planos antigos ou modelo teimoso): o nome também é elenco */
+    for (const line of (s.narration ?? '').split(/\r?\n/)) { const tag = splitSpeakerTag(line); if (tag.speaker) add(tag.speaker); }
+  }
   for (const ch of looks) add(ch.name);
   for (const v of voices) add(v.name);
   const cast: CastMember[] = [...(project.cast ?? [])];
   const usedRef = new Set(cast.map((m) => m.refAudio).filter(Boolean));
   const usedApi = new Set(cast.map((m) => m.voice).filter(Boolean));
   const added: string[] = [];
-  for (const name of names) {
-    if (cast.some((m) => norm(m.speaker) === norm(name))) continue;
+  const fillVoice = (name: string): { refAudio?: string; voice?: string } => {
     const look = looks.find((x) => norm(x.name) === norm(name))?.look;
     const vdesc = voices.find((x) => norm(x.name) === norm(name))?.voice ?? '';
     const g = genderOf(`${vdesc} ${look ?? ''}`);
@@ -85,10 +113,24 @@ export function autoCast(project: Project, projectDir: string, voiceFiles: strin
     const pool = g === '?' ? [...API_VOICES.f, ...API_VOICES.m] : API_VOICES[g];
     const api = pool.find((v) => !usedApi.has(v)) ?? pool[0];
     if (api) usedApi.add(api);
-    cast.push({ speaker: name, refAudio: ref, voice: api, description: [look, vdesc && `voz: ${vdesc}`].filter(Boolean).join(' — ') || undefined });
+    return { refAudio: ref, voice: api };
+  };
+  /* membro já existente (o usuário escolheu nome/aparência): completa só o que falta */
+  for (const m of cast) {
+    if (m.refAudio || m.voice) continue;
+    const v = fillVoice(m.speaker);
+    m.refAudio = v.refAudio;
+    m.voice = v.voice;
+  }
+  for (const name of names) {
+    if (cast.some((m) => norm(m.speaker) === norm(name))) continue;
+    const look = looks.find((x) => norm(x.name) === norm(name))?.look;
+    const vdesc = voices.find((x) => norm(x.name) === norm(name))?.voice ?? '';
+    const v = fillVoice(name);
+    cast.push({ speaker: name, ...v, description: [look, vdesc && `voz: ${vdesc}`].filter(Boolean).join(' - ') || undefined });
     added.push(name);
   }
-  if (added.length) project.cast = cast;
+  if (cast.length) project.cast = cast;
   return added;
 }
 
