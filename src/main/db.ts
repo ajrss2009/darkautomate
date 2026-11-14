@@ -22,7 +22,7 @@ import { projectDirOf, projectsDir } from './settings';
  * (kilo, não giga), a reescrita é barata.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Custo estimado do vídeo (calculado pelo main, que conhece canais/preços); o banco só guarda o JSON. */
 let costProvider: ((p: Project) => unknown) | undefined;
@@ -152,6 +152,9 @@ export class ForgeDb {
         ['plugins', 'TEXT'], ['scenes_with_media', 'INTEGER'], ['has_final', 'INTEGER'], ['runs', 'INTEGER'],
         ['last_run_at', 'TEXT'], ['last_run_ok', 'INTEGER'], ['total_ms', 'REAL'], ['cost_json', 'TEXT'],
       ]);
+      /* v3: o hash passou a incluir cronômetro/vídeo final/mídias — reindexa tudo na próxima varredura
+         (antes, o tempo de geração gravado no fim da execução não chegava ao índice: total_ms ficava 0) */
+      if (v < 3) this.db.run('UPDATE project SET indexed_mtime = NULL, content_hash = NULL');
       this.db.run('PRAGMA user_version = ' + SCHEMA_VERSION);
       this.dirty = true;
     }
@@ -171,9 +174,15 @@ export class ForgeDb {
     if (this.closed) return false;
     const projectDir = path.resolve(dir);
     const updated = String(p.updatedAt ?? p.createdAt ?? nowIso());
+    const lastRun = p.production?.runs?.[(p.production?.runs?.length ?? 0) - 1];
+    const scenesWithMedia = (p.scenes ?? []).filter((s) => Object.values(s.artifacts ?? {}).some((a) => (a?.length ?? 0) > 0)).length;
+    const hasFinal = fs.existsSync(path.join(projectDir, 'out', 'final.mp4')) ? 1 : 0;
+    /* o cronômetro de produção, o vídeo final e as mídias entram no hash: o fim da execução só muda esses campos
+       (sem eles no hash, o tempo de geração nunca chegava ao índice e a lista mostrava "—") */
     const hash = sha1(JSON.stringify([
       p.name, p.idea ?? '', p.videoType, p.aspect ?? '', p.foldId ?? '', p.channelId ?? '', p.skill?.id ?? '', p.routeId ?? '',
       (p.scenes ?? []).map((s) => [s.id, s.title, s.narration, s.kind, s.durationSec, s.status]),
+      p.production?.totalMs ?? 0, p.production?.runs?.length ?? 0, lastRun?.endedAt ?? '', hasFinal, scenesWithMedia,
     ]));
     const prev = scalar(this.db, `SELECT content_hash FROM project WHERE id = ?`, [p.id]) as string | undefined;
     if (prev === hash) {
@@ -183,9 +192,6 @@ export class ForgeDb {
     const seconds = Math.round((p.scenes ?? []).reduce((a, s) => a + (s.durationSec ?? 0), 0) * 100) / 100;
     const stage = (p.scenes ?? []).some((s) => Object.values(s.status).includes('running')) ? 'running'
       : (p.scenes ?? []).length && (p.scenes ?? []).every((s) => Object.values(s.status).every((x) => x === 'done' || x === 'skipped')) ? 'ready' : 'planning';
-    const lastRun = p.production?.runs?.[(p.production?.runs?.length ?? 0) - 1];
-    const scenesWithMedia = (p.scenes ?? []).filter((s) => Object.values(s.artifacts ?? {}).some((a) => (a?.length ?? 0) > 0)).length;
-    const hasFinal = fs.existsSync(path.join(projectDir, 'out', 'final.mp4')) ? 1 : 0;
     const cost = (() => { try { return costProvider?.(p); } catch { return undefined; } })();
     this.transaction(() => {
       this.db.run(`

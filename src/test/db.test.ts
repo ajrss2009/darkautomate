@@ -72,6 +72,13 @@ async function main() {
   assert.ok(logRows.every((r) => typeof r['device_id'] === 'string' && r['device_id']));
   assert.equal(logRows[logRows.length - 1]!['entity'], 'project');
 
+  /* fim da execução: só o cronômetro muda (recordRun) — o tempo de geração TEM de chegar ao índice */
+  (a as { production: { totalMs: number; runs: unknown[] } }).production = { totalMs: 98765, runs: [{ startedAt: '2026-11-14T01:00:00.000Z', endedAt: '2026-11-14T01:01:38.000Z', ms: 98765, ok: true }] };
+  db.indexProject(a, path.join(dir, 'a'));
+  const timed = db.listRows().find((r) => r.id === 'a')!;
+  assert.equal(timed.totalMs, 98765, 'tempo de geração no índice depois da execução');
+  assert.equal(timed.runs, 1);
+
   /* apagar a pasta = marcar deleted_at (nada é apagado de verdade) */
   fs.rmSync(path.join(dir, 'b'), { recursive: true, force: true });
   assert.equal(db.syncIndex(s).removed, 1);
