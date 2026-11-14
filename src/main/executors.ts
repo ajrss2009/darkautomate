@@ -913,6 +913,18 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
  *  (voz do projeto, do elenco ou da rota). Sem referência, o template continua em
  *  voice design. O Wan2GP usa `audio_guide` + `audio_prompt_type` com A; deixar
  *  `alt_prompt` vazio faz o Whisper transcrever a referência. */
+/** Tags de voice design aceitas pela OmniVoice (Wan2GP valida e recusa qualquer outra). */
+const OMNI_TAGS = new Set(['american accent', 'australian accent', 'british accent', 'canadian accent', 'child', 'chinese accent', 'elderly', 'female', 'high pitch', 'indian accent', 'japanese accent', 'korean accent', 'low pitch', 'male', 'middle-aged', 'moderate pitch', 'portuguese accent', 'russian accent', 'teenager', 'very high pitch', 'very low pitch', 'whisper', 'young adult']);
+/** Mantém só as tags válidas da OmniVoice; "sussurr…/whisper…" vira "whisper". */
+export function omniVoiceTags(desc: string): string {
+  const out: string[] = [];
+  for (const raw of desc.split(/[,;]/)) {
+    const t = raw.trim().toLowerCase();
+    const tag = OMNI_TAGS.has(t) ? t : /whisper|sussurr/.test(t) ? 'whisper' : undefined;
+    if (tag && !out.includes(tag)) out.push(tag);
+  }
+  return out.join(', ');
+}
 export function applyWan2gpReferenceVoice(settings: Record<string, unknown>, refAudio: string, templateAltPrompt?: string): void {
   const flags = String(settings.audio_prompt_type ?? '').toUpperCase();
   if (!flags.includes('A')) settings.audio_prompt_type = `A${flags}`;
@@ -980,6 +992,12 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   /* voice design (sem voz clonada): a emoção da fala entra na descrição da voz */
   if (!refAudio && c.step.kind === 'narration' && c.scene?.emotion && typeof settings['alt_prompt'] === 'string' && settings['alt_prompt'].trim()) {
     settings['alt_prompt'] = `${settings['alt_prompt']}, ${deliveryEnglish(c.scene)}`;
+  }
+  /* OmniVoice recusa a geração inteira se a descrição tiver algo fora da lista fixa de tags (emoção, frases livres, PT) */
+  if (/omnivoice/i.test(tpl.model_type) && typeof settings['alt_prompt'] === 'string' && settings['alt_prompt'].trim()) {
+    const before = settings['alt_prompt'];
+    settings['alt_prompt'] = omniVoiceTags(before);
+    if (settings['alt_prompt'] !== before.trim()) c.log(`Wan2GP OmniVoice: descrição de voz reduzida às tags aceitas → "${settings['alt_prompt']}"`);
   }
   /* fala do MiniMax H3 no vídeo: fala com emoção no prompt e, se o personagem tem voz clonada, ela vira o <Audio 1> (Ref2VA) */
   /* dublagem (padrão): a narração TTS da cena vira o <Audio 1> copiado 1:1 e o H3 só sincroniza os lábios (modelo Ref2VA);

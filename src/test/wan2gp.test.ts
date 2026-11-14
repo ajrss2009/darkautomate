@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { runRoute } from '../main/engine';
-import { createExecutors } from '../main/executors';
+import { createExecutors, omniVoiceTags } from '../main/executors';
 import { createProject, defaultSettings } from '../main/settings';
 import { Wan2gpClient } from '../main/wan2gp';
 import * as ops from '../main/ops';
@@ -110,6 +110,9 @@ def init(root=None, output_dir=None, cli_args=None, console_output=True, **kw): 
   const client = Wan2gpClient.get(s.wan2gp, path.resolve(__dirname, '../../tools/wan2gp_bridge.py'));
   assert.deepEqual(await client.models(), [{ model_type: 'z_image' }, { model_type: 'yue2' }]);
   assert.equal(((await client.defaults('yue2')) as { model_type: string }).model_type, 'yue2');
+  // OmniVoice: só tags aceitas (emoção/frases livres derrubavam a narração)
+  assert.equal(omniVoiceTags('male, middle-aged, low pitch, tense, controlled and low, ritmo acelerado'), 'male, middle-aged, low pitch');
+  assert.equal(omniVoiceTags('Female, Young Adult, sussurrando baixinho'), 'female, young adult, whisper');
   Wan2gpClient.shutdownAll();
   console.log('wan2gp tests: OK');
 }
