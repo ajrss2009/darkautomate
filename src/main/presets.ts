@@ -516,7 +516,7 @@ export const ROUTES: Route[] = [
         bindings: [{ type: 'wan2gp', template: 'wan2gp-image-krea2-elenco.json' }, ...imageChain] }),
       step({ id: 'video', kind: 'video', label: 'Vídeo UGC (MiniMax H3 com criador + produto, 4 passos)', scope: 'scene', dependsOn: ['image', 'narration'], onlySceneKinds: ['video'],
         bindings: [{ type: 'wan2gp', template: 'wan2gp-h3-ugc-4step.json' }, { type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, { type: 'api', provider: 'snapgen', model: 'minimax-h3_standard' }, ...videoChain],
-        params: { videoSpeech: false }, timeoutSec: 2400, onFail: 'skip' }),
+        params: { videoSpeech: false, animateImages: true }, timeoutSec: 2400, onFail: 'skip' }),
       ...tail(['narration', 'transcribe', 'image', 'video'], { musicVolume: 0.08 }),
     ],
   },

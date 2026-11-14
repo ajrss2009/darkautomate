@@ -60,6 +60,7 @@ function main() {
   assert.deepEqual(uv.bindings[0], { type: 'wan2gp', template: 'wan2gp-h3-ugc-4step.json' });
   assert.ok(uv.bindings.some((b) => b.type === 'api' && (b as { model?: string }).model === 'muse-ai-video'), 'reserva Snapgen Muse AI');
   assert.equal(uv.params['videoSpeech'], false, 'a voz fica com a narração do criador');
+  assert.equal(uv.params['animateImages'], true, 'cena de foto do produto também é animada (o plano às vezes marca "image")');
 
   /* skills padrão ligadas às rotas */
   const sk = (id: string) => BUILTIN_SKILLS.find((s) => s.id === id)!;

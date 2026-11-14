@@ -2448,7 +2448,14 @@ function userFiles(c: ExecContext): Promise<ExecResult> | undefined {
     if (k === 'stock_media') { c.log(`cena usa o arquivo do usuário (${path.basename(um.file)}): sem busca nos bancos`); return { files: [] }; }
     const out = primaryFile(k, c);
     fs.mkdirSync(path.dirname(out), { recursive: true });
-    if (k === 'image') await ff.run(c.settings.ffmpeg, ['-y', '-i', um.file, '-frames:v', '1', out], c.signal);
+    if (k === 'image') {
+      /* quadro no formato do vídeo: a foto inteira (contain) sobre ela mesma desfocada (cover) — uma foto de produto
+         quadrada num vídeo 9:16 virava clipe quadrado com faixas pretas */
+      const { w: W, h: H } = ff.resolution(c.project.aspect);
+      await ff.run(c.settings.ffmpeg, ['-y', '-i', um.file, '-filter_complex',
+        `[0:v]split[a][b];[a]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:2[bg];[b]scale=${W}:${H}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2`,
+        '-frames:v', '1', out], c.signal);
+    }
     else {
       /* trecho pedido pelo plano (clipStart/durationSec): corta só o pedaço que aparece, sem áudio (a cena é silenciosa) */
       const start = Math.max(0, Number(c.scene?.clipStart) || 0);

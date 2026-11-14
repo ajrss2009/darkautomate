@@ -166,6 +166,28 @@ async function main() {
   (await acquireLocalModel('t:1', free, () => waited++))();
   assert.equal(waited, 2, 'fila livre não espera');
 
+  // 9. cena refeita (duração mudou) → montagem refeita, mesmo com a chave do projeto igual (antes vinha do cache)
+  const asm: Route = {
+    id: 'a', name: 'a', description: '', videoTypes: [],
+    steps: [
+      { id: 'scene_plan', kind: 'scene_plan', label: 'plan', scope: 'project', dependsOn: [], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'harness', harness: 'claude' }] },
+      { id: 'image', kind: 'image', label: 'img', scope: 'scene', dependsOn: ['scene_plan'], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'api', provider: 'openai', model: 'm' }] },
+      { id: 'edit', kind: 'edit', label: 'edit', scope: 'project', dependsOn: ['image'], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'builtin', tool: 'assemble' }] },
+    ],
+  };
+  const pa = createProject(settings, { name: 'Montagem', idea: 'ideia', videoType: 'custom', routeId: 'shorts-autopilot' });
+  const da = path.join(ws, 'projects', pa.id);
+  let edits = 0;
+  executors.harness = async (c) => { const f = path.join(c.projectDir, 'scenes.json'); fs.writeFileSync(f, JSON.stringify([{ title: 'A', narration: 'a', visualIntent: 'a' }])); return { files: [f] }; };
+  executors.api = async (c) => { const f = path.join(c.sceneDir!, 'frame.png'); fs.writeFileSync(f, 'x'); return { files: [f] }; };
+  executors.builtin = async (c) => { edits++; const f = path.join(c.outDir, 'final.mp4'); fs.writeFileSync(f, 'v'); return { files: [f] }; };
+  assert.equal((await runRoute({ project: pa, route: asm, projectDir: da, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal((await runRoute({ project: pa, route: asm, projectDir: da, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal(edits, 1, 'nada mudou: montagem do cache');
+  pa.scenes[0]!.durationSec = 7.25;
+  assert.equal((await runRoute({ project: pa, route: asm, projectDir: da, deps: mk(), signal: new AbortController().signal })).ok, true);
+  assert.equal(edits, 2, 'imagem refeita → montagem refeita');
+
   console.log('engine tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

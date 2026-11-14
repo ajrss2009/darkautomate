@@ -162,6 +162,9 @@ export function sceneProject(project: Project, scene?: Scene): Project {
   return { ...project, ...(scene.skillOverride ? { skill: scene.skillOverride } : {}), ...(scene.pluginsOverride ? { plugins: scene.pluginsOverride } : {}) };
 }
 
+/** Etapas que juntam o que as anteriores produziram (legenda, montagem): refeitas quando uma dependência foi refeita. */
+export const REASSEMBLE_KINDS = new Set<string>(['subtitles', 'edit']);
+
 export function cacheKey(project: Project, step: RouteStep, binding: Binding, scene?: Scene): string {
   const h = crypto.createHash('sha256');
   h.update(JSON.stringify({
@@ -246,8 +249,11 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
     const words = text.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w.toLowerCase()));
     return [...new Set(words)].slice(0, 6).join(' ');
   };
+  /* rota que anima todas as cenas (UGC): uma cena "image" do plano vira "video" — o quadro (foto do produto) é animado */
+  const animateAll = route.steps.some((st) => st.kind === 'video' && st.enabled !== false && st.params?.['animateImages'] === true);
   const fitKinds = () => {
     for (const sc of project.scenes) {
+      if (animateAll && sc.kind === 'image') { emit({ t: 'log', line: `cena ${sc.id}: imagem → vídeo (a rota anima todas as cenas)` }); sc.kind = 'video'; }
       if (!sc.searchTerms && (sc.kind === 'stock' || sc.kind === 'mixed' || sc.kind === 'image' || sc.kind === 'video')) {
         sc.searchTerms = keywords(`${sc.title} ${sc.visualIntent}`) || undefined;
       }
@@ -265,6 +271,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   emit({ t: 'run.start', projectId: project.id });
   const cachePath = path.join(projectDir, 'cache', 'index.json');
   const cache = readJson<Record<string, string[]>>(cachePath, {});
+  /* etapas refeitas NESTA execução: a montagem/legenda que depende delas não pode vir do cache (clipes novos com a
+     mesma chave do projeto — p.ex. durações da canção corrigidas — ficavam fora do vídeo final) */
+  const fresh = new Set<string>();
   const outDir = path.join(projectDir, 'out');
   fs.mkdirSync(outDir, { recursive: true });
   fitKinds();
@@ -693,7 +702,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
     }
 
     // cache: qualquer binding da cadeia com artefato válido evita reexecução
-    if (!opts.noCache) {
+    const staleUpstream = REASSEMBLE_KINDS.has(step.kind) && step.dependsOn.find((d) => fresh.has(d));
+    if (staleUpstream) emit({ t: 'log', stepId: step.id, sceneId, line: `"${staleUpstream}" foi refeita nesta execução → ${step.id} refeita (sem cache)` });
+    if (!opts.noCache && !staleUpstream) {
       for (const b of bindings) {
         const hit = cache[cacheKey(project, step, b, scene)];
         if (hit && hit.length > 0 && hit.every((f) => fs.existsSync(f)) && !emptyPlan(step, hit)) {
@@ -793,6 +804,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
               const ok = await deps.approve(step.id, sceneId);
               if (!ok) throw new Error('reprovado pelo usuário');
             }
+            fresh.add(step.id);
             if (res.files.length > 0) {
               cache[key] = res.files;
               writeJsonAtomic(cachePath, cache);
