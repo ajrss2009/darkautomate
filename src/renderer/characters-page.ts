@@ -37,7 +37,7 @@ export const charImage = (forge: Api, c: CharRow) => (c.sheet || c.portrait ? fo
 
 const TABS: Array<[Entity | 'stories', string, string]> = [['character', '👥 Personagens', 'personagem'], ['location', '🏞 Cenários', 'cenário'], ['prop', '📦 Objetos', 'objeto'], ['stories', '📖 Histórias', 'história']];
 let tab: Entity | 'stories' = 'character';
-/** Aba interna: por imagem, por c�digo ou tudo (vale para personagens, cen�rios e objetos). */
+/** Aba interna: por imagem, por c�digo ou tudo (vale para personagens, cen�rios e objetos). */
 let originFilter: 'all' | 'image' | 'code' = 'all';
 const isCodeItem = (x: CharRow) => x.kind === 'codigo' || !!x.code || !!x.models?.length;
 let selected: string | undefined;
@@ -60,7 +60,7 @@ export async function renderCharactersPage(c: CharactersCtx): Promise<void> {
   const cur = selected === 'new' ? undefined : filtered.find((x) => x.id === selected) ?? filtered[0];
   if (!selected && cur) selected = cur.id;
   const subTabs = h('div', { class: 'lib-subtabs' },
-    ...([['all', 'Tudo', list.length], ['image', 'Por imagem', list.length - codeN], ['code', 'Por c�digo', codeN]] as const).map(([k, l, n]) =>
+    ...([['all', 'Tudo', list.length], ['image', 'Por imagem', list.length - codeN], ['code', 'Por c�digo', codeN]] as const).map(([k, l, n]) =>
       h('button', { class: `lib-subtab${originFilter === k ? ' on' : ''}`, 'data-origin': k, onclick: () => { originFilter = k; selected = undefined; again(); } }, `${l} (${n})`)));
   const head = h('div', { class: 'row pagehead' }, h('h2', {}, '📚 Biblioteca'), h('span', { class: 'sp' }),
     h('span', { class: 'muted' }, `${filtered.length} ${noun}(s)`), h('button', { class: 'primary', onclick: () => { selected = 'new'; again(); } }, `＋ Novo ${noun}`));
@@ -124,7 +124,7 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
     genCodeBtn.disabled = true; genCodeBtn.textContent = '⏳ gerando e desenhando…';
     previewBox.replaceChildren(h('div', { class: 'muted small' }, '⏳ a IA está escrevendo o código e desenhando a prévia…'));
     try {
-      const r = (await forge['charactersPreviewCode']({ name: name.value, look: look.value, entity, kind: kind.value, previous: lastPreview?.code })) as { code?: string; png?: string; error?: string } | undefined;
+      const r = (await forge['charactersPreviewCode']({ name: name.value, look: look.value, entity, kind: kind.value, previous: lastPreview?.code })) as { code?: string; png?: string; error?: string; binding?: string } | undefined;
       if (!r || r.error) {
         lastPreview = r;
         previewBox.replaceChildren(h('div', { class: 'muted' }, `⚠ ${r?.error ?? 'não consegui gerar a prévia'}`),
@@ -133,7 +133,7 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
       }
       lastPreview = r; previewTries++;
       previewBox.replaceChildren(
-        h('div', { class: 'row' }, h('strong', { class: 'grow' }, '🖼 Prévia do desenho'), h('span', { class: 'muted small' }, `versão ${previewTries}`)),
+        h('div', { class: 'row' }, h('strong', { class: 'grow' }, '🖼 Prévia do desenho'), h('span', { class: 'muted small' }, `${r.binding ? `gerado com ${r.binding} · ` : ''}versão ${previewTries}`)),
         ...(r.png ? [h('img', { class: 'chr-preview-img', src: forge.mediaUrl(r.png), alt: 'prévia do desenho por código' })] : []),
         h('div', { class: 'muted small' }, r.code ?? ''),
         h('div', { class: 'row' }, h('button', { class: 'primary small', id: 'chr-preview-accept', onclick: acceptPreview }, '✓ Aceitar e salvar'), h('button', { class: 'small', onclick: genPreview }, '↻ Gerar outro'),

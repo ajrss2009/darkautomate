@@ -2081,9 +2081,12 @@ function registerIpc() {
     const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 600_000);
     try {
       const what = input.entity === 'location' ? 'cenário' : input.entity === 'prop' ? 'objeto' : 'personagem';
-      const apiText = settings.providers.find((p) => p.apiKey && Array.isArray(p.models) && p.models.length > 0);
-      const chain: Binding[] = apiText ? [{ type: 'api', provider: apiText.id, model: apiText.models?.[0] ?? '' }, { type: 'harness', harness: 'auto' }] : [{ type: 'harness', harness: 'auto' }];
-      const { json } = await llmJson(chain, settings, path.join(settings.workspace, 'tools', 'library'),
+      /* modelo de TEXTO do primeiro provedor com chave (evita modelos de imagem/TTS) */
+      const textish = (m: string) => !/(image|tts|audio|embed|vision|imagen|banana|live|realtime)/i.test(m) && /(gpt-4|gpt-4o|gpt-5|gemini|deepseek|claude|qwen|llama|mistral|command|sonnet|opus|haiku|chat|flash|pro|mini)/i.test(m);
+      const apiText = settings.providers.find((p) => p.apiKey && Array.isArray(p.models) && p.models.some(textish));
+      const apiModel = apiText ? (apiText.models.find(textish) ?? apiText.models[0]) : undefined;
+      const chain: Binding[] = apiText ? [{ type: 'api', provider: apiText.id, model: apiModel ?? '' }, { type: 'harness', harness: 'auto' }] : [{ type: 'harness', harness: 'auto' }];
+      const { json, binding } = await llmJson(chain, settings, path.join(settings.workspace, 'tools', 'library'),
         `Você é diretor de arte de animação por código. Crie o ${what} "${input.name ?? ''}" para reutilizar na Biblioteca.\n` +
         `Aparência/base: ${input.look ?? ''}\nEstilo: ${input.style ?? 'flat 2D, contorno limpo, cores sólidas'}\n` +
         (input.previous ? `O usuário pediu OUTRA versão — mude pose/ângulo/paleta, mantendo a mesma identidade.\n` : '') +
@@ -2102,7 +2105,7 @@ function registerIpc() {
       fs.writeFileSync(htmlFile, html, 'utf8');
       try { await snapHtml(htmlFile, png, { w: 720, h: 720 }); }
       catch (e) { return { error: `a página não renderizou: ${(e as Error).message.slice(0, 180)}`, code, html: htmlFile }; }
-      return { code, png, html: htmlFile };
+      return { code, png, html: htmlFile, binding };
     } finally { clearTimeout(timer); }
   });
   /** Copia para o item uma imagem já gerada (prévia aceita), sem abrir diálogo. */
