@@ -9,6 +9,7 @@ import { bindingLabel, termsText } from '../shared/types';
 import { AUTO_ORDER, abortMessage, isHttpHarness, resolveHarness, resolveHarnessCommand } from './harness';
 import { duration as probeDuration } from './ffmpeg';
 import { autoCast, splitSpeakerTag } from './cast';
+import { syncBibleToLibrary } from './characters';
 import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
 import { pluginsRoot } from './plugins';
 import { stepTimeoutSec } from './timeouts';
@@ -375,6 +376,17 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
           emitProgress(true);      // as cenas apareceram: o progresso passa a ser por cenas
         }
         /* história com elenco: a bíblia e as falas definem o elenco (uma voz distinta por personagem) */
+        /* bíblia (agente de elenco/cenografia): os itens criados vão para a BIBLIOTECA e ficam ligados ao projeto */
+        if (r.ok && step.kind === 'asset_design') {
+          try {
+            const n = syncBibleToLibrary(deps.settings, project, projectDir, (line) => emit({ t: 'log', stepId: step.id, line }));
+            if (n.created || n.linked) {
+              saveProject(projectDir, project);
+              emit({ t: 'log', stepId: step.id, line: `biblioteca: ${n.characters} personagem(ns), ${n.locations} cenário(s), ${n.props} objeto(s) — ${n.created} novo(s) para reutilizar` });
+              if (n.warnings.length) emit({ t: 'log', stepId: step.id, line: `biblioteca: ${n.warnings.slice(0, 3).join('; ')}` });
+            }
+          } catch (e) { emit({ t: 'log', stepId: step.id, line: `biblioteca: não consegui salvar os itens (${(e as Error).message.slice(0, 160)})` }); }
+        }
         if (r.ok && (step.kind === 'scene_plan' || step.kind === 'asset_design') && isCastStory(project)) fillCast();
         /* storyboard: depois do plano de cenas (também em cache), e aprovação do usuário se pedida */
         if (r.ok && step.kind === 'scene_plan' && project.storyboard?.enabled && project.scenes.length) await storyboardGate();

@@ -50,6 +50,12 @@ export function primaryFile(kind: StepKind, c: Pick<ExecContext, 'projectDir' | 
   }
 }
 
+/** Arquivo produzido pela etapa (a etapa "sets" grava os cenários num arquivo próprio, ao lado da bíblia). */
+export function primaryFileFor(c: Pick<ExecContext, 'step' | 'projectDir' | 'outDir' | 'sceneDir'>): string {
+  if (c.step.id === 'sets') return path.join(c.projectDir, 'assets', 'sets.md');
+  return primaryFile(c.step.kind, c);
+}
+
 export const TEXT_KINDS: StepKind[] = ['ideation', 'script', 'scene_plan', 'asset_design', 'metadata', 'review', 'brief'];
 
 const SCRIPT_KINDS = new Set<string>(['ideation', 'script', 'scene_plan', 'brief', 'free', 'narration']);
@@ -1049,6 +1055,18 @@ export function buildPromptMarked(c: ExecContext): string {
         (typeof (c.step.params as Record<string, unknown>)?.voiceRef === 'string' ? `VOZ ESCOLHIDA NA ROTA: use como referência de timbre (clonagem, se a ferramenta permitir) o arquivo ${(c.step.params as Record<string, unknown>).voiceRef}. ` : '') +
         `Se a skill indicar uma voz/referência, imite o timbre e a energia dela. Não escreva legendas nem o vídeo: apenas a locução.`;
     case 'asset_design':
+      /* etapa "sets" (cenógrafo): cenários e objetos fixos, em arquivo próprio; a biblioteca junta com a bíblia */
+      if (c.step.id === 'sets') {
+        const code = routeSceneKinds(p).has('code');
+        return head + `\nIdeia: ${p.idea}\n` + (fs.existsSync(path.join(c.projectDir, 'script.md')) ? `Leia ${path.join(c.projectDir, 'script.md')} e assets/assets.md (nomes e aparência dos personagens). ` : '') +
+          `Defina os CENÁRIOS fixos (2 a 4 locais onde as cenas acontecem) e os OBJETOS recorrentes, com descrições visuais consistentes em Markdown.\n` +
+          `OBRIGATÓRIO: uma seção "## Cenários" com UMA linha por local no formato "- **Nome curto**: descrição em inglês (25-45 palavras: arquitetura/lugar, época, materiais, cores, luz, móveis e objetos fixos; nada que mude entre cenas)".\n` +
+          `Se houver objetos que aparecem em mais de uma cena, uma seção "## Objetos fixos" com "- **Nome**: descrição em inglês (formas, material, cor, escala)".\n` +
+          `Não repita personagens nesta etapa.\n` +
+          (code ? `Como o vídeo é ANIMADO POR CÓDIGO, acrescente "## Desenho em código": para cada cenário e objeto, as formas/camadas (fundo, meio, frente), as cores em hex e como desenhar em Canvas/SVG/Three.js mantendo o mesmo lugar em todas as cenas.\n` : '') +
+          `Mantenha a MESMA planta do lugar em todas as cenas: quem entra por um lado sai pelo mesmo lado.\n` +
+          attachmentsText(p, c.projectDir, 'asset_design');
+      }
       /* curta cartoon 3D: o "asset design" é o STORYBOARD (elenco fixo, paleta fixa e planos de cada cena com os tempos reais) */
       if (p.skill?.codeKit === 'cartoon3d') {
         const board = p.scenes.map((s) => {

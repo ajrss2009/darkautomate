@@ -15,7 +15,7 @@ import * as prov from './providers';
 import * as ff from './ffmpeg';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
-import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
+import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, primaryFileFor, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
 import { fetchForScene } from './stock';
 import { orderStockSources } from '../shared/stock-sources';
 import { cutWords, estimateWords, readWords, stampWords, transcribe, wordsFresh, wordsPath, type WordTime } from './whisper';
@@ -421,7 +421,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
   const effort = eff.effort ?? cfg.effort;
   // deixa explícito no log qual harness/modelo da rota está sendo usado (essencial para auditar)
   c.log(`provedor da rota: ${b.harness}${b.model ? '/' + b.model : ''}${effort ? '@' + effort : ''} → ${id}${model ? '/' + model : (cfg.defaultModel ? `/${cfg.defaultModel} (padrão)` : '/(padrão do harness)')}`);
-  const file = primaryFile(c.step.kind, c);
+  const file = primaryFileFor(c);
   ensureDir(file);
   if (c.step.kind === 'free' && isHttpHarness(cfg) && o.renderHtml) {
     const fdur = Math.round(Math.min(180, Math.max(2, c.project.targetDurationSec || 15)) * 100) / 100;
@@ -629,7 +629,7 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
   const p = c.settings.providers.find((x) => x.id === b.provider);
   if (!p) throw new Error(`provider "${b.provider}" não configurado (Configurações → providers)`);
   if (!p.apiKey && (/openai\.com/.test(p.baseUrl) || p.kind !== 'openai')) throw new Error(`provider "${p.id}" sem chave de API`);
-  const file = primaryFile(c.step.kind, c);
+  const file = primaryFileFor(c);
   const k = c.step.kind;
   /* modelo padrão do provedor (Configurações → APIs): usado quando a etapa não escolhe um modelo */
   const cat: ApiCategory = k === 'image' || k === 'thumbnail' ? 'image'

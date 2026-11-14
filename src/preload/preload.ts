@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('forge', {
   researchGaps: (id: string) => call('research:gaps', id),
   researchCreateProject: (input: unknown) => call('research:create-project', input),
   researchRemove: (id: string) => call('research:remove', id),
+  projectAutoCast: (id: string) => call('project:auto-cast', id),
   /* banco portátil (filmforge.db) */
   dbStatus: () => call('db:status'),
   dbIntegrity: () => call('db:integrity'),

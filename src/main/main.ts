@@ -24,6 +24,7 @@ import { deleteStory, episodeProject, getStory, importStory, listStories, saveSt
 import { measurePalette, normalizeStyleRef, styleRequest } from './style-ref';
 import { describeImage } from './vision';
 import * as characters from './characters';
+import { autoCast } from './cast';
 import type { LibraryCharacter, LibraryEntity, Story } from '../shared/types';
 import { SOCIAL_SITES, findSocial, isSocialPlatform, listProfile, netscapeCookies, searchSocial, type SocialPlatform } from './social-search';
 import { cookieArgs, ensureYtDlp, setCookieProvider } from './youtube';
@@ -1889,6 +1890,16 @@ function registerIpc() {
   h('projects:open-root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return shell.openPath(projectsDir(settings)); });
   h('project:get', (id: string) => ops.readProject(settings, id));
   h('project:update', (id: string, patch: Parameters<typeof ops.updateProject>[2]) => { idle(id); return ops.updateProject(settings, id, patch); });
+  /** Completa o elenco com todos os falantes do roteiro ("NOME: fala") e distribui vozes (editor → Elenco e voz). */
+  h('project:auto-cast', (id: string) => {
+    const p = ops.readProject(settings, id);
+    const dir = projectDirOf(settings, id);
+    let files: string[] = [];
+    try { files = fs.readdirSync(path.join(settings.workspace, 'voices')).filter((f) => /\.(mp3|wav|m4a|flac|ogg)$/i.test(f)).sort().map((f) => path.join(settings.workspace, 'voices', f)); } catch { /* sem vozes locais */ }
+    const added = autoCast(p, dir, files);
+    if (added.length) ops.saveProjectFile(settings, p);
+    return { added, cast: p.cast ?? [] };
+  });
   /**
    * Ajustar cenas de um projeto existente: backup, roteiro mantido, plano antigo fora e duração por cena nova.
    * run: 'plan' refaz só o plano agora · 'all' executa a rota inteira · 'none' só prepara.

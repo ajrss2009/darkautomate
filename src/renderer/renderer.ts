@@ -3377,6 +3377,46 @@ async function openReplanModal(p: Project) {
 /** Voz da narração do projeto no editor (troca a voz e marca a narração para refazer). */
 let voiceCatalog: Array<{ provider: string; kind: string; voices: string[] }> | undefined;
 let voiceList: Array<{ name: string; path: string }> = [];
+/** Elenco e voz do projeto (uma voz por personagem): edita, salva e completa a partir do roteiro. */
+function castCard(p: Project): HTMLElement {
+  const box = h('div', { class: 'card', id: 'pj-cast' });
+  const list: CastMember[] = (p.cast ?? []).map((m) => ({ ...m }));
+  const save = () => void guard(async () => {
+    current = await forge.updateProject(p.id, { cast: list } as never);
+    toast('Vozes do elenco salvas — a narração das cenas será refeita em "Regenerar" ou na próxima execução.');
+    renderEditor(true);
+  });
+  const auto = () => void guard(async () => {
+    const r = (await (forge as unknown as Record<string, (id: string) => Promise<unknown>>)['projectAutoCast'](p.id)) as { added: string[]; cast: CastMember[] };
+    toast(r.added.length ? `Elenco: ${r.added.join(', ')} — vozes distribuidas` : 'O elenco já tem todos os falantes do roteiro.');
+    current = await forge.getProject(p.id); renderEditor(true);
+  });
+  const paint = () => {
+    const rows = list.map((m, i) => {
+      const nm = h('input', { value: m.speaker, placeholder: 'Nome (o mesmo de "NOME: fala")', class: 'grow' }) as HTMLInputElement;
+      nm.addEventListener('input', () => { m.speaker = nm.value; });
+      const api = h('input', { value: m.voice ?? '', placeholder: 'voz da API', class: 'num', list: 'cast-api-voices' }) as HTMLInputElement;
+      api.addEventListener('input', () => { m.voice = api.value.trim() || undefined; });
+      const ref = h('select', { title: 'Voz de referência para clonagem (OmniVoice/Wan2GP): arquivos da pasta voices' },
+        h('option', { value: '' }, '(voz de referência: padrão)'), ...voiceList.map((v) => h('option', { value: v.path }, `🗣 ${v.name}`))) as HTMLSelectElement;
+      ref.value = m.refAudio ?? ''; ref.addEventListener('change', () => { m.refAudio = ref.value || undefined; });
+      return h('div', { class: 'row castrow' }, h('span', { class: 'picon' }, '🎭'), nm, ref, api,
+        h('button', { class: 'small danger', title: 'Remover do elenco', onclick: () => { list.splice(i, 1); paint(); } }, '✕'));
+    });
+    box.replaceChildren(
+      h('div', { class: 'row' }, h('span', { class: 'ico' }, '🎭'), h('strong', { class: 'grow' }, 'Elenco e voz'),
+        h('button', { class: 'small', id: 'pj-cast-auto', title: 'Lê todas as falas "NOME: ..." do roteiro e das cenas, cria quem falta e distribui vozes', onclick: auto }, '🧩 Criar do roteiro'),
+        h('button', { class: 'primary small', id: 'pj-cast-save', onclick: save }, 'Salvar vozes')),
+      h('div', { class: 'muted small' }, 'Cada fala "NOME: …" usa a voz do personagem: a de referência (clonagem) e a da API (quando a narração cai para a API). O NARRADOR é um personagem como outro. Sem tocar aqui, o app cria o elenco sozinho depois da bíblia.'),
+      ...rows,
+      h('button', { class: 'small', onclick: () => { list.push({ speaker: '' }); paint(); } }, '＋ Personagem'),
+      h('datalist', { id: 'cast-api-voices' }, ...['nova', 'shimmer', 'coral', 'sage', 'onyx', 'echo', 'ash', 'fable', 'Kore', 'Aoede', 'Puck', 'Charon', 'Fenrir'].map((v) => h('option', { value: v }))));
+  };
+  paint();
+  void (async () => { if (!voiceList.length) { try { voiceList = ((await forge.meta()) as { voices?: Array<{ name: string; path: string }> }).voices ?? []; paint(); } catch { /* sem catálogo */ } } })();
+  return box;
+}
+
 function voiceCard(p: Project): HTMLElement {
   const holder = h('div', { id: 'pj-voice' });
   void (async () => {
@@ -3568,7 +3608,7 @@ function inspector(p: Project): HTMLElement {
     subs: () => [subtitlesCard(p)],
     wm: () => [watermarkCard(p)],
     export: () => [exportCard(p)],
-    project: () => [productionCard(p), voiceCard(p), attachmentsCard(p), pluginsCard(p)],
+    project: () => [productionCard(p), (p.skill?.multiVoice || p.cast?.length || p.scenes.some((s) => s.speaker)) ? castCard(p) : null, voiceCard(p), attachmentsCard(p), pluginsCard(p)],
   });
 }
 

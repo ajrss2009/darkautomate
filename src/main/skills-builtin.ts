@@ -106,6 +106,7 @@ const castStory = (o: { id: string; name: string; description: string; global: s
   steps: {
     script: o.script,
     bible: CAST_BIBLE + (o.code ? ' Inclua "## Desenho em código": formas e cores em hex de cada personagem, simples o bastante para desenhar em Canvas/SVG e inconfundíveis lado a lado.' : ' A aparência (em inglês) vira referência de rosto e figurino no MiniMax H3: seja específico e visual.'),
+    sets: 'Cenários fixos: 2 a 4 locais onde as cenas acontecem, com planta (o que fica onde), época, materiais, cores e luz; objetos recorrentes com forma, material e escala. Descreva em inglês a aparência que não muda e repita os mesmos nomes no visualIntent. Se o vídeo é em código, inclua "## Desenho em código" dos cenários (camadas e cores hex).',
     scene_plan: o.scene,
     ...(o.code
       ? { code_scene: `${o.visual} Desenhe os personagens exatamente como na bíblia (mesmas formas e cores em todas as cenas); quem fala tem boca e gesto animados durante a fala; os outros reagem. Cenário fixo da bíblia para o local da cena.` }

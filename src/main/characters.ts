@@ -312,8 +312,123 @@ export function applyCharacters(s: Settings, p: Project, projectDir: string, ids
   return { warnings };
 }
 
-const PLAN = new Set(['brief', 'script', 'scene_plan', 'asset_design', 'ideation']);
-const CODE = new Set(['code_scene', 'motion_graphics', 'free']);
+/* ───────── bíblia → biblioteca (agentes criam personagens/cenários e eles ficam para reutilizar) ───────── */
+
+/** Linhas "- **Nome**: texto" de TODAS as seções com esse título (função pura). */
+export function bibleSection(md: string, titles: RegExp): Array<{ name: string; look: string }> {
+  const out: Array<{ name: string; look: string }> = [];
+  const seen = new Set<string>();
+  const heads = new RegExp(`^#+\\s*(?:${titles.source})[^\\n]*$`, 'gim');
+  for (const m of md.matchAll(heads)) {
+    const lineEnd = md.indexOf('\n', m.index!);
+    if (lineEnd < 0) continue;
+    const rest = md.slice(lineEnd + 1).split('\n');
+    const end = rest.findIndex((l) => /^#+\s/.test(l));
+    for (const l of end < 0 ? rest : rest.slice(0, end)) {
+      const item = /^\s*[-*]\s*\*\*([^*]+)\*\*\s*[:—-]\s*(.+)$/.exec(l);
+      if (!item) continue;
+      const name = item[1]!.trim().replace(/:$/, '');
+      if (!name || !item[2]!.trim() || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      out.push({ name, look: item[2]!.trim() });
+    }
+  }
+  return out;
+}
+
+/** Blocos de "## Desenho em código": "- **Nome**: …" ou "### Nome" + parágrafo (função pura). */
+export function bibleCodeBlocks(md: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const at = md.search(/^#+\s*Desenho em c[óo]digo/im);
+  if (at < 0) return out;
+  const rest = md.slice(at).split('\n').slice(1);
+  let cur: string | undefined;
+  let buf: string[] = [];
+  const flush = () => { if (cur && buf.length) { const t = buf.join('\n').trim(); if (t) out.set(cur, t.slice(0, 1400)); } cur = undefined; buf = []; };
+  for (const line of rest) {
+    if (/^#+\s/.test(line) && !/^#+\s*Desenho em c[óo]digo/i.test(line)) { flush(); continue; }
+    const item = /^\s*[-*]\s*\*\*([^*]+)\*\*\s*[:—-]\s*(.+)$/.exec(line);
+    if (item) { flush(); out.set(item[1]!.trim().replace(/:$/, ''), item[2]!.trim()); continue; }
+    const sub = /^###\s+(.+)$/.exec(line);
+    if (sub) { flush(); cur = sub[1]!.trim(); continue; }
+    if (cur) buf.push(line);
+  }
+  flush();
+  return out;
+}
+
+const normName = (s: string) => s.trim().toLowerCase();
+const portraitOf = (projectDir: string, name: string) =>
+  path.join(projectDir, 'assets', 'characters', `${name.normalize('NFD').replace(/['-?]/g, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'personagem'}.png`);
+
+/**
+ * Depois da bíblia (asset_design), salva na BIBLIOTECA os personagens, cenários e objetos que o agente criou
+ * (com voz e desenho em código), liga os itens ao projeto e congela a lista — o próximo vídeo reaproveita.
+ * Idempotente: procura por nome + tipo antes de criar; não sobrescreve o que o usuário editou.
+ */
+export function syncBibleToLibrary(s: Settings, p: Project, projectDir: string, log: (l: string) => void = () => {}): { created: number; linked: number; characters: number; locations: number; props: number; warnings: string[] } {
+  const file = path.join(projectDir, 'assets', 'assets.md');
+  const setsFile = path.join(projectDir, 'assets', 'sets.md');
+  const empty = { created: 0, linked: 0, characters: 0, locations: 0, props: 0, warnings: [] as string[] };
+  if (!fs.existsSync(file) && !fs.existsSync(setsFile)) return empty;
+  const parts = [file, setsFile].filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f, 'utf8'));
+  const sectionAll = (re: RegExp) => {
+    const seen = new Set<string>();
+    return parts.flatMap((text) => bibleSection(text, re)).filter((x) => (seen.has(normName(x.name)) ? false : (seen.add(normName(x.name)), true)));
+  };
+  const voices = new Map(sectionAll(/Vozes/).map((x) => [normName(x.name), x.look]));
+  const codes = new Map<string, string>();
+  for (const text of parts) for (const [k, v] of bibleCodeBlocks(text)) if (!codes.has(normName(k))) codes.set(normName(k), v);
+  const groups: Array<[LibraryEntity, RegExp, string]> = [
+    ['character', /Personagens fixos/, 'personagem'],
+    ['location', /Cen[áa]rios(?: fixos)?|Locais/, 'cenário'],
+    ['prop', /Objetos(?: fixos)?|Props/, 'objeto'],
+  ];
+  const ids = new Set<string>((p.characters ?? []).map((c) => c.id));
+  let created = 0;
+  for (const [entity, re, noun] of groups) {
+    for (const item of sectionAll(re)) {
+      const lib = findByName(listCharacters(s, entity), item.name, entity);
+      if (lib) {
+        ids.add(lib.id);
+        /* completa voz/desenho que faltavam, sem tocar no que já existe */
+        const voice = entity === 'character' ? (lib.voice?.description ? undefined : voices.get(normName(item.name))) : undefined;
+        const code = lib.code ? undefined : codes.get(normName(item.name));
+        if (voice || code) {
+          saveCharacter(s, { ...lib, voice: voice ? { ...lib.voice, description: voice } : lib.voice, code: code ?? lib.code });
+          log(`biblioteca: ${noun} "${item.name}" atualizado com ${voice ? 'voz' : 'desenho em código'}`);
+        }
+        continue;
+      }
+      const code = codes.get(normName(item.name));
+      const c = saveCharacter(s, {
+        name: item.name, look: item.look, entity,
+        kind: entity === 'character' ? (code ? 'codigo' : 'pessoa') : 'outro',
+        code, voice: entity === 'character' && voices.get(normName(item.name)) ? { description: voices.get(normName(item.name)) } : undefined,
+        tags: ['bíblia', p.id],
+      });
+      ids.add(c.id); created++;
+      log(`biblioteca: ${noun} "${item.name}" salvo${code ? ' (desenho em código)' : ''}${voices.get(normName(item.name)) ? ' com voz' : ''}`);
+    }
+  }
+  const counts = { characters: 0, locations: 0, props: 0 };
+  for (const id of ids) { try { const c = getCharacter(s, id); if (entityOf(c) === 'character') counts.characters++; else if (entityOf(c) === 'location') counts.locations++; else counts.props++; } catch { /* item removido */ } }
+  if (!ids.size) return { ...empty, ...counts };
+  /* congela no projeto, copia folhas/modelos e completa elenco/bíblia (rotina que já existe) */
+  const res = applyCharacters(s, p, projectDir, [...ids], {});
+  /* retratos gerados durante a produção ficam na biblioteca para o próximo projeto */
+  for (const pc of p.characters ?? []) {
+    if ((pc.entity ?? 'character') !== 'character') continue;
+    const lib = findByName(listCharacters(s, 'character'), pc.name, 'character');
+    if (lib && !lib.portrait) {
+      const portrait = portraitOf(projectDir, pc.name);
+      if (fs.existsSync(portrait)) { try { addCharacterImage(s, lib.id, portrait, 'portrait'); } catch { /* opcional */ } }
+    }
+  }
+  return { created, linked: ids.size, ...counts, warnings: res.warnings.filter((w) => !/ainda não tem folha/.test(w)) };
+}
+
+const PLAN = new Set(['brief', 'script', 'scene_plan', 'asset_design', 'ideation']);const CODE = new Set(['code_scene', 'motion_graphics', 'free']);
 const VISUAL = new Set(['image', 'video', 'thumbnail']);
 
 /** O item é citado na cena? (nome ou palavra do nome com 3+ letras no título, visual, narração ou fala) */

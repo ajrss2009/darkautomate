@@ -2,7 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { addCharacterImage, applyCharacters, castFromCharacter, charactersPrompt, deleteCharacter, getCharacter, listCharacters, mergeBible, normalizeCharacter, saveCharacter, sheetPrompt } from '../main/characters';
+import { addCharacterImage, applyCharacters, castFromCharacter, charactersPrompt, deleteCharacter, getCharacter, listCharacters, mergeBible, normalizeCharacter, saveCharacter, sheetPrompt, syncBibleToLibrary } from '../main/characters';
 import { applySkillMix, assignSkillMix, mixPrompt, mixShares, normalizeMix } from '../main/skill-mix';
 import { paletteEnglish, projectPalettePrompt } from '../main/channel-setup';
 import { flowRefsText } from '../main/flow';
@@ -109,6 +109,52 @@ async function main() {
   assert.match(visualPrompt(ctx('image')), /color palette: background #0b0b10/, 'a imagem das cenas recebe a paleta');
   assert.match(thumbnailPrompt(ctx('thumbnail')), /Color palette: background #ff0000/, 'a thumbnail recebe a paleta da thumbnail');
   assert.equal(createProject(s, { name: 'Sem', idea: 'i', videoType: 'custom', routeId: 'shorts-autopilot' }).palette, undefined);
+
+  /* bíblia + cenários dos agentes → BIBLIOTECA (reutilizáveis em imagem e código) */
+  {
+    const p = createProject(s, { name: 'Bíblia', idea: 'cidade e detetive', videoType: 'custom', skillId: 'historia-codigo' });
+    const dir = path.join(ws, 'projects', p.id);
+    fs.mkdirSync(path.join(dir, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'assets', 'assets.md'), [
+      '# Bíblia',
+      '## Personagens fixos',
+      '- **Ana**: young woman, 28, short black hair, red coat, determined',
+      '- **Beto**: man, 45, grey beard, worn brown jacket, tired eyes',
+      '## Vozes',
+      '- **Ana**: feminina, 28 anos, voz firme e um pouco rouca',
+      '- **Beto**: masculina, 45 anos, voz grave e cansada',
+      '## Desenho em código',
+      '- **Ana**: head circle #F2C9A0, coat #C0392B, hair #1B1B1B',
+      '- **Beto**: head square #D9B08C, jacket #6E4B2A, beard #9E9E9E',
+    ].join('\n'));
+    fs.writeFileSync(path.join(dir, 'assets', 'sets.md'), [
+      '# Cenários',
+      '## Cenários',
+      '- **Delegacia**: 1970s police station, wooden desks, green lamps, rainy windows',
+      '## Objetos fixos',
+      '- **Processo**: worn manila folder, coffee stain, red stamp',
+      '## Desenho em código',
+      '- **Delegacia**: back wall #4E5D6C, desks #8B5E3C, lamps #F4D35E',
+    ].join('\n'));
+    const r = syncBibleToLibrary(s, p, dir);
+    assert.equal(r.created, 4);
+    assert.equal(r.characters, 2); assert.equal(r.locations, 1); assert.equal(r.props, 1);
+    const libChars = listCharacters(s, 'character');
+    const ana = libChars.find((c) => c.name === 'Ana')!;
+    assert.equal(ana.voice?.description, 'feminina, 28 anos, voz firme e um pouco rouca');
+    assert.match(ana.code ?? '', /coat #C0392B/);
+    assert.equal(ana.kind, 'codigo', 'personagem com desenho em código');
+    const delegacia = listCharacters(s, 'location').find((c) => c.name === 'Delegacia')!;
+    assert.match(delegacia.code ?? '', /desks #8B5E3C/);
+    assert.equal(delegacia.kind, 'outro');
+    assert.ok(p.characters && p.characters.length === 4, 'projeto congela os itens da biblioteca');
+    assert.ok((p.cast ?? []).some((m) => m.speaker === 'Ana'), 'elenco do projeto recebe os personagens');
+    const bible = fs.readFileSync(path.join(dir, 'assets', 'assets.md'), 'utf8');
+    assert.match(bible, /## Cenários fixos[\s\S]*Delegacia/, 'cenários entram na bíblia do projeto');
+    const again = syncBibleToLibrary(s, p, dir);
+    assert.equal(again.created, 0, 'idempotente: não duplica na biblioteca');
+    assert.equal(listCharacters(s, 'character').filter((c) => ['Ana', 'Beto'].includes(c.name)).length, 2);
+  }
 
   console.log('characters: ok');
 }

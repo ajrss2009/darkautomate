@@ -12,6 +12,7 @@ import { createExecutors, parseLyricScript, timeLyrics } from '../main/executors
 import { runRoute, type ExecContext } from '../main/engine';
 import { BUILTIN_PROFILES, applyExecutorProfile, balanceRoles, downstreamSteps, setStepHead, stepTargets } from '../shared/profiles';
 import { checkSkillRoute, producibleKinds } from '../shared/compat';
+import { BUILTIN_AGENTS } from '../main/agents-builtin';
 
 /** Coerência entre skills, rotas, perfis de executores e os prompts que o app monta. */
 async function main() {
@@ -199,6 +200,16 @@ async function main() {
     const scriptCtx = { ...planCtx, step: { ...p.route!.steps.find((st) => st.kind === 'script')!, params: {} } } as unknown as ExecContext;
     assert.match(buildPrompt(scriptCtx), /NÃO escreva narração falada|Não escreva narração/i, `${id}: roteiro sem narração`);
   }
+
+  /* ── agentes de biblioteca: um cria personagens, outro cenários, cada um com sua etapa ── */
+  for (const id of ['dorama-elenco', 'dorama-codigo']) {
+    const r = ROUTES.find((x) => x.id === id)!;
+    const sets = r.steps.find((st) => st.id === 'sets');
+    assert.ok(sets && sets.kind === 'asset_design', `${id}: etapa de cenários do cenógrafo`);
+    assert.ok(r.steps.find((st) => st.id === 'scene_plan')!.dependsOn.includes('sets'), `${id}: cenas depois dos cenários`);
+  }
+  assert.ok(BUILTIN_AGENTS.some((a) => a.id === 'diretor-elenco' && a.handles?.includes('bible')), 'agente de personagens');
+  assert.ok(BUILTIN_AGENTS.some((a) => a.id === 'cenografo' && a.handles?.includes('sets')), 'agente de cenários');
 
   console.log('routes/skills/profiles tests: OK');
 }

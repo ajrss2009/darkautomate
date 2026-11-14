@@ -70,7 +70,7 @@ export function cleanBypass(v: unknown): ExecutorBypass | undefined {
 }
 
 export function updateProject(s: Settings, id: string, patch: Partial<Pick<Project,
-  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark' | 'wan2gpPost' | 'tracks'>>): Project {
+  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark' | 'wan2gpPost' | 'tracks' | 'cast'>>): Project {
   const p = readProject(s, id);
   const allowed = ['name', 'idea', 'aspect', 'targetDurationSec', 'language', 'memories', 'quality', 'videoType', 'maxProductionMin', 'sceneConcurrency', 'subtitleStyle', 'scriptStyle', 'videoStyle', 'musicStyle', 'musicMode', 'waveform', 'plugins'];
   Object.assign(p, Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && allowed.includes(k))));
@@ -130,6 +130,22 @@ export function updateProject(s: Settings, id: string, patch: Partial<Pick<Proje
   if ('subtitleStyle' in patch && p.subtitleStyle) {
     const f = subtitleFontName(p.subtitleStyle.font);
     if (f) p.subtitleStyle.font = f; else delete p.subtitleStyle.font;
+  }
+  /* elenco/vozes do editor: nome, voz de referência, voz da API e aparência (vazio = voz da rota) */
+  if ('cast' in patch) {
+    const sig = (list: Array<{ speaker: string; refAudio?: string; voice?: string }>) => list.map((m) => `${m.speaker}|${m.refAudio ?? ''}|${m.voice ?? ''}`).join('~');
+    const before = sig((p.cast ?? []).map((m) => ({ speaker: m.speaker, refAudio: m.refAudio, voice: m.voice })));
+    const list = (Array.isArray(patch.cast) ? patch.cast : []).map((m) => ({
+      speaker: String(m?.speaker ?? '').trim().slice(0, 60),
+      refAudio: typeof m?.refAudio === 'string' && m.refAudio.trim() ? m.refAudio.trim() : undefined,
+      voice: typeof m?.voice === 'string' && m.voice.trim() ? m.voice.trim().slice(0, 40) : undefined,
+      description: typeof m?.description === 'string' && m.description.trim() ? m.description.trim().slice(0, 300) : undefined,
+    })).filter((m) => m.speaker);
+    p.cast = list.length ? list : undefined;
+    /* voz mudou: a narração/transcrição das cenas com fala precisa ser refeita */
+    if (before !== sig(list)) {
+      for (const sc of p.scenes) for (const st of p.route?.steps ?? []) if ((st.kind === 'narration' || st.kind === 'transcribe') && sc.status[st.id] === 'done') sc.status[st.id] = 'stale';
+    }
   }
   // 0 ou vazio = sem limite / modo sequencial
   if (!(Number(p.maxProductionMin) > 0)) delete p.maxProductionMin; else p.maxProductionMin = Math.round(Number(p.maxProductionMin));

@@ -250,7 +250,8 @@ export const ROUTES: Route[] = [
     steps: [
       step({ id: 'script', kind: 'script', label: 'Roteiro (falas por personagem)', scope: 'project', bindings: textChain }),
       step({ id: 'bible', kind: 'asset_design', label: 'Bíblia de personagens (aparência + voz)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
-      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas (uma fala por cena)', scope: 'project', dependsOn: ['script', 'bible'], bindings: textChain }),
+      step({ id: 'sets', kind: 'asset_design', label: 'Cenários e objetos (biblioteca)', scope: 'project', dependsOn: ['bible'], bindings: textChain, timeoutSec: 900, onFail: 'skip' }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas (uma fala por cena)', scope: 'project', dependsOn: ['script', 'bible', 'sets'], bindings: textChain }),
       step({ id: 'narration', kind: 'narration', label: 'Vozes do elenco (TTS)', scope: 'scene', dependsOn: ['scene_plan'], bindings: castTtsChain, concurrency: 2, params: { multiVoice: true } }),
       step({ id: 'image', kind: 'image', label: 'Quadro da cena (elenco consistente)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'], bindings: imageChain }),
       step({ id: 'video', kind: 'video', label: 'Vídeo da cena (MiniMax H3 ref2video + retratos)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'],
@@ -280,7 +281,8 @@ export const ROUTES: Route[] = [
     steps: [
       step({ id: 'script', kind: 'script', label: 'Roteiro (falas por personagem)', scope: 'project', bindings: textChain }),
       step({ id: 'bible', kind: 'asset_design', label: 'Bíblia de personagens (desenho + voz)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
-      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas', scope: 'project', dependsOn: ['script', 'bible'], bindings: textChain }),
+      step({ id: 'sets', kind: 'asset_design', label: 'Cenários e objetos (biblioteca)', scope: 'project', dependsOn: ['bible'], bindings: textChain, timeoutSec: 900, onFail: 'skip' }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planejar cenas', scope: 'project', dependsOn: ['script', 'bible', 'sets'], bindings: textChain }),
       step({ id: 'narration', kind: 'narration', label: 'Vozes do elenco (TTS)', scope: 'scene', dependsOn: ['scene_plan'], bindings: castTtsChain, concurrency: 2, params: { multiVoice: true } }),
       transcribeStep(),
       step({ id: 'code_scene', kind: 'code_scene', label: 'Cena animada por código (elenco da bíblia)', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'bible'], bindings: textChain }),
