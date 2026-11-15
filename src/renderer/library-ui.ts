@@ -147,7 +147,7 @@ export async function renderRoutesLib(c: Ctx) {
     const q = h('input', { placeholder: 'Buscar rota…', value: routeFilter.q, id: 'route-q' }) as HTMLInputElement;
     q.addEventListener('input', () => { routeFilter.q = q.value; paintGrid(); });
     const grid = h('div', { class: 'sgrid', id: 'route-list' });
-    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
+    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['f', '⭐ Preferidas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
       h('button', { class: routeFilter.who === v ? 'on' : '', onclick: () => { routeFilter.who = v; again(); } }, l)));
     const paintGrid = () => grid.replaceChildren(...routes.filter((r) => (!routeFilter.q || `${r.name} ${r.description}`.toLowerCase().includes(routeFilter.q.toLowerCase()))
       && (!routeFilter.who || (routeFilter.who === 'b') === builtin(r))).map((r) => {
@@ -830,15 +830,17 @@ export async function renderSkills(c: Ctx) {
     const q = h('input', { placeholder: 'Buscar skill…', value: skillFilter.q, id: 'skill-q' }) as HTMLInputElement;
     const grid = h('div', { class: 'sgrid', id: 'skill-list' });
     q.addEventListener('input', () => { skillFilter.q = q.value; paint(); });
-    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
+    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['f', '⭐ Preferidas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
       h('button', { class: skillFilter.who === v ? 'on' : '', onclick: () => { skillFilter.who = v; again(); } }, l)));
     const paint = () => grid.replaceChildren(...skills.filter((k) => (!skillFilter.q || `${k.name} ${k.description}`.toLowerCase().includes(skillFilter.q.toLowerCase()))
-      && (!skillFilter.who || (skillFilter.who === 'b') === !!k.builtin)).map((k) => {
+      && (!skillFilter.who || (skillFilter.who === 'f' ? !!k.favorite : (skillFilter.who === 'b') === !!k.builtin))).map((k) => {
       const r = routes.find((x) => x.id === k.routeId);
       const pu = purposeIcon(c, k, skillIcon(k), true);
       const rep = checkSkillRoute(k, r, meta.videoTypes.find((v) => v.id === k.appearance)?.sceneKind as never, r);
       return h('button', { class: 'scard', 'data-skill': k.id, onclick: () => { skillOrigin = k; skillDraft = clone(k); again(); } },
-        h('div', { class: 'row' }, pu.icon, h('strong', { class: 'grow' }, k.name), k.builtin ? h('span', { class: 'tag', title: (k as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (k as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
+        h('div', { class: 'row' }, pu.icon, h('strong', { class: 'grow' }, k.name),
+          h('span', { class: `np-star${k.favorite ? ' on' : ''}`, role: 'button', 'data-act': 'skill-fav', title: k.favorite ? 'Tirar das preferidas' : 'Marcar como preferida (aparece antes das demais)', onclick: (e: Event) => { e.stopPropagation(); void guard(async () => { await forge['skillFavorite'](k.id, !k.favorite); toast(k.favorite ? 'Skill tirada das preferidas' : '⭐ Skill preferida — aparece primeiro'); again(); }); } }, k.favorite ? '⭐' : '☆'),
+          k.builtin ? h('span', { class: 'tag', title: (k as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (k as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
         h('span', { class: 'muted sdesc' }, k.description),
         r ? routeStrip(c, r) : null,
         h('span', { class: 'pchips' }, pu.badge,

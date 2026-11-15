@@ -1290,3 +1290,10 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 #cfg-wf-import .wf-list .row { gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); }
 #cfg-wf-import .warn { color: var(--warn); }
 #cfg-wf-import .card { margin-top: 8px; }
+
+/* ⭐ skill preferida (Novo projeto guiado e Skills) */
+.np-star { cursor: pointer; font-size: 16px; line-height: 1; opacity: .55; user-select: none; transition: transform .1s, opacity .1s; }
+.np-star:hover { opacity: 1; transform: scale(1.15); }
+.np-star.on { opacity: 1; }
+.np-gcard { position: relative; }
+.np-gcard > .np-star { position: absolute; top: 12px; right: 12px; z-index: 1; background: rgba(0,0,0,.55); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }

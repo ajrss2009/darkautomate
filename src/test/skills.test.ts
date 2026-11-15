@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { VIDEO_TYPES, ROUTES } from '../main/presets';
-import { listSkills, getSkill } from '../main/library';
+import { listSkills, getSkill, setFavoriteSkill } from '../main/library';
 import { assertSkillAndRoute, createProject, defaultSettings, listProjects, projectsDir } from '../main/settings';
 import { buildPrompt, userStyles, visualPrompt } from '../main/prompts';
 import type { ExecContext } from '../main/engine';
@@ -74,6 +74,16 @@ function main() {
   assert.ok(fs.existsSync(path.join(ws, 'projects', p.id, 'project.json')));
   assert.equal(listProjects(s).length, 3);
 
+  /* ⭐ preferidas: primeiro, na ordem marcada; desmarcar devolve à ordem normal */
+  const sf = defaultSettings(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-fav-')));
+  const all = listSkills(sf).map((k) => k.id);
+  const [a, b] = [all[all.length - 1]!, all[3]!];
+  setFavoriteSkill(sf, a, true); setFavoriteSkill(sf, b, true);
+  const fl = listSkills(sf);
+  assert.deepEqual(fl.slice(0, 2).map((k) => k.id), [a, b], 'preferidas na frente, na ordem marcada');
+  assert.ok(fl[0]!.favorite && !fl[2]!.favorite); assert.equal(fl.length, all.length);
+  setFavoriteSkill(sf, a, false); setFavoriteSkill(sf, b, false);
+  assert.deepEqual(listSkills(sf).map((k) => k.id), all); assert.equal(sf.favoriteSkills, undefined);
   console.log('skills tests: OK');
 }
 try { main(); } catch (e) { console.error(e); process.exit(1); }

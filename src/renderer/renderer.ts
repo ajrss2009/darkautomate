@@ -1019,8 +1019,9 @@ async function renderNew() {
     h('div', { class: 'muted small' }, 'Elenco, cenários, objetos e variações do episódio já estão escolhidos abaixo; o roteiro recebe o "anteriormente" da série e termina com o gancho.'),
     episode.missing.length ? h('div', { class: 'tag running' }, `⚠ fora da Biblioteca: ${episode.missing.join(', ')}`) : null) : null;
   const ideaLbl = h('span', {}, 'Ideia / prompt simples (o sistema acrescenta a skill, os estilos, o idioma e as referências)');
-  const builtin = skills.filter((k) => k.builtin), mine = skills.filter((k) => !k.builtin);
+  const favs = skills.filter((k) => k.favorite), builtin = skills.filter((k) => k.builtin && !k.favorite), mine = skills.filter((k) => !k.builtin && !k.favorite);
   const skill = h('select', { id: 'np-skill' }, h('option', { value: '' }, '— escolha uma skill (tipo de vídeo) —'),
+    favs.length ? h('optgroup', { label: '⭐ Preferidas' }, ...favs.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))) : null,
     h('optgroup', { label: '🎬 Tipos de vídeo (padrão)' }, ...builtin.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))),
     mine.length ? h('optgroup', { label: '🧠 Minhas skills' }, ...mine.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))) : null) as HTMLSelectElement;
   /* ícone da rota = tipo de vídeo + quem executa (🖥️ GPU local, ☁️ API, 🌊 Google Flow) */
@@ -1855,7 +1856,12 @@ async function renderNew() {
     const skillCard = (k: (typeof skills)[number]) => {
       const media = k.previewMedia ?? previews[k.id];
       const visual = media && !/\.(mp4|webm|mov)$/i.test(media) ? h('img', { src: forge.mediaUrl(media), alt: '' }) : h('div', { class: `skillmedia anim a-${k.appearance ?? 'custom'}` }, h('span', {}, k.name));
-      return gcard(skill.value === k.id, [visual, h('strong', {}, k.name), h('span', { class: 'muted small' }, (k.description ?? '').slice(0, 80))], () => { skill.value = k.id; skill.dispatchEvent(new Event('change', { bubbles: true })); paint(); });
+      /* ⭐ preferida: aparece antes das demais (aqui e em todas as listas de skills) */
+      const star = h('span', { class: `np-star${k.favorite ? ' on' : ''}`, role: 'button', title: k.favorite ? 'Tirar das preferidas' : 'Marcar como preferida (aparece primeiro)', onclick: (e: Event) => {
+        e.stopPropagation();
+        void guard(async () => { const list = await (forge as unknown as Record<string, (...a: unknown[]) => Promise<typeof skills>>)['skillFavorite']!(k.id, !k.favorite); skills.splice(0, skills.length, ...list); paint(); });
+      } }, k.favorite ? '⭐' : '☆');
+      return gcard(skill.value === k.id, [star, visual, h('strong', {}, k.name), h('span', { class: 'muted small' }, (k.description ?? '').slice(0, 80))], () => { skill.value = k.id; skill.dispatchEvent(new Event('change', { bubbles: true })); paint(); });
     };
     const fmtCard = (a: string) => {
       const box = h('div', { class: 'np-fmt' }); box.style.aspectRatio = a.replace(':', '/');

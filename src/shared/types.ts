@@ -252,6 +252,8 @@ export interface Agent {
 /** Skill: instruções do usuário para cada atividade da rota. Chaves de `steps`: id da etapa ou tipo (kind). */
 export interface Skill {
   id: string; name: string; description: string; global: string; steps: Record<string, string>; builtin?: boolean;
+  /** preferida do usuário (⭐) — calculado na listagem a partir de Settings.favoriteSkills */
+  favorite?: boolean;
   /** Tipo de vídeo = skill: aparência, rota sugerida e padrões do projeto. */
   appearance?: VideoTypeId; routeId?: string; aspect?: Aspect; durationSec?: number; language?: string;
   presentation?: 'generated' | 'mixed'; mediaSources?: StockSource[];
@@ -634,6 +636,8 @@ export interface Settings {
   harnessFallback?: HarnessId[];
   /** Sem reserva por padrão: a etapa falha com o erro do provedor em vez de passar a outro (para depurar, ex.: Ollama). */
   noFallback?: boolean;
+  /** skills preferidas (⭐): aparecem antes das demais em todas as listas, na ordem em que foram marcadas */
+  favoriteSkills?: string[];
   /** Tentativas mínimas de cada modelo (harness/API) numa etapa, mesmo se a rota pede 1 (padrão 2). */
   stepAttempts?: number;
   /** Lote: quantas vezes refazer, no fim da fila, os projetos que falharam (retomando do cache; padrão 1). */

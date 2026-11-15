@@ -247,7 +247,22 @@ function readSkills(s: Settings): Skill[] {
   return out;
 }
 
-export const listSkills = (s: Settings): Skill[] => merged<Skill>(BUILTIN_SKILLS, readSkills(s));
+export const listSkills = (s: Settings): Skill[] => favoritesFirst(merged<Skill>(BUILTIN_SKILLS, readSkills(s)), s.favoriteSkills);
+
+/** Preferidas (⭐) primeiro, na ordem em que foram marcadas; as demais na ordem de sempre. Função pura. */
+export function favoritesFirst(list: Skill[], fav: string[] = []): Skill[] {
+  const rank = new Map(fav.map((id, i) => [id, i]));
+  return list.map((k, i) => ({ k: rank.has(k.id) ? { ...k, favorite: true } : k, i }))
+    .sort((a, b) => (rank.get(a.k.id) ?? 1e6 + a.i) - (rank.get(b.k.id) ?? 1e6 + b.i)).map((x) => x.k);
+}
+
+/** Marca/desmarca uma skill como preferida (a nova preferida entra no fim das preferidas). */
+export function setFavoriteSkill(s: Settings, id: string, on: boolean): string[] {
+  const cur = (s.favoriteSkills ?? []).filter((x) => x !== id);
+  s.favoriteSkills = on ? [...cur, id] : cur;
+  if (!s.favoriteSkills.length) delete s.favoriteSkills;
+  return s.favoriteSkills ?? [];
+}
 export const getSkill = (s: Settings, id: string) => listSkills(s).find((x) => x.id === id);
 export function saveSkill(s: Settings, k: Skill): Skill {
   if (!k.name?.trim()) throw new Error('dê um nome à skill');

@@ -858,6 +858,7 @@ function registerIpc() {
   h('route:delete', (id: string) => { lib.deleteRoute(settings, id); return true; });
   h('route:validate', (r: Route) => lib.validateRoute(r));
   h('skill:list', () => lib.listSkills(settings));
+  h('skill:favorite', (id: string, on: boolean) => { lib.setFavoriteSkill(settings, id, on); saveSettings(settings); return lib.listSkills(settings); });
   h('skill:save', (k: Parameters<typeof lib.saveSkill>[1]) => lib.saveSkill(settings, k));
   h('skill:delete', (id: string) => { lib.deleteSkill(settings, id); return true; });
   h('vtype:list', () => lib.listTypes(settings));
