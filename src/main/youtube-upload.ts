@@ -472,29 +472,52 @@ export async function youtubeCreateChannel(job: { port: number; name: string; ha
  * Identidade do canal no Studio (Personalização, aba Perfil): banner, foto e descrição; publica e confere.
  * O canal precisa ser o ATIVO da conta (o Studio abre no canal ativo).
  */
-export async function youtubeBrandChannel(job: { port: number; channelId: string; banner?: string; avatar?: string; description?: string; log: (l: string) => void; debugDir?: string; signal?: AbortSignal }): Promise<{ banner?: boolean; avatar?: boolean; description?: boolean }> {
+export async function youtubeBrandChannel(job: { port: number; channelId: string; name?: string; banner?: string; avatar?: string; description?: string; log: (l: string) => void; debugDir?: string; signal?: AbortSignal }): Promise<{ banner?: boolean; avatar?: boolean; description?: boolean }> {
   const cdp = await Cdp.connect(job.port);
   const st = new Studio(cdp, job);
   const res: { banner?: boolean; avatar?: boolean; description?: boolean } = {};
   try {
+    /* o Studio só abre no canal ATIVO: troca para o canal na lista de canais da conta (ou responde "Selecione um canal") */
+    if (job.name) await youtubeSwitchChannel(st, job.name, job.log);
     await st.open(`https://studio.youtube.com/channel/${job.channelId}/editing/profile`);
+    if (job.name) await st.ev<boolean>(`(() => { ${DEEP} const it = deepAll('ytd-account-item-renderer, tp-yt-paper-item, ytcp-ve, [role=option], a').filter(vis).find((e) => (e.innerText || '').split('\\n').map((x) => x.trim()).includes(${JSON.stringify(job.name)})); if (!it) return false; it.click(); return true; })()`).catch(() => false);
     if (!(await until(() => st.ev<boolean>(`(() => { ${DEEP} return deepAll('input#file-selector').length >= 2 && !!deep('#publish-button'); })()`), 60_000, 1500))) await st.fail('personalização', 'a página de personalização do canal não abriu');
     await wait(2500);
+    /* canal novo: aviso de boas-vindas por cima ("Continuar") */
+    await st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('#dismiss-button, ytcp-button, button').filter(vis).find((x) => /^\\s*(continuar|continue|entendi|got it)\\s*$/i.test(x.innerText || '')); if (b) b.click(); return !!b; })()`).catch(() => false);
+    await wait(1500);
     await cdp.send('DOM.enable', {}, st.session);
-    /* entradas na ordem da página: banner, foto, marca da imagem; cada imagem abre um recorte (botão Concluído) */
+    await cdp.send('Page.setInterceptFileChooserDialog', { enabled: true }, st.session).catch(() => {});
+    /* botões "Enviar/Alterar" na ordem da página: banner, foto, marca da imagem. O seletor de arquivos só abre com
+       clique de mouse de verdade: intercepta o seletor e entrega o arquivo; sem seletor, usa o input da página.
+       Cada imagem abre um recorte (botão Concluído). */
     const setImage = async (idx: number, file: string, what: string) => {
-      const r = await cdp.send('Runtime.evaluate', { expression: `(() => { ${DEEP} return deepAll('input#file-selector')[${idx}] || null; })()`, returnByValue: false }, st.session) as { result?: { objectId?: string } };
-      if (!r.result?.objectId) return false;
-      await cdp.send('DOM.setFileInputFiles', { files: [path.resolve(file)], objectId: r.result.objectId }, st.session);
-      const done = await until(() => st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('ytcp-button, button').filter(vis).find((x) => /^\\s*(done|concluído|concluir)\\s*$/i.test(x.innerText || '')); if (!b) return false; b.click(); return true; })()`), 30_000, 1000);
-      job.log(`YouTube: ${what} ${done ? 'enviado' : 'sem o recorte (seguindo)'}`);
+      const FIND = `deepAll('#upload-button, #replace-button').filter(vis)[${idx}]`;
+      const box = await st.ev<number[] | null>(`(() => { ${DEEP} const b = ${FIND}; if (!b) return null; b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      let sent = false;
+      if (box) {
+        await wait(600);
+        const box2 = await st.ev<number[] | null>(`(() => { ${DEEP} const b = ${FIND}; if (!b) return null; const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`) ?? box;
+        const ev = cdp.waitEvent('Page.fileChooserOpened', st.session, 8000);
+        for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x: box2[0], y: box2[1], button: 'left', clickCount: 1 }, st.session);
+        const opened = await ev.catch(() => undefined) as { backendNodeId?: number } | undefined;
+        if (opened?.backendNodeId) { await cdp.send('DOM.setFileInputFiles', { files: [path.resolve(file)], backendNodeId: opened.backendNodeId }, st.session); sent = true; }
+      }
+      if (!sent) {
+        const r = await cdp.send('Runtime.evaluate', { expression: `(() => { ${DEEP} return deepAll('input#file-selector')[${idx}] || null; })()`, returnByValue: false }, st.session) as { result?: { objectId?: string } };
+        if (!r.result?.objectId) return false;
+        await cdp.send('DOM.setFileInputFiles', { files: [path.resolve(file)], objectId: r.result.objectId }, st.session);
+      }
+      const done = await until(() => st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('ytcp-button, button').filter(vis).find((x) => /^\\s*(done|concluído|concluir|pronto)\\s*$/i.test(x.innerText || '')); if (!b) return false; b.click(); return true; })()`), 30_000, 1000);
+      if (!done) await st.dbg(`imagem ${what} (seletor ${sent ? 'interceptado' : 'não abriu'})`);
+      job.log(`YouTube: ${what} ${done ? 'enviado' : 'NÃO enviado (o recorte não abriu)'}`);
       await wait(2500);
       return !!done;
     };
     if (job.banner && fs.existsSync(job.banner)) res.banner = await setImage(0, job.banner, 'banner');
     if (job.avatar && fs.existsSync(job.avatar)) res.avatar = await setImage(1, job.avatar, 'foto do canal');
     if (job.description) {
-      const ok = await st.setText('#description-container #textbox, ytcp-social-suggestions-textbox#description-container #textbox', job.description.slice(0, 1000));
+      const ok = await st.setText('ytcp-social-suggestions-textbox#description-textbox #textbox, #description-textbox #textbox, #description-container #textbox', job.description.slice(0, 1000));
       res.description = ok; job.log(`YouTube: descrição ${ok ? 'escrita' : 'NÃO escrita (campo não encontrado)'}`);
     }
     await st.click('#publish-button');
@@ -503,4 +526,13 @@ export async function youtubeBrandChannel(job: { port: number; channelId: string
     job.log('YouTube: personalização publicada');
     return res;
   } finally { await st.close(); }
+}
+
+/** Torna `name` o canal ativo da conta (página "Todos os canais" → clica no canal). */
+async function youtubeSwitchChannel(st: Studio, name: string, log: (l: string) => void): Promise<boolean> {
+  await st.open('https://www.youtube.com/channel_switcher');
+  const ok = await until(() => st.ev<boolean>(`(() => { ${DEEP} const it = deepAll('ytd-account-item-renderer').filter(vis).find((e) => (e.innerText || '').split('\\n').map((x) => x.trim()).includes(${JSON.stringify(name)})); if (!it) return false; (it.querySelector('tp-yt-paper-icon-item, a, #contents') || it).click(); return true; })()`), 30_000, 1500);
+  await wait(4000);
+  log(ok ? `YouTube: canal ativo → ${name}` : `YouTube: não achei "${name}" na lista de canais`);
+  return !!ok;
 }
