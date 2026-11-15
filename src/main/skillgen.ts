@@ -12,7 +12,10 @@ import { listRoutes, listSkills, getSkill, parseSkillMarkdown, saveSkill, slugif
 import { VIDEO_TYPES } from './presets';
 import { ALL_ANGLES } from '../shared/angles';
 import { checkSkillRoute } from '../shared/compat';
-import { frameSheets, measureVideo, type VideoMetrics } from './channel-dna';
+import { frameSheets, measureVideo, normalizeLanguages, type LanguagePick, type VideoMetrics } from './channel-dna';
+
+/** ranking de idiomas pedido à IA (arquivo separado do skill.md) */
+const LANG_RULE = 'Grave também languages.json: [5 itens, do melhor para o pior, idiomas com MAIS chance de sucesso para este formato] cada um { "code": "en|pt-BR|es|hi|…", "score": 0-10, "why": "tamanho do público, concorrência nesse idioma, CPM", "audience": "público estimado", "competition": "baixa|média|alta", "cpm": "baixo|médio|alto" }.';
 import { artQuant, audioQuant, descQuant, motionQuant, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type AudioQuant, type DescQuant, type MotionQuant } from './clone-metrics';
 
 /*
@@ -32,7 +35,7 @@ export interface SkillGenInput {
   name?: string; language?: string; framesPerVideo?: number;
 }
 export type VideoRef = { idx: number; frames: string[]; transcript?: string; info: Record<string, unknown>; url?: string };
-export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string; /** números medidos (mediana dos vídeos) */ quant?: import('./clone-metrics').CloneQuant }
+export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string; /** números medidos (mediana dos vídeos) */ quant?: import('./clone-metrics').CloneQuant; /** idiomas com mais chance de sucesso (nota 0–10) */ languages?: LanguagePick[] }
 
 function run(cmd: string, args: string[], signal?: AbortSignal): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
@@ -280,6 +283,7 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
 ${qText}
 FOLHAS A 1 QUADRO POR SEGUNDO (12 s cada, em ordem; leia a arte, o texto na tela e o ritmo): ${sheetRel.slice(0, 25).join(', ')}
 ${SHOT_COUNT_RULE}
+${LANG_RULE}
 Use ESTES números na skill.md — não invente outros.`, model, effort: input.effort, signal: signal ?? new AbortController().signal, onLine: (l) => log(l.slice(0, 300)), timeoutSec: 1800,
       env: id === 'antigravity' ? activeAgyEnv(s) : undefined, tools: { roots: [workdir], allowShell: false },
       images: isHttpHarness(cfg) ? [...sheets.slice(0, 6), ...videos.flatMap((v) => v.frames.filter((_, i) => i % 2 === 0)).slice(0, 6).map((f) => path.join(workdir, f))] : undefined });
@@ -298,7 +302,12 @@ Use ESTES números na skill.md — não invente outros.`, model, effort: input.e
 ${qText}`.trim() });
   const routeReason = /^routeReason:\s*"?(.+?)"?\s*$/m.exec(md)?.[1] ?? '';
   log(`skill "${saved.name}" salva (rota sugerida: ${route.name})`);
+  /* idiomas com mais chance de sucesso para o formato (do melhor para o pior) */
+  let languages: LanguagePick[] = [];
+  try { languages = normalizeLanguages(JSON.parse(fs.readFileSync(path.join(workdir, 'languages.json'), 'utf8')), 5); } catch { /* a IA não gravou */ }
+  if (languages.length) log(`idiomas recomendados: ${languages.map((l) => `${l.code} ${l.score}/10`).join(' · ')}`);
+  else warnings.push('a IA não gravou languages.json (ranking de idiomas)');
   ok = true;
-  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir, quant };
+  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir, quant, languages };
   } finally { cleanup(workdir, ok, log); }
 }
