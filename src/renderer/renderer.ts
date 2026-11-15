@@ -1168,7 +1168,7 @@ async function renderNew() {
 
   /* ── 🧠 misturar skills (percentual de tempo de cada uma) ── */
   const mixRows: Array<{ skill: HTMLSelectElement; pct: HTMLInputElement }> = [];
-  const mixMode = h('select', { id: 'np-mix-mode' }, h('option', { value: 'blocks' }, 'Em blocos (uma depois da outra)'), h('option', { value: 'interleave' }, 'Intercaladas ao longo do vídeo')) as HTMLSelectElement;
+  const mixMode = h('select', { id: 'np-mix-mode' }, h('option', { value: 'blocks' }, 'Sequencial (o % da 1ª, depois o % da 2ª…)'), h('option', { value: 'best' }, 'Mesclada (a skill mais adequada a cada cena, nos percentuais)'), h('option', { value: 'interleave' }, 'Intercaladas (alternando pela cota)')) as HTMLSelectElement;
   const mainPct = h('input', { type: 'number', min: '5', max: '95', step: '5', value: '60', class: 'num', id: 'np-mix-main' }) as HTMLInputElement;
   const mixList = h('div', { class: 'np-mix-list' });
   const mixSum = h('span', { class: 'muted small' });
@@ -1536,7 +1536,7 @@ async function renderNew() {
       h3Speech: h3SpeechCb.checked || undefined,
       h3SpeechMode: h3SpeechCb.checked && (h3ModeSel.value === 'clone' || h3ModeSel.value === 'internal') ? h3ModeSel.value as 'clone' | 'internal' : undefined,
       skillMix: mixRows.length ? [{ skillId: skill.value, pct: Number(mainPct.value) || 50 }, ...mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 10 }))] : undefined,
-      skillMixMode: mixRows.length ? mixMode.value as 'blocks' | 'interleave' : undefined,
+      skillMixMode: mixRows.length ? mixMode.value as 'blocks' | 'interleave' | 'best' : undefined,
       palette: palOn.checked ? { video: palVideo.value(), thumbnail: palThumb.value() } : undefined,
       maxProductionMin: noLimit.checked ? 0 : Number(maxMin.value) || 0, sceneConcurrency: Math.max(1, Math.min(8, Number(conc.value) || 1)),
       orchestratorId: orch.value || undefined, workerIds: workerBoxes.filter((x) => x.cb.checked).map((x) => x.a.id),

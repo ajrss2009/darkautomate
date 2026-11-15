@@ -1,4 +1,4 @@
-import type { Project, Scene, Skill, SkillMixItem } from '../shared/types';
+import type { Project, Scene, Skill, SkillMixItem, SkillMixMode } from '../shared/types';
 
 /*
  * VÍDEO COM VÁRIAS SKILLS (percentual de tempo de cada uma):
@@ -29,15 +29,34 @@ const durOf = (s: Pick<Scene, 'durationSec' | 'narration'>) => (s.durationSec &&
 /**
  * Skill de cada cena (na ordem das cenas) pela duração:
  *  - blocks: faixas contínuas na ordem da mistura (a cena vai para a faixa que contém o seu meio);
- *  - interleave: a cada cena, a skill mais "atrasada" em relação à cota (alterna sozinha, na proporção pedida).
+ *  - interleave: a cada cena, a skill mais "atrasada" em relação à cota (alterna sozinha, na proporção pedida);
+ *  - best (mesclada): cada cena fica com a skill que o plano achou mais adequada (scene.mixSkill), enquanto ela
+ *    couber na cota; passou da cota (com folga de meia cena média), vai para a que está mais atrasada.
  * Toda skill recebe ao menos uma cena quando há cenas suficientes.
  */
-export function assignSkillMix(scenes: Array<Pick<Scene, 'durationSec' | 'narration'>>, mix: Array<{ skillId: string; pct: number }>, mode: 'blocks' | 'interleave'): string[] {
+export function assignSkillMix(scenes: Array<Pick<Scene, 'durationSec' | 'narration'> & { mixSkill?: string }>, mix: Array<{ skillId: string; pct: number; name?: string }>, mode: SkillMixMode): string[] {
   if (!scenes.length || !mix.length) return [];
   const d = scenes.map(durOf);
   const total = d.reduce((a, b) => a + b, 0);
   const out: string[] = [];
-  if (mode === 'blocks') {
+  if (mode === 'best') {
+    const norm = (x: string) => x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    const hintOf = (h?: string) => {
+      if (!h) return undefined;
+      const n = norm(h);
+      return mix.find((m) => norm(m.skillId) === n || (m.name && norm(m.name) === n))?.skillId
+        ?? mix.find((m) => (m.name && (norm(m.name).includes(n) || n.includes(norm(m.name)))) || n.includes(norm(m.skillId)))?.skillId;
+    };
+    const tol = (total / scenes.length) / 2;
+    const got = new Map(mix.map((m) => [m.skillId, 0]));
+    const cap = (id: string) => ((mix.find((m) => m.skillId === id)?.pct ?? 0) / 100) * total;
+    d.forEach((x, i) => {
+      const want = hintOf(scenes[i]!.mixSkill);
+      const fits = (id: string) => got.get(id)! + x <= cap(id) + tol;
+      const pick = want && fits(want) ? want : [...mix].sort((a, b) => (cap(b.skillId) - got.get(b.skillId)!) - (cap(a.skillId) - got.get(a.skillId)!))[0]!.skillId;
+      out.push(pick); got.set(pick, got.get(pick)! + x);
+    });
+  } else if (mode === 'blocks') {
     const bounds: number[] = []; let acc = 0;
     for (const m of mix) { acc += (m.pct / 100) * total; bounds.push(acc); }
     let t = 0;
@@ -84,9 +103,12 @@ export function mixPrompt(p: Pick<Project, 'skillMix' | 'skillMixSkills' | 'skil
   const dur = p.targetDurationSec || 60;
   let t = 0;
   const parts = mix.items.map((m) => { const from = t; t += (m.pct / 100) * dur; return `- ${m.name} — ${m.pct}%${mix.mode === 'blocks' ? ` (≈ ${Math.round(from)}–${Math.round(t)} s)` : ''}: ${about(m.skillId)}`; });
+  const how = mix.mode === 'blocks' ? 'em SEQUÊNCIA (blocos, nesta ordem)' : mix.mode === 'best' ? 'MESCLADAS (cada cena no estilo que combina mais com o conteúdo dela)' : 'INTERCALADAS ao longo do vídeo';
   if (stepKind === 'script') return `VÍDEO COM ${mix.items.length} ESTILOS (uma história só, mesma voz e mesmo tom; o roteiro dá espaço para cada estilo):\n${parts.join('\n')}`;
-  return `VÍDEO COM ${mix.items.length} SKILLS — ${mix.mode === 'blocks' ? 'em BLOCOS, nesta ordem' : 'INTERCALADAS ao longo do vídeo'} (a primeira manda no roteiro, na voz e na trilha; o app confere as cotas pela duração das cenas):\n${parts.join('\n')}\n` +
-    'Planeje o "kind" e o "visualIntent" de cada cena no estilo da skill da faixa dela, mantendo personagens, paleta e cenário coerentes entre os estilos.';
+  return `VÍDEO COM ${mix.items.length} SKILLS — ${how} (a primeira manda no roteiro, na voz e na trilha; o app confere as cotas pela duração das cenas):\n${parts.join('\n')}\n` +
+    (mix.mode === 'best'
+      ? `Em CADA cena, escolha a skill que melhor serve ao conteúdo dela e escreva o nome exato em "mixSkill" (ex.: "mixSkill": "${mix.items[0]!.name}"); some as durações para ficar perto dos percentuais. Planeje o "kind" e o "visualIntent" no estilo dessa skill, mantendo personagens, paleta e cenário coerentes.`
+      : 'Planeje o "kind" e o "visualIntent" de cada cena no estilo da skill da faixa dela, mantendo personagens, paleta e cenário coerentes entre os estilos.');
 }
 
 /**

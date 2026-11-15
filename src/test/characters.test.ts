@@ -80,11 +80,17 @@ async function main() {
   const inter = assignSkillMix(ten, mix, 'interleave');
   assert.deepEqual(mixShares(ten, inter), { A: 60, B: 40 }, 'intercaladas na mesma cota');
   assert.ok(inter.some((x, i) => i > 0 && x !== inter[i - 1]) && inter.slice(0, 4).includes('B'), 'alterna desde o começo');
+  /* mesclada: segue a skill sugerida pelo plano (nome ou id) enquanto cabe na cota; depois vai para a mais atrasada */
+  const hinted = ten.map((x, i) => ({ ...x, mixSkill: i < 8 ? 'Skill B' : 'a' }));
+  const best = assignSkillMix(hinted, [{ skillId: 'A', pct: 60, name: 'Skill A' }, { skillId: 'B', pct: 40, name: 'Skill B' }], 'best');
+  assert.deepEqual(best.slice(0, 5), ['B', 'B', 'B', 'B', 'A'], 'mesclada: B até a cota (40%), depois A mesmo com B sugerida');
+  assert.deepEqual(mixShares(ten, best), { A: 60, B: 40 }, 'mesclada respeita os percentuais');
+  assert.deepEqual(assignSkillMix(ten.slice(0, 2).map((x, i) => ({ ...x, mixSkill: ['B', 'A'][i] })), mix, 'best'), ['B', 'A'], 'mesclada usa a sugestão quando cabe');
   assert.deepEqual(assignSkillMix([{ durationSec: 30 }, { durationSec: 2 }] as never, [{ skillId: 'A', pct: 95 }, { skillId: 'B', pct: 5 }], 'blocks'), ['A', 'B'], 'toda skill ganha ao menos uma cena');
   const mp = createProject(s, { name: 'Misto', idea: 'ideia', videoType: 'custom', skillId: 'explicativo-link', routeId: 'explicativo-link', skillMix: [{ skillId: 'explicativo-link', pct: 70 }, { skillId: 'tutorial-clipes', pct: 30 }], skillMixMode: 'blocks' });
   assert.deepEqual(mp.skillMix?.items.map((m) => [m.skillId, m.pct]), [['explicativo-link', 70], ['tutorial-clipes', 30]]);
   assert.equal(mp.skillMixSkills?.[0]?.id, 'tutorial-clipes', 'a skill secundária fica congelada no projeto');
-  assert.match(mixPrompt(mp, 'scene_plan'), /2 SKILLS — em BLOCOS/); assert.match(mixPrompt(mp, 'scene_plan'), new RegExp(`70% \\(≈ 0–${Math.round(mp.targetDurationSec * 0.7)} s\\)`), 'faixa de tempo pela duração do projeto');
+  assert.match(mixPrompt(mp, 'scene_plan'), /2 SKILLS — em SEQUÊNCIA/); assert.match(mixPrompt(mp, 'scene_plan'), new RegExp(`70% \\(≈ 0–${Math.round(mp.targetDurationSec * 0.7)} s\\)`), 'faixa de tempo pela duração do projeto');
   assert.match(mixPrompt(mp, 'script'), /uma história só/); assert.equal(mixPrompt(mp, 'image'), '');
   mp.scenes = Array.from({ length: 5 }, (_, i): Scene => ({ id: `s${i + 1}`, index: i + 1, title: `c${i + 1}`, narration: '', visualIntent: '', kind: 'code', durationSec: 10, status: {}, artifacts: {} }));
   const shares = applySkillMix(mp);

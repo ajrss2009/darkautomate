@@ -947,7 +947,9 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
     /** UGC: as fotos do produto anexadas ao projeto entram em image_refs depois do elenco */
     productRefs?: boolean };
   const lang = wan2gpLanguage(c.project.language);
-  const vars: Record<string, string | number> = { ...commonVars(c, tpl), language_name: lang.name, language_code: lang.code, language_label: lang.label, ...(tpl.vars ?? {}) };
+  const vars: Record<string, string | number> = { ...commonVars(c, tpl), language_name: lang.name, language_code: lang.code, language_label: lang.label, ...(tpl.vars ?? {}),
+    /* quem chama pode fixar variáveis (ex.: coletânea: estilo/letra/duração/seed de cada faixa) */
+    ...((((c.step.params ?? {}) as Record<string, unknown>)['varsOverride'] as Record<string, string | number> | undefined) ?? {}) };
   vars['speech_seconds'] = speechSeconds(String(vars['text'] ?? ''));
   const prevImg = c.scene?.artifacts['image']?.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
   if (prevImg) vars['init_image'] = prevImg;                       // caminho absoluto local
@@ -1620,17 +1622,24 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
   const trackLen = (t: MusicPlanTrack) => { const s = Number(t.seconds); return Math.round(clamp(Number.isFinite(s) && s >= 60 ? s : plan.trackSec, 60, 300)); };
   c.log(`coletânea: ${Math.round(minTotalSeconds / 60)}–${Math.round(maxTotalSeconds / 60)} min (alvo ${Math.round(targetTotal / 60)} min), ~${plan.trackSec}s por faixa, ${tracks.length} faixa(s) no plano`);
 
+  /* motor das faixas: por código (projeto com "música por código" ou params.music = 'code'), YuE 2 no ComfyUI quando
+     ele está ligado, senão ACE-Step no Wan2GP (params.wan2gpTemplate) — ComfyUI desligado não derruba mais a coletânea */
   const server = c.settings.comfyServers.find((x) => x.id === 'local');
-  if (!server) throw new Error('ComfyUI local nao configurado');
   const wfName = instrumental ? 'yue2-instrumental.json' : 'yue2-text2music.json';
   const wfPath = path.join(o.workflowsDir, wfName);
-  if (!fs.existsSync(wfPath)) throw new Error(`workflow ${wfName} nao encontrado`);
   const sidePath = wfPath.replace(/\.json$/, '.map.json');
   const side = fs.existsSync(sidePath) ? JSON.parse(fs.readFileSync(sidePath, 'utf8')) as { outputNode?: string; mapping?: Record<string, string>; vars?: Record<string, string | number> } : {};
-  const wf = JSON.parse(fs.readFileSync(wfPath, 'utf8'));
-  const client = new ComfyClient(server);
-  const ping = await client.ping();
-  if (!ping.ok) throw new Error(`ComfyUI offline: ${ping.error}`);
+  const wanTpl = String(clipParams.wan2gpTemplate ?? 'wan2gp-music-ace.json');
+  let engine: 'code' | 'comfy' | 'wan2gp' = c.project.codeMusic || clipParams.music === 'code' ? 'code' : clipParams.music === 'wan2gp' ? 'wan2gp' : 'comfy';
+  let wf: Parameters<typeof applyVariables>[0] | undefined, client: ComfyClient | undefined;
+  if (engine === 'comfy') {
+    const ping = !server ? { ok: false, error: 'ComfyUI local não configurado' } : !fs.existsSync(wfPath) ? { ok: false, error: `workflow ${wfName} não encontrado` } : await new ComfyClient(server).ping();
+    if (ping.ok) { client = new ComfyClient(server!); wf = JSON.parse(fs.readFileSync(wfPath, 'utf8')); }
+    else if (c.settings.wan2gp?.root && fs.existsSync(path.join(o.workflowsDir, wanTpl))) { engine = 'wan2gp'; c.log(`ComfyUI indisponível (${ping.error}) — faixas no Wan2GP (${wanTpl})`); }
+    else throw new Error(`ComfyUI offline: ${ping.error} (e o Wan2GP não está configurado para música)`);
+  }
+  if (engine === 'wan2gp' && !c.settings.wan2gp?.root) throw new Error('Wan2GP não configurado (Provedores → wan2gp.root) para as faixas da coletânea');
+  c.log(`faixas da coletânea: ${engine === 'code' ? 'música por código' : engine === 'wan2gp' ? `Wan2GP ${wanTpl}` : `YuE 2 (${wfName})`}`);
   const seedBase = parseInt(crypto.createHash('md5').update(c.project.id).digest('hex').slice(0, 8), 16) % 2147483647;
 
   const scenes = c.project.scenes;
@@ -1716,7 +1725,7 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
     const style = [c.project.musicStyle, t.style, instrumental ? 'instrumental, no vocals' : '', c.project.idea].filter(Boolean).join('; ').slice(0, 600);
     const lyrics = instrumental ? '[instrumental]' : (t.lyrics || '[instrumental]');
     const vars: Record<string, string | number> = { ...(side.vars ?? {}), style, lyrics, music_seconds: seconds, seed };
-    const key = crypto.createHash('md5').update(JSON.stringify([wfName, vars])).digest('hex');
+    const key = crypto.createHash('md5').update(JSON.stringify([engine === 'comfy' ? wfName : engine === 'wan2gp' ? wanTpl : 'code', vars])).digest('hex');
     const raw = path.join(outDir, `music-${i + 1}.mp3`), marker = raw + '.json';
     try {
       if (fs.existsSync(raw) && JSON.parse(fs.readFileSync(marker, 'utf8')).key === key) {
@@ -1724,13 +1733,28 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
         if (d > 0) { c.log(`faixa ${i + 1} "${t.name}" já gerada (${d.toFixed(0)}s) — reaproveitada`); return { file: raw, dur: d }; }
       }
     } catch { /* gera de novo */ }
-    c.log(`faixa ${i + 1}: "${t.name}" (${seconds}s; ${wfName}) - ${style.slice(0, 80)}`);
-    const pid = await client.submit(applyVariables(wf, vars, side.mapping));
-    const entry = await client.waitFor(pid, c.signal, (pct) => { if (pct % 20 === 0) c.log(`YuE 2 ${pct}%`); });
+    c.log(`faixa ${i + 1}: "${t.name}" (${seconds}s; ${engine === 'comfy' ? wfName : engine === 'wan2gp' ? wanTpl : 'código'}) - ${style.slice(0, 80)}`);
+    if (engine !== 'comfy') {
+      let made: string;
+      if (engine === 'code') {
+        made = (await renderCodeMusic(c.settings, { mood: moodFor(c.project, clipParams), duration: seconds, out: raw.replace(/\.mp3$/, '.code.mp3'), signal: c.signal, log: c.log })).file;
+      } else {
+        /* o Wan2GP grava em out/music.*: gera com estilo/letra/duração desta faixa e converte para music-N.mp3 */
+        const got = await wan2gpExec(o)({ ...c, step: { ...c.step, kind: 'music', params: { ...(c.step.params ?? {}), varsOverride: { style, lyrics, music_seconds: seconds, seed } } }, binding: { type: 'wan2gp', template: wanTpl } as Binding });
+        made = got.files[0] ?? '';
+        if (!made || !fs.existsSync(made)) throw new Error(`Wan2GP ${wanTpl} não gerou a faixa "${t.name}"`);
+      }
+      await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', made, '-ar', '44100', '-ac', '2', '-c:a', 'libmp3lame', '-b:a', '192k', raw], c.signal);
+      fs.rmSync(made, { force: true });
+      fs.writeFileSync(marker, JSON.stringify({ key, name: t.name, seconds }));
+      return { file: raw, dur: await ff.duration(c.settings.ffprobe, raw) };
+    }
+    const pid = await client!.submit(applyVariables(wf!, vars, side.mapping));
+    const entry = await client!.waitFor(pid, c.signal, (pct) => { if (pct % 20 === 0) c.log(`YuE 2 ${pct}%`); });
     const outs = collectOutputs(entry, side.outputNode);
     const audio = outs.find((f) => f.kind === 'audio') ?? outs[0];
     if (!audio) throw new Error(`YuE 2 não retornou áudio para "${t.name}"`);
-    await client.download(audio, raw);
+    await client!.download(audio, raw);
     fs.writeFileSync(marker, JSON.stringify({ key, name: t.name, seconds }));
     return { file: raw, dur: await ff.duration(c.settings.ffprobe, raw) };
   }
@@ -1766,7 +1790,7 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
     c.log(`coletânea: ${(usedSeconds / 60).toFixed(1)} de ${(targetTotal / 60).toFixed(1)} min`);
   }
   if (usedSeconds < minTotalSeconds) c.log(`aviso: a coletânea ficou com ${(usedSeconds / 60).toFixed(1)} min (mínimo pedido ${(minTotalSeconds / 60).toFixed(1)} min)`);
-  if (server.freeAfter) await client.freeMemory();
+  if (client && server?.freeAfter) await client.freeMemory();
   if (files.length === 0) throw new Error('nenhuma faixa gerada');
 
   const playlist = path.join(outDir, 'playlist.mp3');
@@ -2249,7 +2273,13 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
   if (!parsed.blocks.length) throw new Error('script.md sem letra (seção LYRICS:)');
   const seconds = clamp(Math.round(c.project.targetDurationSec || 120), 20, 360);
   /* canção no Wan2GP (ex.: ACE-Step 1.5 XL): params.template = template de música do Wan2GP; a letra e o estilo vêm do script.md */
-  const tplName = String((c.step.params as Record<string, unknown>)['template'] ?? '');
+  let tplName = String((c.step.params as Record<string, unknown>)['template'] ?? '');
+  /* sem template: YuE 2 no ComfyUI; ComfyUI desligado → ACE-Step no Wan2GP (a canção não fica sem rota) */
+  if (!tplName && c.settings.wan2gp?.root && fs.existsSync(path.join(o.workflowsDir, 'wan2gp-music-ace.json'))) {
+    const srv = c.settings.comfyServers.find((x) => x.id === 'local') ?? c.settings.comfyServers[0];
+    const ping = srv ? await new ComfyClient(srv).ping() : { ok: false, error: 'ComfyUI não configurado' };
+    if (!ping.ok) { tplName = 'wan2gp-music-ace.json'; c.log(`ComfyUI indisponível (${ping.error}) — canção no Wan2GP (${tplName})`); }
+  }
   if (tplName) {
     c.log(`canção "${parsed.title || c.project.name}": ${parsed.blocks.length} bloco(s), ${seconds}s, Wan2GP ${tplName}`);
     const got = await wan2gpExec(o)({ ...c, step: { ...c.step, params: { ...(c.step.params ?? {}), song: true } }, binding: { type: 'wan2gp', template: tplName } as Binding });

@@ -81,6 +81,8 @@ export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool }
 export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */
 export interface FlowBinding { type: 'flow'; account?: string }
+/** mistura de skills: sequencial (blocos, na ordem), intercaladas (alternância pela cota) ou mesclada (a mais adequada à cena, dentro das cotas) */
+export type SkillMixMode = 'blocks' | 'interleave' | 'best';
 export type Binding = HarnessBinding | ComfyBinding | Wan2gpBinding | ApiBinding | StockBinding | BuiltinBinding | ManualBinding | FlowBinding;
 
 export interface RouteStep {
@@ -158,6 +160,8 @@ export interface Scene {
   overrides?: Record<string, Binding[]>; // stepId -> bindings
   /** regenerar com OUTRA skill: cópia da skill usada só nesta cena (o resto do projeto segue a skill dele) */
   skillOverride?: Skill;
+  /** mistura de skills no modo mesclado: skill que o plano de cenas achou mais adequada para esta cena (nome ou id) */
+  mixSkill?: string;
   /** regenerar com OUTROS plugins: ids usados só nesta cena ([] = sem plugins) */
   pluginsOverride?: string[];
   notes?: string;                      // instruções de ajuste (edição por prompt)
@@ -497,7 +501,7 @@ export interface Project {
   /** personagens da biblioteca usados neste projeto (cópia congelada) */
   characters?: ProjectCharacter[];
   /** várias skills com percentual de tempo; as cópias das secundárias ficam em skillMixSkills */
-  skillMix?: { items: SkillMixItem[]; mode: 'blocks' | 'interleave'; warnings?: string[] };
+  skillMix?: { items: SkillMixItem[]; mode: SkillMixMode; warnings?: string[] };
   skillMixSkills?: Skill[];
   /** episódio de uma série (Biblioteca → Histórias) */
   series?: { storyId: string; title: string; episode: number; total: number; previously?: string; cliffhanger?: string; arc?: string };

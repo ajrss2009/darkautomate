@@ -598,6 +598,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
           ? { w: Math.round(Number(s.clipCrop.w)), h: Math.round(Number(s.clipCrop.h)), x: Math.max(0, Math.round(Number(s.clipCrop.x) || 0)), y: Math.max(0, Math.round(Number(s.clipCrop.y) || 0)) }
           : undefined,
         notes: s.notes,
+        mixSkill: typeof s.mixSkill === 'string' && s.mixSkill.trim() ? s.mixSkill.trim().slice(0, 80) : undefined,
         sfx: Array.isArray(s.sfx) ? s.sfx.map(String) : undefined,
         sfxCues: Array.isArray(s.sfxCues) ? s.sfxCues : undefined,
         overrides: s.overrides,

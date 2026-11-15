@@ -159,7 +159,7 @@ const tail = (after: string[], editParams: Record<string, unknown> = {}, music: 
   step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail (formato do projeto)', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: thumbChain, timeoutSec: 900 }),
 ];
 
-export const ROUTES: Route[] = [
+export const ROUTES: Route[] = ([
   {
     id: 'shorts-autopilot', name: 'Imagem → vídeo IA (shorts e geral)',
     description: 'Roteiro → cenas → narração → imagem → vídeo IA (ComfyUI local, fallback API) → montagem. Cenas de código/motion para rabiscos e textos.',
@@ -542,7 +542,33 @@ export const ROUTES: Route[] = [
       step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail (formato do projeto)', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: thumbChain, timeoutSec: 900 }),
     ],
   },
-];
+] as Route[]).map(withAllMediaRoutes);
+
+/**
+ * Toda etapa de imagem, capa ou vídeo aceita as quatro rotas: ComfyUI, Wan2GP, Flow (navegador) e API (Snapgen).
+ * A ordem própria da skill é mantida; as rotas que faltam entram como reserva (antes das reservas internas, como
+ * o quadro do vídeo para a capa). O usuário escolhe a ordem nos perfis de executores.
+ */
+export function withAllMediaRoutes(route: Route): Route {
+  const extra: Record<'image' | 'thumbnail' | 'video', Binding[]> = {
+    image: [{ type: 'comfyui', server: 'local', workflow: 'krea2-turbo-t2i.json' }, { type: 'wan2gp', template: 'wan2gp-image.json' }, { type: 'flow' }, { type: 'api', provider: 'snapgen', model: '' }],
+    thumbnail: [{ type: 'comfyui', server: 'local', workflow: 'krea2-turbo-t2i.json' }, { type: 'wan2gp', template: 'wan2gp-image.json' }, { type: 'flow' }, { type: 'api', provider: 'snapgen', model: '' }],
+    video: [{ type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v.json' }, { type: 'wan2gp', template: 'wan2gp-h3-i2v.json' }, { type: 'flow' }, { type: 'api', provider: 'snapgen', model: 'muse-ai-video' }],
+  };
+  const has = (bs: Binding[], b: Binding) => bs.some((x) => x.type === b.type && (b.type !== 'api' || (x as { provider?: string }).provider === (b as { provider?: string }).provider));
+  return {
+    ...route,
+    steps: route.steps.map((s) => {
+      const want = (extra as Record<string, Binding[] | undefined>)[s.kind];
+      if (!want || !s.bindings.length) return s;
+      const missing = want.filter((b) => !has(s.bindings, b));
+      if (!missing.length) return s;
+      let cut = s.bindings.length;
+      while (cut > 0 && s.bindings[cut - 1]!.type === 'builtin') cut--;
+      return { ...s, bindings: [...s.bindings.slice(0, cut), ...missing, ...s.bindings.slice(cut)] };
+    }),
+  };
+}
 
 export const BUILTIN_SKILLS: Skill[] = [
   { id: 'explicativo-codigo', name: 'Vídeo explicativo com código', builtin: true, scriptEnding: 'next',

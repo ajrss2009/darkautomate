@@ -166,7 +166,7 @@ export interface NewProjectInput {
   h3SpeechMode?: 'dub' | 'clone' | 'internal';
   /** várias skills com percentual (a 1ª é a principal e deve ser a skillId) */
   skillMix?: Array<{ skillId: string; pct: number }>;
-  skillMixMode?: 'blocks' | 'interleave';
+  skillMixMode?: import('../shared/types').SkillMixMode;
   /** paleta do vídeo e da thumbnail escolhida no Novo projeto */
   palette?: Project['palette'];
 }
@@ -324,7 +324,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
       const all = [skill, ...others];
       const kinds = routeSceneKinds(project);
       const warnings = others.map((k) => { const want = getVideoType(k.appearance ?? 'custom')?.sceneKind; return want && kinds.size && !kinds.has(want) ? `a rota "${route.name}" não produz cenas "${want}" (usadas por "${k.name}") — elas viram o tipo que a rota produz` : ''; }).filter(Boolean);
-      project.skillMix = { items: items.filter((m) => all.some((k) => k.id === m.skillId)).map((m) => ({ ...m, name: all.find((k) => k.id === m.skillId)!.name })), mode: input.skillMixMode === 'interleave' ? 'interleave' : 'blocks', warnings: warnings.length ? warnings : undefined };
+      project.skillMix = { items: items.filter((m) => all.some((k) => k.id === m.skillId)).map((m) => ({ ...m, name: all.find((k) => k.id === m.skillId)!.name })), mode: input.skillMixMode === 'interleave' || input.skillMixMode === 'best' ? input.skillMixMode : 'blocks', warnings: warnings.length ? warnings : undefined };
       project.skillMixSkills = others.map((k) => JSON.parse(JSON.stringify(k)) as Skill);
     }
   }
