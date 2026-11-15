@@ -82,6 +82,8 @@ export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */
 export interface FlowBinding { type: 'flow'; account?: string }
 /** mistura de skills: sequencial (blocos, na ordem), intercaladas (alternância pela cota) ou mesclada (a mais adequada à cena, dentro das cotas) */
+/** visualizador da música: showwaves do ffmpeg (line, p2p, cline, dot) ou desenhado pelo app (bars, mirror, circle, peaks, smooth, dots); none = sem */
+export type WaveformStyle = 'line' | 'bar' | 'p2p' | 'cline' | 'dot' | 'bars' | 'mirror' | 'circle' | 'peaks' | 'smooth' | 'dots' | 'none';
 export type SkillMixMode = 'blocks' | 'interleave' | 'best';
 export type Binding = HarnessBinding | ComfyBinding | Wan2gpBinding | ApiBinding | StockBinding | BuiltinBinding | ManualBinding | FlowBinding;
 
@@ -464,7 +466,9 @@ export interface Project {
   attachments?: Attachment[];
   /** estado das faixas no editor: mudo (render) e oculto (só visualização); trava é só da UI */
   tracks?: { video?: TrackState; narration?: TrackState; music?: TrackState; sfx?: TrackState; subs?: TrackState; fx?: TrackState };
-  waveform?: 'line' | 'bar' | 'p2p' | 'cline' | 'dot'; // waveform sobreposta no clipe
+  waveform?: WaveformStyle; // waveform/espectro sobreposto no clipe
+  /** cor do visualizador (#rrggbb; padrão ciano) */
+  waveformColor?: string;
   /** coletânea musical: duração total mínima e máxima (minutos) e duração de cada faixa (s) */
   musicMinMin?: number;
   musicMaxMin?: number;

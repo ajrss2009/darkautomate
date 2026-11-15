@@ -70,9 +70,9 @@ export function cleanBypass(v: unknown): ExecutorBypass | undefined {
 }
 
 export function updateProject(s: Settings, id: string, patch: Partial<Pick<Project,
-  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark' | 'wan2gpPost' | 'tracks' | 'cast'>>): Project {
+  'name' | 'idea' | 'aspect' | 'targetDurationSec' | 'language' | 'memories' | 'quality' | 'videoType' | 'maxProductionMin' | 'sceneConcurrency' | 'subtitleStyle' | 'scriptStyle' | 'videoStyle' | 'musicStyle' | 'musicMode' | 'waveform' | 'waveformColor' | 'plugins' | 'finalEffects' | 'fxSegments' | 'musicVolume' | 'sfxVolume' | 'narrationVolume' | 'musicMinMin' | 'musicMaxMin' | 'musicTrackSec' | 'pluginStyles' | 'narrationVoice' | 'agyAccount' | 'flowAccount' | 'channelId' | 'audioFirst' | 'subtitles' | 'sceneSec' | 'executorBypass' | 'freeEngine' | 'codeMusic' | 'watermark' | 'wan2gpPost' | 'tracks' | 'cast'>>): Project {
   const p = readProject(s, id);
-  const allowed = ['name', 'idea', 'aspect', 'targetDurationSec', 'language', 'memories', 'quality', 'videoType', 'maxProductionMin', 'sceneConcurrency', 'subtitleStyle', 'scriptStyle', 'videoStyle', 'musicStyle', 'musicMode', 'waveform', 'plugins'];
+  const allowed = ['name', 'idea', 'aspect', 'targetDurationSec', 'language', 'memories', 'quality', 'videoType', 'maxProductionMin', 'sceneConcurrency', 'subtitleStyle', 'scriptStyle', 'videoStyle', 'musicStyle', 'musicMode', 'waveform', 'waveformColor', 'plugins'];
   Object.assign(p, Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && allowed.includes(k))));
   if ('tracks' in patch) {
     const t = (patch.tracks ?? {}) as NonNullable<Project['tracks']>;

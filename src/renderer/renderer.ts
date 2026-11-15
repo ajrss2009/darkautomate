@@ -1038,7 +1038,9 @@ async function renderNew() {
   const paintMusInfo = () => { const a = Number(musMin.value) || 1, b = Math.max(a, Number(musMax.value) || a), t = Math.min(300, Math.max(60, Number(musTrack.value) || 150)); const n = Math.max(1, Math.round(((a + b) / 2) * 60 / t)); musInfo.textContent = `≈ ${n} faixas de ${Math.round(((a + b) / 2) * 60 / n)} s (alvo ${Math.round((a + b) / 2)} min)`; };
   for (const x of [musMin, musMax, musTrack]) x.addEventListener('input', paintMusInfo);
   paintMusInfo();
-  const waveform = h('select', { id: 'np-waveform' }, ...[['line', 'Linha'], ['p2p', 'Barras'], ['cline', 'Preenchida'], ['dot', 'Pontos']].map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+  const waveform = h('select', { id: 'np-waveform' }, ...[['line', 'Onda: linha'], ['p2p', 'Onda: barras'], ['cline', 'Onda: preenchida'], ['dot', 'Onda: pontos'], ['bars', 'Espectro: barras'], ['peaks', 'Espectro: barras com picos'], ['mirror', 'Espectro: espelhado'], ['smooth', 'Espectro: curva suave'], ['dots', 'Espectro: pontos saltando'], ['circle', 'Espectro: círculo (centro)'], ['none', 'Sem visualizador']].map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+  const waveColor = h('input', { id: 'np-waveform-color', type: 'color', value: '#00e5ff', title: 'Cor do visualizador' }) as HTMLInputElement;
+  const perTrackLoop = h('input', { id: 'np-per-track-loop', type: 'checkbox', title: 'Cada música da coletânea ganha a sua cena em loop (senão, o mesmo loop para todas)' }) as HTMLInputElement;
   const aspect = h('select', { id: 'np-aspect' }, ...['9:16', '16:9', '1:1', '4:5'].map((a) => h('option', { value: a }, a))) as HTMLSelectElement;
   const dsec = h('input', { type: 'number', value: String(episode?.targetDurationSec ?? 60), min: '5', id: 'np-dur' }) as HTMLInputElement;
   const lang = h('select', { id: 'np-lang' }, ...LANGUAGES.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
@@ -1448,6 +1450,10 @@ async function renderNew() {
     musicBox.style.display = clip || lyric ? '' : 'none';
     musicMode.parentElement && (musicMode.parentElement.style.display = clip ? '' : 'none');
     waveform.parentElement && (waveform.parentElement.style.display = clip ? '' : 'none');
+    for (const el of [waveColor, perTrackLoop]) el.parentElement && (el.parentElement.style.display = clip ? '' : 'none');
+    /* skill que já pede um loop por faixa: vem marcado */
+    const ed = r?.steps.find((st) => st.bindings.some((b) => b.type === 'builtin' && b.tool === 'clip-musical'));
+    perTrackLoop.checked = !!(ed?.params as Record<string, unknown> | undefined)?.['perTrackLoop'];
     const row = document.getElementById('np-music-len'); if (row) row.style.display = clip ? '' : 'none';
   };
 
@@ -1524,7 +1530,7 @@ async function renderNew() {
       aspect: aspect.value, targetDurationSec: Number(dsec.value) || 60, quality: quality.value, profile: profile.value, language: lang.value,
       freeEngine: npFreeEngine.value === '2d' || npFreeEngine.value === '3d' ? npFreeEngine.value : undefined,
       thumbnailTemplate: thumbId || undefined, scriptStyle: scriptStyle.value.trim() || undefined, videoStyle: videoStyle.value.trim() || undefined,
-      musicStyle: musicStyle.value.trim() || undefined, musicMode: musicMode.value as 'instrumental' | 'song', musicMinMin: Number(musMin.value) || undefined, musicMaxMin: Number(musMax.value) || undefined, musicTrackSec: Number(musTrack.value) || undefined, waveform: waveform.value as 'line' | 'bar' | 'p2p' | 'cline' | 'dot',
+      musicStyle: musicStyle.value.trim() || undefined, musicMode: musicMode.value as 'instrumental' | 'song', musicMinMin: Number(musMin.value) || undefined, musicMaxMin: Number(musMax.value) || undefined, musicTrackSec: Number(musTrack.value) || undefined, waveform: waveform.value as import('../shared/types').WaveformStyle, waveformColor: waveColor.value, perTrackLoop: perTrackLoop.checked,
       refScriptFile: refScript, refVideoFile: refVideo, refScriptUse: !!refScript && scriptUse.checked, attachFiles: attachFiles.length ? [...attachFiles] : undefined,
       subtitles: subsSel.value as 'off' | 'srt' | 'burn', subtitleFont: subsFont.value || undefined, subtitleKind: (subsKind.value || undefined) as SubtitleStyle['kind'],
       audioFirst: audioFirstCb.checked, codeMusic: codeMusicCb.checked || undefined,
@@ -1580,7 +1586,7 @@ async function renderNew() {
     name: name.value.trim(), idea: idea.value.trim(), skillId: skill.value, routeId: route.value,
     aspect: aspect.value, targetDurationSec: Number(dsec.value) || 60, quality: quality.value, profile: profile.value, language: lang.value,
     scriptStyle: scriptStyle.value, videoStyle: videoStyle.value, musicStyle: musicStyle.value, musicMode: musicMode.value,
-    musicMinMin: musMin.value, musicMaxMin: musMax.value, musicTrackSec: musTrack.value, waveform: waveform.value,
+    musicMinMin: musMin.value, musicMaxMin: musMax.value, musicTrackSec: musTrack.value, waveform: waveform.value, waveformColor: waveColor.value,
     codeMusic: codeMusicCb.checked, audioFirst: audioFirstCb.checked, subtitles: subsSel.value, subtitleFont: subsFont.value, subtitleKind: subsKind.value,
     freeEngine: npFreeEngine.value, thumbnailTemplate: thumbId || undefined,
     palette: palOn.checked ? { video: palVideo.value(), thumbnail: palThumb.value() } : undefined,
@@ -1621,7 +1627,7 @@ async function renderNew() {
     if (t['routeId']) { route.value = String(t['routeId']); route.dispatchEvent(new Event('change')); }
     set(aspect, t['aspect']); set(dsec, t['targetDurationSec']); set(quality, t['quality']); set(profile, t['profile']); set(lang, t['language']);
     set(scriptStyle, t['scriptStyle']); set(videoStyle, t['videoStyle']); set(musicStyle, t['musicStyle']); set(musicMode, t['musicMode']);
-    set(musMin, t['musicMinMin']); set(musMax, t['musicMaxMin']); set(musTrack, t['musicTrackSec']); set(waveform, t['waveform']);
+    set(musMin, t['musicMinMin']); set(musMax, t['musicMaxMin']); set(musTrack, t['musicTrackSec']); set(waveform, t['waveform']); set(waveColor, t['waveformColor']);
     codeMusicCb.checked = !!t['codeMusic']; audioFirstCb.checked = !!t['audioFirst'];
     set(subsSel, t['subtitles']); set(subsFont, t['subtitleFont']); set(subsKind, t['subtitleKind']); paintSubs();
     set(npFreeEngine, t['freeEngine']);
@@ -1668,7 +1674,7 @@ async function renderNew() {
       h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Estilo de roteiro', scriptStyle), h('label', { class: 'grow' }, 'Estilo de vídeo', videoStyle)),
       (musicBox.replaceChildren(
         h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Estilo musical (clipe musical / lyric video)', musicStyle)),
-        h('div', { class: 'row' }, h('label', {}, 'Música', musicMode), h('label', {}, 'Waveform', waveform)),
+        h('div', { class: 'row' }, h('label', {}, 'Música', musicMode), h('label', {}, 'Visualizador', waveform), h('label', {}, 'Cor', waveColor), h('label', { class: 'check' }, perTrackLoop, ' Um loop por música')),
         h('div', { class: 'row', id: 'np-music-len', title: 'Instrumental + geração local usa o workflow YuE 2 instrumental (LoRA, sem voz).' }, h('label', {}, 'Coletânea: mínimo (min)', musMin), h('label', {}, 'máximo (min)', musMax), h('label', {}, 'cada faixa (s)', musTrack), musInfo)), musicBox),
       h('div', { class: 'row' },
         h('div', { class: 'grow refbox' }, h('strong', {}, 'Roteiro (importar)'), h('div', { class: 'muted' }, 'Texto, legenda ou um vídeo/áudio (transcrito pelo Whisper). Por padrão a IA só adapta o ESTILO dele; marque abaixo para usar o texto como o roteiro deste vídeo.'), h('div', { class: 'row' }, pickScript, scriptBox),

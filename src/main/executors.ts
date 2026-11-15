@@ -13,6 +13,8 @@ import { refPrompt, speechSeconds, Wan2gpClient, wan2gpLanguage } from './wan2gp
 import { runShowrunner, showrunnerKind } from './showrunner';
 import * as prov from './providers';
 import * as ff from './ffmpeg';
+import { spawn } from 'node:child_process';
+import { decodeMono, hexColor, isAppVisualizer, visualizerBox, writeVisualizer } from './visualizer';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
 import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, primaryFileFor, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
@@ -1871,16 +1873,38 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
 
   const final = primaryFile('edit', c);
   const waveform = c.project.waveform ?? 'line';
-  const wfMode = waveform === 'bar' || waveform === 'p2p' ? 'p2p' : waveform === 'dot' ? 'point' : waveform === 'line' ? 'line' : 'cline';
-  const wfHeight = waveform === 'bar' || waveform === 'p2p' ? 260 : waveform === 'dot' ? 180 : 220;
-  const filter = `[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setpts=PTS-STARTPTS[base];` +
-    `[1:a]showwaves=s=1800x${wfHeight}:mode=${wfMode}:scale=sqrt:rate=30:colors=0x00FFFF,format=rgb24,` +
-    `colorlevels=rimax=0.45:gimax=0.45:bimax=0.45,colorkey=black:0.10:0.04[w];` +
-    `[base][w]overlay=60:H-h-40,subtitles='${ff.filterPath(ass)}'[v]`;
+  const color = hexColor(c.project.waveformColor);
+  const colorHex = '0x' + color.map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+  const encode = ['-t', total.toFixed(3), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', final];
+  const base = `[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setpts=PTS-STARTPTS[base];`;
   try {
-    await ff.run(ffmpeg, ['-y', '-i', visualFull, '-i', playlist, '-filter_complex', filter, '-map', '[v]', '-map', '1:a',
-      '-t', total.toFixed(3), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', final], c.signal);
+    if (waveform === 'none') {
+      await ff.run(ffmpeg, ['-y', '-i', visualFull, '-i', playlist, '-filter_complex', `${base}[base]subtitles='${ff.filterPath(ass)}'[v]`, '-map', '[v]', '-map', '1:a', ...encode], c.signal);
+    } else if (isAppVisualizer(waveform)) {
+      /* espectro desenhado pelo app: quadros RGBA por pipe (entrada 2), sobrepostos ao vídeo */
+      const box = visualizerBox(waveform), rate = 22050;
+      const samples = await decodeMono(ffmpeg, playlist, rate, c.signal);
+      const filter = `${base}[2:v]format=rgba[w];[base][w]overlay=${box.x}:${box.y}:shortest=1,subtitles='${ff.filterPath(ass)}'[v]`;
+      const p = spawn(ff.resolveBin(ffmpeg), ['-y', '-loglevel', 'error', '-i', visualFull, '-i', playlist, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${box.w}x${box.h}`, '-r', '30', '-i', 'pipe:0',
+        '-filter_complex', filter, '-map', '[v]', '-map', '1:a', ...encode], { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true });
+      let err = '';
+      p.stderr!.on('data', (d) => { err = (err + String(d)).slice(-1500); });
+      p.stdin!.on('error', () => { /* ffmpeg terminou antes: o erro vem no código de saída */ });
+      const done = new Promise<number | null>((r) => p.on('close', r));
+      c.signal?.addEventListener('abort', () => p.kill(), { once: true });
+      await writeVisualizer(p.stdin!, samples, rate, { style: waveform, seconds: total, fps: 30, color: c.project.waveformColor, signal: c.signal }).catch((e) => { p.kill(); throw e; });
+      const code = await done;
+      if (code !== 0) throw new Error(`ffmpeg ${code}: ${err.slice(-300)}`);
+    } else {
+      const wfMode = waveform === 'bar' || waveform === 'p2p' ? 'p2p' : waveform === 'dot' ? 'point' : waveform === 'line' ? 'line' : 'cline';
+      const wfHeight = waveform === 'bar' || waveform === 'p2p' ? 260 : waveform === 'dot' ? 180 : 220;
+      const filter = base +
+        `[1:a]showwaves=s=1800x${wfHeight}:mode=${wfMode}:scale=sqrt:rate=30:colors=${colorHex},format=rgb24,` +
+        `colorlevels=rimax=0.45:gimax=0.45:bimax=0.45,colorkey=black:0.10:0.04[w];` +
+        `[base][w]overlay=60:H-h-40,subtitles='${ff.filterPath(ass)}'[v]`;
+      await ff.run(ffmpeg, ['-y', '-i', visualFull, '-i', playlist, '-filter_complex', filter, '-map', '[v]', '-map', '1:a', ...encode], c.signal);
+    }
   } catch (e) {
     c.log(`waveform falhou (${(e as Error).message.slice(0, 120)}) - gerando sem waveform`);
     const base = `[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,subtitles='${ff.filterPath(ass)}'[v]`;

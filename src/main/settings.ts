@@ -104,7 +104,10 @@ export interface NewProjectInput {
   scriptStyle?: string; videoStyle?: string;
   musicStyle?: string;
   musicMode?: 'instrumental' | 'song';
-  waveform?: 'line' | 'bar' | 'p2p' | 'cline' | 'dot';
+  waveform?: import('../shared/types').WaveformStyle;
+  waveformColor?: string;
+  /** coletânea: um loop diferente para cada música (uma cena por faixa) em vez do mesmo loop para todas */
+  perTrackLoop?: boolean;
   musicMinMin?: number; musicMaxMin?: number; musicTrackSec?: number;
   maxProductionMin?: number; sceneConcurrency?: number;
   orchestratorId?: string; workerIds?: string[];
@@ -255,6 +258,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
   /* campos de música só valem em rotas de música (o formulário sempre envia musicMode) */
   const musicRoute = route.steps.some((st) => st.enabled && st.bindings.some((b) => b.type === 'builtin' && (b.tool === 'clip-musical' || b.tool === 'lyric-song')));
   const clipRoute = route.steps.some((st) => st.enabled && st.bindings.some((b) => b.type === 'builtin' && b.tool === 'clip-musical'));
+  if (clipRoute && input.perTrackLoop !== undefined) route = { ...route, steps: route.steps.map((st) => (st.bindings.some((b) => b.type === 'builtin' && b.tool === 'clip-musical') ? { ...st, params: { ...st.params, perTrackLoop: !!input.perTrackLoop } } : st)) };
   const cast = (input.cast ?? []).map((m) => ({ speaker: String(m.speaker ?? '').trim(), refAudio: m.refAudio?.trim() || undefined, voice: m.voice?.trim() || undefined, description: m.description?.trim() || undefined })).filter((m) => m.speaker);
   const fold = input.foldId ? getFold(s, input.foldId) : undefined;
   if (input.foldId && !fold) throw new Error(`Dobra de nicho "${input.foldId}" não existe`);
@@ -273,6 +277,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
     musicStyle: musicRoute ? input.musicStyle?.trim() || undefined : undefined,
     musicMode: !musicRoute ? undefined : input.musicMode === 'song' ? 'song' : input.musicMode === 'instrumental' ? 'instrumental' : undefined,
     waveform: musicRoute ? input.waveform : undefined,
+    waveformColor: musicRoute && /^#[0-9a-f]{6}$/i.test(input.waveformColor ?? '') ? input.waveformColor : undefined,
     codeMusic: input.codeMusic && !musicRoute ? true : undefined,
     ...(clipRoute ? compilationFields(input) : {}),
     cast: cast.length ? cast : undefined,

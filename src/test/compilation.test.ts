@@ -11,6 +11,7 @@ import { compilationPlan } from '../main/prompts';
 import { fitSceneSfx } from '../main/editor';
 import * as ff from '../main/ffmpeg';
 import type { Route } from '../shared/types';
+import { drawFrame, hexColor, spectrumAt, visualizerBox, VISUALIZER_STYLES } from '../main/visualizer';
 
 /** Coletâneas de N a M minutos (YuE 2 instrumental, sem silêncio) e efeitos sincronizados com o visual pela IA. */
 async function main() {
@@ -97,6 +98,21 @@ async function main() {
       assert.deepEqual(off['s01'], ['stone']);
     } finally { api.close(); }
   } finally { server.close(); }
+  /* visualizador do app: o espectro acha a frequência certa e todo estilo desenha algo no quadro */
+  {
+    const rate = 22050, sine = new Float32Array(rate).map((_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / rate));
+    const lv = spectrumAt(sine, rate, 0.5, 64);
+    const top = lv.indexOf(Math.max(...lv)), fm = Math.min(16000, rate / 2 - 1), f0 = 40 * Math.pow(fm / 40, top / 64), f1 = 40 * Math.pow(fm / 40, (top + 1) / 64);
+    assert.ok(f0 <= 460 && f1 >= 420, `banda mais forte contém 440 Hz (${f0.toFixed(0)}–${f1.toFixed(0)} Hz)`);
+    assert.ok(Math.max(...spectrumAt(new Float32Array(rate), rate, 0.5, 64)) === 0, 'silêncio = nível zero');
+    assert.deepEqual(hexColor('#ff8000'), [255, 128, 0]); assert.deepEqual(hexColor('xx'), [0, 229, 255]);
+    for (const st of VISUALIZER_STYLES) {
+      const b = visualizerBox(st.id), buf = drawFrame(st.id, new Array(64).fill(0.6), new Array(64).fill(0.8), b.w, b.h, [0, 229, 255]);
+      let opaque = 0; for (let i = 3; i < buf.length; i += 4) if (buf[i]! > 0) opaque++;
+      assert.equal(buf.length, b.w * b.h * 4, st.id);
+      assert.ok(opaque > b.w * b.h * 0.01 && opaque < b.w * b.h * 0.95, `${st.id}: desenha sem cobrir o quadro todo (${opaque})`);
+    }
+  }
   console.log('compilation tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });
