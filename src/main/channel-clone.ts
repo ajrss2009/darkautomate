@@ -18,6 +18,7 @@ import { applyDnaToSkill, audioSummary, averageMetrics, catchphrases, channelTit
   type AudioProfile, type ChannelDna, type LanguagePick, type PickedVideo, type VideoMetrics } from './channel-dna';
 import type { TitleStructure } from './youtube-rules';
 import { LocalCloneStore } from './clone-store';
+import { artQuant, audioQuant, descQuant, quantText, readWords, summarizeQuant, type AudioQuant, type CloneQuant, type DescQuant } from './clone-metrics';
 
 /*
  * CLONAR CANAL (Obter vídeos → Canais):
@@ -43,10 +44,12 @@ export interface ChannelCloneInput {
   resumeDir?: string;
 }
 export interface NicheBend { title: string; angle: string; why: string; audience?: string; exampleTitles?: string[];
+  /** true = muda o ÂNGULO (outra abordagem do mesmo tema/público); false = mesmo ângulo, subnicho vizinho */
+  angleChange?: boolean;
   /** melhores idiomas para esta dobra (nota 0–10) */
   languages?: LanguagePick[]; demand?: string; competition?: string; cpm?: string }
 /** Vídeo analisado a fundo: por que foi escolhido, o que se mediu e as folhas de contato. */
-export interface AnalyzedVideo extends PickedVideo { /** link do vídeo (YouTube ou a rede do perfil) */ url?: string; metrics?: VideoMetrics; sheet?: string; /** folhas a 1 quadro/segundo, em ordem */ sheets?: string[]; audio?: AudioProfile; frames?: string[]; transcriptWords?: number }
+export interface AnalyzedVideo extends PickedVideo { /** áudio quantificado (voz, música, efeitos) e descrição medida */ aq?: AudioQuant; dq?: DescQuant; /** link do vídeo (YouTube ou a rede do perfil) */ url?: string; metrics?: VideoMetrics; sheet?: string; /** folhas a 1 quadro/segundo, em ordem */ sheets?: string[]; audio?: AudioProfile; frames?: string[]; transcriptWords?: number }
 /** Etapas da clonagem (para a interface mostrar o progresso). */
 export type CloneStage = 'list' | 'thumbs' | 'videos' | 'ai' | 'render' | 'save' | 'done';
 export interface CloneProgress { stage: CloneStage; pct: number; label: string; name?: string }
@@ -81,6 +84,8 @@ export interface ChannelCloneResult {
   measured?: Partial<VideoMetrics>;
   /** estrutura dos títulos do canal (medida, sem IA) */
   titleStructure?: TitleStructure;
+  /** TUDO em números (mediana dos vídeos): fala, cortes, voz/música/efeitos, descrição e arte */
+  quant?: CloneQuant;
   /** visual, direção de arte, câmera, edição, roteiro, títulos, thumbnail, narração e trilha */
   dna?: ChannelDna;
   /** idiomas recomendados para o canal novo, do melhor para o pior */
@@ -260,7 +265,7 @@ ${input.note?.trim() ? `\n## Pedido do usuário\n${input.note.trim()}\n` : ''}
     "soundtrack": { "genre": "gênero musical", "mood": "clima (tenso, épico, divertido, lo-fi…)", "tempo": "BPM aproximado e se muda no vídeo", "bpm": <número>, "instruments": "instrumentos/texturas", "entry": "quando entra, se para em pausas e como fecha",
       "silenceBeforeReveal": true, "cutsOnBeat": false, "genreByAct": ["clima do ato 1", "ato 2", "..."] }
   },
-  "bends": [ 10 itens { "title": "nome do SUBNICHO dobrado", "angle": "o que muda no assunto mantendo o formato (vizinho, não cópia)", "why": "por que funciona (demanda, concorrência, público)", "audience": "...", "exampleTitles": ["3 títulos NOVOS seguindo a estrutura medida dos títulos"],
+  "bends": [ 10 itens { "title": "nome do SUBNICHO dobrado", "angle": "o que muda no assunto mantendo o formato (vizinho, não cópia)", "why": "por que funciona (demanda, concorrência, público)", "audience": "...", "exampleTitles": ["3 títulos NOVOS seguindo a estrutura medida dos títulos"], "angleChange": true|false (true = MUDA o ângulo/abordagem; false = mesmo ângulo, subnicho vizinho — entregue pelo menos 4 de cada),
     "demand": "baixa|média|alta", "competition": "baixa|média|alta", "cpm": "baixo|médio|alto", "languages": [ 3 itens { "code": "pt-BR|en|es|hi|…", "score": 0-10, "why": "..." } ] } ],
   "chosenBend": <índice 0–9 da dobra mais promissora>,
   "languages": [ 5 itens, do melhor para o pior, para o canal novo na dobra escolhida: { "code": "...", "score": 0-10, "why": "tamanho do público, concorrência nesse idioma, CPM", "audience": "tamanho estimado do público", "competition": "baixa|média|alta", "cpm": "baixo|médio|alto" } ],
@@ -397,11 +402,15 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
         const abs = await frameSheets(s.ffmpeg || 'ffmpeg', file, path.join(dir, 'sheets', `video${k + 1}`), 300, signal);
         a.sheets = abs.map((f) => path.relative(dir, f).replace(/\\/g, '/'));
         a.audio = a.metrics.audio;
+        /* números: voz × música por baixo (pausas entre palavras) e efeitos sonoros por minuto */
+        try { a.aq = await audioQuant(s.ffmpeg || 'ffmpeg', file, readWords(path.join(dir, 'transcripts', `video${k + 1}.json`)), signal); } catch (e) { log(`vídeo ${k + 1}: áudio não quantificado (${(e as Error).message.slice(0, 80)})`); }
         if (a.sheets[0]) a.sheet = a.sheets[0];
         log(`vídeo ${k + 1}: ${a.metrics.shots} planos (${a.metrics.avgShotSec} s cada, ${a.metrics.cutsPerMin} cortes/min)` +
           `${a.metrics.wpm ? `, ${a.metrics.wpm} palavras/min` : ''} · ${a.sheets.length} folhas a 1 quadro/s (${Math.min(300, a.metrics.durationSec)} s)` +
           `${a.audio ? ` · áudio: ${audioSummary(a.audio)}` : ''}`);
       }
+      a.dq = descQuant(String(ref.info['description'] ?? ''));
+      if (a.aq) log(`vídeo ${k + 1}: voz ${a.aq.speechDb} dBFS · música ${a.aq.musicPresent ? `${a.aq.musicRelDb} dB abaixo da voz` : 'ausente'} · ${a.aq.sfxPerMin} efeitos/min · descrição ${a.dq.chars} car., ${a.dq.hashtags} hashtags, ${a.dq.chapters} capítulos`);
       ref.dna = a;
       videos.push(ref);
     } catch (err) { log(`vídeo ${k + 1} ignorado: ${(err as Error).message.slice(0, 160)}`); }
@@ -420,11 +429,21 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
   const titleStr = channelTitleStructure(entries.filter((e) => e.title).map((e) => ({ title: e.title!, views: e.view_count ?? undefined })));
   /* bordões/conectivos recorrentes nas transcrições (medido, sem IA) */
   const phrases = catchphrases(videos.map((v) => v.transcript ?? '').filter(Boolean));
+  /* estilo de arte medido nos quadros (1 por segundo, até 5 min) e todos os números em mediana */
+  const artFrames = analyzed.flatMap((a) => a.sheets ?? []).map((f) => path.join(dir, f));
+  const art = await artQuant(s.ffmpeg || 'ffmpeg', artFrames.length ? artFrames : videos.flatMap((v) => v.frames).map((f) => path.join(dir, f)), 24, signal).catch(() => undefined);
+  const quant = summarizeQuant(analyzed, art);
+  const qText = quantText(quant, 'vídeos de mais views do canal');
+  fs.writeFileSync(path.join(dir, 'quant.json'), JSON.stringify(quant, null, 1));
+  log(qText);
 
   /* provedor com visão escreve tudo */
   step('ai', 64, 'a IA está analisando o DNA do canal (visual, câmeras, roteiro, títulos, thumbnails, idiomas)');
   const { id: hid, cfg, model } = await resolveHarness(s, { type: 'harness', harness: input.harness, model: input.model });
-  const full = buildPrompt(s, input, list, metrics, videos, thumbs, refs, aspect, { analyzed, measured, titles: titleStr, phrases }).replace(/canal do YouTube "/, `canal do ${plat.label} "`)
+  const full = (buildPrompt(s, input, list, metrics, videos, thumbs, refs, aspect, { analyzed, measured, titles: titleStr, phrases }) + `
+
+${qText}
+Use ESTES números na skill.md (ritmo, música, efeitos, descrição e arte) — não invente outros.`).replace(/canal do YouTube "/, `canal do ${plat.label} "`)
     .replace('pronta para colar no YouTube', `pronta para colar no ${plat.label}`);
   const http = isHttpHarness(cfg);
   const env = hid === 'antigravity' ? activeAgyEnv(s) : undefined;
@@ -530,7 +549,10 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
     prompt: [thumbnail.prompt, thumbnail.rules, brief].filter(Boolean).join('\n'), layout: LAYOUTS.includes(String(thumbnail.layout)) ? thumbnail.layout : undefined, preview: tplPreview,
   } : undefined;
   /* o DNA (medido + descrito) entra garantido nas diretrizes e nas etapas da skill */
-  let skill = saveSkill(s, applyDnaToSkill(fin.skill, dna, measured, titleStr, srcName, phrases));
+  let skill = applyDnaToSkill(fin.skill, dna, measured, titleStr, srcName, phrases);
+  skill = saveSkill(s, { ...skill, global: `${skill.global ?? ''}
+
+${qText}`.trim() });
   if (skill.routeId !== route.id || thumbnailTemplate) skill = saveSkill(s, { ...skill, routeId: route.id, thumbnailTemplate: thumbnailTemplate?.id ?? skill.thumbnailTemplate });
   if (files.demo && !skill.previewMedia?.endsWith('.mp4')) {
     const dest = path.join(s.workspace, 'library', 'skill-media', `${skill.id}.mp4`);
@@ -545,7 +567,7 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
     analysis: (ch['analysis'] ?? {}) as Record<string, unknown>, bends, chosenBend, foldIds, channelKey, language, brand, thumbnail, demoIdea: typeof ch['demoIdea'] === 'string' ? ch['demoIdea'] : undefined,
     skill, route, thumbnailTemplate, files, warnings,
     videos: analyzed.map((a) => ({ ...a, sheet: a.sheet && path.join(dir, a.sheet), frames: a.frames?.map((f) => path.join(dir, f)) })),
-    measured, titleStructure: titleStr, dna, languages,
+    measured, titleStructure: titleStr, quant, dna, languages,
   };
   /* gravado pelo armazenamento: esquema versionado, caminhos relativos (portátil) e estado de sincronização */
   const saved = cloneStore(s, o.appVersion).save(result);

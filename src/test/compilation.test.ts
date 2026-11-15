@@ -12,6 +12,7 @@ import { fitSceneSfx } from '../main/editor';
 import * as ff from '../main/ffmpeg';
 import type { Route } from '../shared/types';
 import { drawFrame, hexColor, spectrumAt, visualizerBox, VISUALIZER_STYLES } from '../main/visualizer';
+import { artClass, artOfPixels, audioQuantFromSamples, descQuant, median, quantText, summarizeQuant } from '../main/clone-metrics';
 
 /** Coletâneas de N a M minutos (YuE 2 instrumental, sem silêncio) e efeitos sincronizados com o visual pela IA. */
 async function main() {
@@ -112,6 +113,43 @@ async function main() {
       assert.equal(buf.length, b.w * b.h * 4, st.id);
       assert.ok(opaque > b.w * b.h * 0.01 && opaque < b.w * b.h * 0.95, `${st.id}: desenha sem cobrir o quadro todo (${opaque})`);
     }
+  }
+  /* métricas quantificáveis da clonagem */
+  {
+    const rate = 16000, dur = 20, sm = new Float32Array(rate * dur);
+    /* voz: 0,4 s de "fala" (tom 220 Hz, amplitude 0,3) a cada 0,8 s; música por baixo 20 dB abaixo (amplitude 0,03) */
+    const words: Array<{ start: number; end: number }> = [];
+    for (let t = 0.2; t < dur - 1; t += 0.8) words.push({ start: t, end: t + 0.4 });
+    for (let i = 0; i < sm.length; i++) {
+      const t = i / rate, inWord = words.some((w) => t >= w.start && t < w.end);
+      sm[i] = 0.03 * Math.sin(2 * Math.PI * 110 * t) + (inWord ? 0.3 * Math.sin(2 * Math.PI * 220 * t) : 0);
+    }
+    /* 6 "efeitos": cliques agudos curtos nas pausas */
+    for (const t of [3.2, 6.4, 9.6, 12.8, 16.0, 18.4]) for (let k = 0; k < 160; k++) sm[Math.round(t * rate) + k] += (k % 2 ? 0.5 : -0.5) * (1 - k / 160);
+    const aq = audioQuantFromSamples(sm, rate, words);
+    assert.ok(aq.musicPresent && aq.musicRelDb! < -14 && aq.musicRelDb! > -26, `música ~20 dB abaixo da voz (${aq.musicRelDb})`);
+    assert.ok(aq.sfxCount! >= 5 && aq.sfxCount! <= 8, `efeitos detectados (${aq.sfxCount})`);
+    const silentBed = audioQuantFromSamples(sm.map((v, i) => (words.some((w) => i / rate >= w.start && i / rate < w.end) ? v : 0)), rate, words);
+    assert.equal(silentBed.musicPresent, false, 'sem música nas pausas');
+    const d = descQuant('Neste vídeo 🚀 explico tudo.\n\n00:00 Intro\n01:30 Parte 1\n\nInscreva-se! https://x.com/a #space #ciencia @canal');
+    assert.deepEqual([d.chapters, d.hashtags, d.links, d.emojis, d.mentions, d.paragraphs], [2, 2, 1, 1, 1, 3]);
+    assert.ok(d.ctas >= 1 && d.firstLineChars === 'Neste vídeo 🚀 explico tudo.'.length);
+    /* arte: quadro chapado com contorno preto = cartoon; ruído colorido = foto */
+    const W = 160, H = 90, flat = new Uint8Array(W * H * 3), noisy = new Uint8Array(W * H * 3);
+    for (let i = 0; i < W * H; i++) {
+      const x = i % W, y = Math.floor(i / W), border = x % 20 < 2 || y % 15 < 2;
+      const c = border ? [0, 0, 0] : x < 80 ? [240, 200, 40] : [40, 120, 230];
+      flat.set(c, i * 3);
+      const hsh = (k: number) => (Math.imul(i * 3 + k + 1, 2654435761) >>> 24) & 255; noisy.set([hsh(0), hsh(1), hsh(2)], i * 3);
+    }
+    const fa = artOfPixels(flat, W, H), na = artOfPixels(noisy, W, H);
+    assert.ok(fa.flatness > 0.9 && na.flatness < 0.5, `chapado ${fa.flatness} × ruído ${na.flatness}`);
+    assert.equal(artClass({ ...fa }), 'cartoon-linha');
+    assert.notEqual(artClass({ ...na }), 'cartoon-linha');
+    assert.equal(median([3, 1, 2]), 2); assert.equal(median([4, 1, 3, 2]), 2.5); assert.equal(median([]), undefined);
+    const q = summarizeQuant([{ metrics: { wpm: 150 }, aq, dq: d }, { metrics: { wpm: 170 }, aq: silentBed, dq: d }, { metrics: { wpm: 160 } }]);
+    assert.equal(q.wpm, 160); assert.equal(q.musicShare, 0.5); assert.equal(q.desc?.chapters, 2);
+    assert.match(quantText(q), /160 palavras\/min/); assert.match(quantText(q), /música de fundo: em 50%/);
   }
   console.log('compilation tests: OK');
 }

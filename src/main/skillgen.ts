@@ -12,6 +12,8 @@ import { listRoutes, listSkills, getSkill, parseSkillMarkdown, saveSkill, slugif
 import { VIDEO_TYPES } from './presets';
 import { ALL_ANGLES } from '../shared/angles';
 import { checkSkillRoute } from '../shared/compat';
+import { frameSheets, measureVideo, type VideoMetrics } from './channel-dna';
+import { artQuant, audioQuant, descQuant, quantText, readWords, summarizeQuant, type AudioQuant, type DescQuant } from './clone-metrics';
 
 /*
  * Nova SKILL a partir de vídeos de referência:
@@ -30,7 +32,7 @@ export interface SkillGenInput {
   name?: string; language?: string; framesPerVideo?: number;
 }
 export type VideoRef = { idx: number; frames: string[]; transcript?: string; info: Record<string, unknown>; url?: string };
-export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string }
+export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string; /** números medidos (mediana dos vídeos) */ quant?: import('./clone-metrics').CloneQuant }
 
 function run(cmd: string, args: string[], signal?: AbortSignal): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
@@ -221,7 +223,8 @@ Grave APENAS o arquivo skill.md. Não crie outros arquivos.`;
 
 /** Apaga os arquivos baixados: tudo ao criar a skill; só os vídeos se falhar (o resto fica para diagnóstico). */
 function cleanup(workdir: string, ok: boolean, log: (l: string) => void) {
-  const target = ok ? workdir : path.join(workdir, 'videos');
+  /* os vídeos baixados sempre saem; as métricas (quant.json) e as folhas de quadros ficam como registro da clonagem */
+  const target = path.join(workdir, 'videos');
   try { if (fs.existsSync(target)) { fs.rmSync(target, { recursive: true, force: true }); log(ok ? 'arquivos baixados apagados' : 'vídeos baixados apagados'); } }
   catch (e) { log(`não consegui apagar ${target}: ${(e as Error).message}`); }
 }
@@ -240,18 +243,43 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
   const prepare = (idx: number, src: { url?: string; file?: string }) => prepareReference(s, workdir, idx, src, n, toolsDir, log, signal);
   const videos: VideoRef[] = [];
   const sources: Array<{ url?: string; file?: string }> = [...links.map((u) => ({ url: u })), ...files.map((f) => ({ file: f }))];
+  /* números de cada vídeo (medidos no arquivo antes de apagar): fala, cortes, voz × música, efeitos, descrição
+     e 1 QUADRO POR SEGUNDO até 5 min (folhas de 12 s) para a arte e para a IA */
+  const per: Array<{ metrics?: VideoMetrics; aq?: AudioQuant; dq?: DescQuant }> = [];
+  const sheets: string[] = [];
   for (const [k, src] of sources.entries()) {
     const idx = k + 1;
-    videos.push(await prepare(idx, src));
+    const ref = await prepare(idx, src);
+    videos.push(ref);
+    const file = src.file ?? (fs.existsSync(path.join(workdir, 'videos')) ? fs.readdirSync(path.join(workdir, 'videos')).filter((f) => f.startsWith(`video${idx}.`) && /\.(mp4|webm|mkv|mov)$/i.test(f)).map((f) => path.join(workdir, 'videos', f))[0] : undefined);
+    const item: (typeof per)[number] = { dq: descQuant(String(ref.info['description'] ?? '')) };
+    if (file) {
+      try { item.metrics = await measureVideo(s.ffmpeg || 'ffmpeg', s.ffprobe || 'ffprobe', file, ref.transcript, signal); } catch (e) { log(`vídeo ${idx}: sem métricas de corte/fala (${(e as Error).message.slice(0, 80)})`); }
+      try { item.aq = await audioQuant(s.ffmpeg || 'ffmpeg', file, readWords(path.join(workdir, 'transcripts', `video${idx}.json`)), signal); } catch { /* sem áudio */ }
+      try { sheets.push(...(await frameSheets(s.ffmpeg || 'ffmpeg', file, path.join(workdir, 'sheets', `video${idx}`), 300, signal))); } catch { /* sem folhas */ }
+      const m = item.metrics, a = item.aq;
+      log(`vídeo ${idx}: ${m ? `${m.wpm ?? '?'} palavras/min, ${m.cutsPerMin} cortes/min` : 'sem métricas'}${a ? ` · voz ${a.speechDb} dBFS · música ${a.musicPresent ? `${a.musicRelDb} dB abaixo` : 'ausente'} · ${a.sfxPerMin} efeitos/min` : ''} · ${sheets.length} folhas a 1 quadro/s`);
+    }
+    per.push(item);
   }
+  const art = await artQuant(s.ffmpeg || 'ffmpeg', sheets.length ? sheets : videos.flatMap((v) => v.frames.map((f) => path.join(workdir, f))), 24, signal).catch(() => undefined);
+  const quant = summarizeQuant(per, art);
+  const qText = quantText(quant, 'vídeo(s) de referência');
+  fs.writeFileSync(path.join(workdir, 'quant.json'), JSON.stringify(quant, null, 1));
+  log(qText);
+  const sheetRel = sheets.map((f) => path.relative(workdir, f).replace(/\\/g, '/'));
 
   // análise pelo provedor com visão
   const mdFile = path.join(workdir, 'skill.md');
   const analyze = async () => {
     log(`analisando com ${id}${model ? '/' + model : ''}…`);
-    return runHarness(cfg, { cwd: workdir, prompt: buildPrompt(s, input, videos), model, effort: input.effort, signal: signal ?? new AbortController().signal, onLine: (l) => log(l.slice(0, 300)), timeoutSec: 1800,
+    return runHarness(cfg, { cwd: workdir, prompt: `${buildPrompt(s, input, videos)}
+
+${qText}
+FOLHAS A 1 QUADRO POR SEGUNDO (12 s cada, em ordem; leia a arte, o texto na tela e o ritmo): ${sheetRel.slice(0, 25).join(', ')}
+Use ESTES números na skill.md — não invente outros.`, model, effort: input.effort, signal: signal ?? new AbortController().signal, onLine: (l) => log(l.slice(0, 300)), timeoutSec: 1800,
       env: id === 'antigravity' ? activeAgyEnv(s) : undefined, tools: { roots: [workdir], allowShell: false },
-      images: isHttpHarness(cfg) ? videos.flatMap((v) => v.frames.filter((_, i) => i % 2 === 0)).slice(0, 12).map((f) => path.join(workdir, f)) : undefined });
+      images: isHttpHarness(cfg) ? [...sheets.slice(0, 6), ...videos.flatMap((v) => v.frames.filter((_, i) => i % 2 === 0)).slice(0, 6).map((f) => path.join(workdir, f))] : undefined });
   };
   const res = await analyze();
   if (!fs.existsSync(mdFile) && res.stdout.includes('---')) fs.writeFileSync(mdFile, res.stdout.slice(res.stdout.indexOf('---')));
@@ -259,10 +287,15 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
   const md = fs.readFileSync(mdFile, 'utf8');
   const sourceNote = `Criada a partir de: ${[...links, ...files.map((f) => path.basename(f))].join(', ')}${input.angles.length ? ` · ângulo: ${input.angles.map((a) => ALL_ANGLES.find((x) => x.id === a)?.label ?? a).join(', ')}` : ''}`;
   const firstFrame = videos[0]?.frames[Math.floor((videos[0]?.frames.length ?? 1) / 2)];
-  const { skill: saved, route, warnings } = finalizeSkillMd(s, md, { name: input.name, language: input.language, sourceNote, preview: firstFrame ? path.join(workdir, firstFrame) : undefined });
+  const fin = finalizeSkillMd(s, md, { name: input.name, language: input.language, sourceNote, preview: firstFrame ? path.join(workdir, firstFrame) : undefined });
+  const { route, warnings } = fin;
+  /* os números medidos ficam GARANTIDOS nas diretrizes da skill */
+  const saved = saveSkill(s, { ...fin.skill, global: `${fin.skill.global ?? ''}
+
+${qText}`.trim() });
   const routeReason = /^routeReason:\s*"?(.+?)"?\s*$/m.exec(md)?.[1] ?? '';
   log(`skill "${saved.name}" salva (rota sugerida: ${route.name})`);
   ok = true;
-  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir };
+  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir, quant };
   } finally { cleanup(workdir, ok, log); }
 }

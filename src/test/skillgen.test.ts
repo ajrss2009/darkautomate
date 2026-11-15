@@ -55,7 +55,10 @@ echo ok
   assert.match(prompt, /stickman-explainer/, 'rotas disponíveis no prompt');
   assert.equal(fs.readFileSync(path.join(ws, 'frames.txt'), 'utf8').trim().split(/\r?\n/).length, 4, 'o provedor viu 4 quadros');
   assert.match(prompt, /não baixe nada/);
-  assert.ok(!fs.existsSync(r.workdir), 'arquivos baixados/extraídos apagados ao criar a skill');
+  assert.ok(!fs.existsSync(path.join(r.workdir, 'videos')), 'vídeos baixados apagados ao criar a skill');
+  assert.ok(fs.existsSync(path.join(r.workdir, 'quant.json')), 'as métricas medidas ficam guardadas');
+  assert.ok(r.quant && r.quant.videos >= 1, 'resultado traz os números medidos');
+  assert.match(prompt, /MÉTRICAS MEDIDAS/);
   assert.equal(r.skill.name, 'Stickman (2)', 'nome único (já existe a skill padrão "Stickman")');
   assert.equal(r.routeId, 'stickman-explainer', 'rota inválida → rota padrão da aparência');
   assert.ok(r.warnings.some((w) => /não existe/.test(w)));
