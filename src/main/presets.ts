@@ -188,6 +188,19 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'ia-video-codigo', name: 'Imagem/vídeo IA + montagem por código (rótulos, cartões, câmera)',
+    description: 'Cada cena: imagem IA (Flow/ComfyUI/Wan2GP/API) → clipe ANIMADO (Muse/Wan2GP/MiniMax) → página por código que usa a imagem e o clipe dentro do layout do formato (cartões, setas, rótulos grandes, câmera). Para canais com render 3D/IA animado montado em layout (ex.: comparações e estágios).',
+    videoTypes: ['custom', 'flat_explainer', 'motion_graphics', 'realistic', 'cartoon_3d'],
+    steps: [
+      ...base(), transcribeStep(),
+      step({ id: 'image', kind: 'image', label: 'Imagem da cena (IA)', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['code', 'mixed'], bindings: [{ type: 'flow' }, ...imageChain], timeoutSec: 900 }),
+      step({ id: 'video', kind: 'video', label: 'Clipe animado da cena (imagem → vídeo)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['code', 'mixed'], optional: true, onFail: 'skip', bindings: [{ type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, ...videoChain], timeoutSec: 2400 }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Montagem por código sobre a imagem/clipe', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'image', 'video'], onlySceneKinds: ['code', 'mixed'], bindings: textChain }),
+      sfxStep(false, ['code_scene']),
+      ...tail(['narration', 'code_scene', 'sfx'], {}),
+    ],
+  },
+  {
     id: 'kit-2d-cinematic', name: 'Animação 2D cinematográfica (motor do plugin)',
     description: 'Para plugins com motor de animação próprio (ex.: aiTrends 2D Studio): roteiro → planos curtos de 2–4 s → narração → tempos (Whisper) → elenco e cenários no formato do plugin → um plano registerShot por cena, renderizado pelo player do plugin (rim light, gradação, 3D) com correção de erros e revisão visual → trilha e efeitos por código → montagem. Marque o plugin no projeto.',
     videoTypes: ['stickman', 'flat_explainer', 'motion_graphics', 'code_3d', 'custom'],

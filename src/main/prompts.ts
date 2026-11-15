@@ -945,6 +945,7 @@ export function buildPromptMarked(c: ExecContext): string {
     charactersPrompt(p, c.step.kind, c.scene), mixPrompt(p, c.step.kind), productCtaPrompt(channel?.products, c.step.kind),
     seriesBlock(p, c.step.kind), styleBlock(p, c.step.kind)].filter(Boolean).join('\n');
   const extra = [workerText(p, c.step), briefText(c.projectDir, c.step.kind), referenceText(p, c.step.kind),
+    sceneImageText(c),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });
   const head = `Você é um módulo de produção do FilmForge. IDIOMA do vídeo (narração, textos na tela, título, descrição): ${languageName(p.language)} (${p.language}). Aparência: ${vt?.label ?? p.videoType}. ` +
@@ -1168,3 +1169,18 @@ export function wordBudget(p: Pick<Project, 'targetDurationSec' | 'language'> & 
 }
 /** palavras por segundo do projeto (texto do prompt) */
 const wpsText = (p: Pick<Project, 'language'> & { skill?: Pick<Skill, 'formatDna'> }) => wordsPerSecond(p.skill?.formatDna, p.language).toFixed(1).replace('.', ',');
+
+/**
+ * Cena por código com IMAGEM GERADA da própria cena (rota "Imagens IA + montagem por código"): a página recebe o
+ * caminho relativo da imagem para usar como a ilustração principal do layout (cartão, quadro, fundo cheio…).
+ */
+export function sceneImageText(c: Pick<ExecContext, 'step' | 'scene' | 'sceneDir'> & { project: Project; projectDir: string; outDir: string }): string {
+  if (!(c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') || !c.scene || !c.sceneDir) return '';
+  const imgs = (c.scene.artifacts?.['image'] ?? []).filter((f) => /\.(png|jpe?g|webp)$/i.test(f) && fs.existsSync(f));
+  const vids = (c.scene.artifacts?.['video'] ?? []).filter((f) => /\.(mp4|webm|mov)$/i.test(f) && fs.existsSync(f));
+  if (!imgs.length && !vids.length) return '';
+  const pageDir = path.dirname(primaryFile(c.step.kind, c as never));
+  const rel = (l: string[]) => l.map((f) => `"${path.relative(pageDir, f).split(path.sep).join('/')}"`).join(', ');
+  return [vids.length ? `CLIPE ANIMADO GERADO DESTA CENA (é o conteúdo principal e SE MEXE: use-o como <video muted> no layout pedido — fundo cheio ou dentro do cartão —, controlado por currentTime em seek(t); se a cena for mais longa que o clipe, segure o último quadro ou repita em vaivém): ${rel(vids)}` : '',
+    imgs.length ? `IMAGEM GERADA DESTA CENA (${vids.length ? 'quadro do clipe: use enquanto o vídeo carrega ou em cartões estáticos' : 'é a ilustração principal: use-a no layout pedido — cartão, quadro ou fundo cheio'}), carregada pelo caminho RELATIVO antes do 1º quadro: ${rel(imgs)}` : ''].filter(Boolean).join('\n');
+}
