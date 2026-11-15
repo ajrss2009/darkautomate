@@ -231,7 +231,8 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   const producible = new Set<string>();
   const producers: Array<{ kind: Scene['kind']; only?: string[] }> = [];
   const addProducer = (kind: Scene['kind'], st: RouteStep) => {
-    producible.add(kind);
+    /* etapa restrita a outros tipos (ex.: vídeo só para cenas code/mixed) não produz cenas desse tipo sozinha */
+    if (!st.onlySceneKinds || st.onlySceneKinds.includes(kind)) producible.add(kind);
     producers.push({ kind, only: st.onlySceneKinds });
   };
   for (const st of route.steps ?? []) {
@@ -262,7 +263,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
          filtro onlySceneKinds (ex.: etapa stock limitada a stock/mixed não
          deve capturar uma cena de código). */
       const candidates = producers.filter((p) => !p.only || p.only.includes(sc.kind));
-      const pick = candidates.find((p) => p.kind === fallbackKind) ?? candidates[0];
+      const pick = candidates.find((p) => p.kind === fallbackKind) ?? candidates[0]
+        /* o tipo tem etapa, mas restrita a outros tipos (ex.: rota imagem→clipe→código só para cenas code): usa o tipo que a rota produz */
+        ?? (producers.some((p) => p.kind === sc.kind) ? { kind: fallbackKind } : undefined);
       if (!pick || pick.kind === sc.kind) continue;
       emit({ t: 'log', line: `cena ${sc.id}: tipo "${sc.kind}" não tem etapa nesta rota → usando "${pick.kind}"` });
       sc.kind = pick.kind;

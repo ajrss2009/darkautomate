@@ -277,6 +277,17 @@ async function main() {
   assert.ok(fs.existsSync(path.join(s1dir, 'stock', 'stock-1.mp4')) || fs.existsSync(path.join(s1dir, 'stock', 'stock-1.jpg')), 'mídias baixadas');
   assert.ok(fs.existsSync(path.join(s1dir, 'clips', 'clip.mp4')), 'cena stock usa o vídeo como visual');
   assert.ok(!fs.existsSync(path.join(rdir, 'scenes', r3.scenes[1]!.id, 'stock')), 'cena code não busca mídia (filtro por tipo)');
+
+  // rota imagem → clipe → código (etapas só para cenas code): cena "video" do plano vira "code" em vez de ficar sem visual
+  const ivcP = createProject(s2, { name: 'IVC', idea: 'x', videoType: 'custom', routeId: 'stickman-explainer' });
+  ops.addScene(s2, ivcP, null, { title: 'V', narration: 'n', visualIntent: 'v', kind: 'video', durationSec: 3 });
+  ops.saveProjectFile(s2, ivcP);
+  const ivc: Route = { id: 'ivc', name: 'ivc', description: '', videoTypes: [], steps: [
+    { id: 'video', kind: 'video', label: 'v', scope: 'scene', dependsOn: [], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 30, optional: true, onFail: 'skip', onlySceneKinds: ['code', 'mixed'], bindings: [{ type: 'api', provider: 'gemini', model: 'x' }] },
+    { id: 'cs', kind: 'code_scene', label: 'c', scope: 'scene', dependsOn: [], enabled: true, params: {}, retry: { max: 1, backoffMs: 0 }, timeoutSec: 30, onlySceneKinds: ['code', 'mixed'], bindings: [{ type: 'harness', harness: 'auto', model: 'auto' }] },
+  ] };
+  await runRoute({ project: ivcP, route: ivc, projectDir: path.join(ws, 'projects', ivcP.id), signal: new AbortController().signal, deps: { settings: s2, emit: () => {}, sleep: async () => {}, executors: execs } });
+  assert.equal(ivcP.scenes[0]!.kind, 'code', 'cena video vira code quando as etapas de imagem/vídeo são só para cenas code');
   assert.ok(fs.existsSync(path.join(rdir, 'out', 'thumbnail.png')), 'thumbnail 16:9 gerada via Gemini');
   assert.match(thumbnailPrompt({ ...ctx, project: r3 }), /Mix/);
   // projeto vertical: a thumbnail vira capa 9:16 (antes era ignorada)
