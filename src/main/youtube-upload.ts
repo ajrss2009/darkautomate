@@ -267,13 +267,20 @@ async function fillAndSave(st: Studio, job: DetailsJob, total: number): Promise<
 
   /* 6) confirmação: o diálogo de envio fecha (ou aparece o de compartilhar/publicado). Aviso de verificação
         ainda em andamento → "publicar/salvar mesmo assim". Sem isso o vídeo continua rascunho. */
-  const closed = await until(async () => {
+  let closed = await until(async () => {
     /* clique de mouse de verdade (o .click() no ytcp-button às vezes não fecha o aviso e o vídeo ficava "Saved as private") */
     const box = await st.ev<number[] | null>(`(() => { ${DEEP} const b = deepAll('ytcp-button, button').filter(vis).find((x) => /^\\s*(publicar mesmo assim|publish anyway|salvar mesmo assim|save anyway)\\s*$/i.test(x.innerText || '')); if (!b) return null; const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`).catch(() => null);
     if (box) for (const type of ['mousePressed', 'mouseReleased']) await st.cdp.send('Input.dispatchMouseEvent', { type, x: box[0], y: box[1], button: 'left', clickCount: 1 }, st.session);
     return st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('#done-button').find(vis); const share = deepAll('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog, #share-url').find(vis); const dl = deepAll('tp-yt-paper-dialog, ytcp-dialog, [role=dialog]').filter(vis); const after = dl.some((d) => /v[ií]deo publicado|video published|v[ií]deo salvo|video saved|^\\s*video processing|^\\s*v[ií]deo em processamento/i.test(d.innerText || '')) || dl.filter((d) => !deepAll('#done-button', d).some(vis)).some((d) => /processando v[ií]deo|processing video/i.test(d.innerText || '')); return !b || !!share || after; })()`);
   }, 60_000, 1500);
-  if (!closed) await st.fail('não salvou', `cliquei em Salvar mas o YouTube Studio não confirmou — o vídeo pode ter ficado como rascunho`);
+  /* o diálogo às vezes não muda como esperado embora o vídeo tenha sido salvo: confere na página do vídeo se ficou rascunho */
+  const vid = (url.match(/(?:youtu\.be\/|[?&]v=|\/video\/)([\w-]{6,})/) ?? [])[1];
+  if (!closed && vid) {
+    await st.open(`https://studio.youtube.com/video/${vid}/edit`);
+    const state = await until(() => st.ev<string | false>(`(() => { ${DEEP} if (deepAll('ytcp-button, button, a').filter(vis).some((x) => /^\\s*(editar rascunho|edit draft)\\s*$/i.test(x.innerText || ''))) return 'draft'; return deep('#textbox') ? 'ok' : false; })()`), 30_000, 1500);
+    if (state === 'ok') { closed = true; job.log('YouTube: o diálogo não confirmou, mas a página do vídeo mostra que ele foi salvo (não é rascunho)'); }
+  }
+    if (!closed) await st.fail('não salvou', `cliquei em Salvar mas o YouTube Studio não confirmou — o vídeo pode ter ficado como rascunho`);
   const shareUrl = await st.ev<string>(`(() => { ${DEEP} const a = deepAll('#share-url, ytcp-video-share-dialog a[href*="youtu"]').find(vis); return a ? (a.href || a.innerText || '') : ''; })()`).catch(() => '');
   await wait(1500);
   await st.click('#close-button, ytcp-button#close-button');
