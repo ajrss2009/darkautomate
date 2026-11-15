@@ -42,6 +42,23 @@ export interface ArtQuant {
   /** classe estimada: flat-2d | cartoon-linha | 3d-render | foto-real | escuro-cinematografico */
   artClass: string;
   frames: number;
+  /* LUZ */
+  /** fração de pixels escuros (< 20%) e claros (> 80%) */
+  darkShare?: number; brightShare?: number;
+  /** temperatura: (R − B) médio, −1 frio … +1 quente */
+  warmth?: number;
+  /** desvio do brilho entre quadros (luz constante ≈ 0; muda de cena para cena > 0,1) */
+  brightnessVar?: number;
+  /** clave: baixa (sombras), média, alta (claro) */
+  lightKey?: string;
+}
+/** movimento de câmera medido entre quadros (2 por segundo): frações do tempo e intensidade */
+export interface MotionQuant {
+  staticShare: number; panShare: number; tiltShare: number; zoomInShare: number; zoomOutShare: number; handheldShare: number;
+  /** deslocamento médio (% da largura por segundo) */
+  speedPctPerSec: number;
+  /** trocas bruscas de imagem (cortes) por minuto */
+  cutsPerMin: number;
 }
 
 const db = (rms: number) => Math.round(20 * Math.log10(Math.max(rms, 1e-6)) * 10) / 10;
@@ -75,14 +92,16 @@ export function audioQuantFromSamples(s: Float32Array, rate: number, words?: Wor
   if (w.length >= 10) {
     let se = 0, sn = 0, ge = 0, gn = 0;
     for (const x of w) { const a = Math.round(x.start * rate), b = Math.round(x.end * rate); for (let i = a; i < b && i < s.length; i++) { se += s[i]! * s[i]!; sn++; } }
+    /* pausas de verdade (≥ 0,4 s), sem 0,12 s de cada borda (os tempos do Whisper vazam o fim/começo da voz).
+       O fundo é a MEDIANA do RMS de janelas de 50 ms nessas pausas: respiração/eco isolados não sobem o número. */
+    const gw = Math.round(rate * 0.05), gaps: number[] = [];
     for (let i = 1; i < w.length; i++) {
-      const g0 = w[i - 1]!.end + 0.05, g1 = w[i]!.start - 0.05;
-      if (g1 - g0 < 0.25) continue;
-      const a = Math.round(g0 * rate), b = Math.round(g1 * rate);
-      for (let k = a; k < b && k < s.length; k++) { ge += s[k]! * s[k]!; gn++; }
+      const g0 = w[i - 1]!.end + 0.12, g1 = w[i]!.start - 0.12;
+      if (g1 - g0 < 0.16) continue;
+      for (let a = Math.round(g0 * rate); a + gw <= Math.round(g1 * rate) && a + gw <= s.length; a += gw) { const r = rmsOf(s, a, a + gw); gaps.push(r); ge += r * r; gn++; }
     }
     if (sn) out.speechDb = db(Math.sqrt(se / sn));
-    if (gn > rate * 0.5) out.bedDb = db(Math.sqrt(ge / gn));
+    if (gaps.length >= 10) out.bedDb = db(median(gaps)!);
   } else {
     const win = Math.round(rate * 0.1), rms: number[] = [];
     for (let i = 0; i + win <= s.length; i += win) rms.push(rmsOf(s, i, i + win));
@@ -168,7 +187,7 @@ function rawRgb(ffmpeg: string, file: string, w: number, h: number, signal?: Abo
 }
 
 /** Métricas de arte de um quadro RGB (função pura). */
-export function artOfPixels(px: Uint8Array, w: number, h: number): Omit<ArtQuant, 'palette' | 'artClass' | 'frames'> & { hist: Map<number, number> } {
+export function artOfPixels(px: Uint8Array, w: number, h: number): Omit<ArtQuant, 'palette' | 'artClass' | 'frames' | 'brightnessVar' | 'lightKey'> & { darkShare: number; brightShare: number; warmth: number; hist: Map<number, number> } {
   const n = w * h, L = new Float64Array(n);
   let sb = 0, ss = 0;
   const hist = new Map<number, number>();
@@ -188,7 +207,9 @@ export function artOfPixels(px: Uint8Array, w: number, h: number): Omit<ArtQuant
     if (Math.hypot(gx, gy) > 60) edges++;
   }
   const top8 = [...hist.values()].sort((a, b) => b - a).slice(0, 8).reduce((a, b) => a + b, 0);
-  return { brightness: r2(mean / 255), saturation: r2(ss / n), contrast: r2(Math.sqrt(sd / n) / 128), edgeDensity: r2(edges / ((w - 2) * (h - 2))), flatness: r2(top8 / n), hist };
+  let dark = 0, bright = 0, warm = 0;
+  for (let i = 0; i < n; i++) { if (L[i]! < 51) dark++; else if (L[i]! > 204) bright++; warm += (px[i * 3]! - px[i * 3 + 2]!) / 255; }
+  return { brightness: r2(mean / 255), saturation: r2(ss / n), contrast: r2(Math.sqrt(sd / n) / 128), edgeDensity: r2(edges / ((w - 2) * (h - 2))), flatness: r2(top8 / n), darkShare: r2(dark / n), brightShare: r2(bright / n), warmth: r2(warm / n), hist };
 }
 
 export function artClass(a: Pick<ArtQuant, 'brightness' | 'saturation' | 'edgeDensity' | 'flatness' | 'contrast'>): string {
@@ -202,7 +223,7 @@ export function artClass(a: Pick<ArtQuant, 'brightness' | 'saturation' | 'edgeDe
 /** Mede até `max` quadros (JPG/PNG) e devolve as médias + paleta dominante somada. */
 export async function artQuant(ffmpeg: string, frames: string[], max = 24, signal?: AbortSignal): Promise<ArtQuant | undefined> {
   const pick = frames.length <= max ? frames : Array.from({ length: max }, (_, i) => frames[Math.floor((i * frames.length) / max)]!);
-  const W = 160, H = 90, acc = { brightness: 0, saturation: 0, contrast: 0, edgeDensity: 0, flatness: 0 }, all = new Map<number, number>();
+  const W = 160, H = 90, acc = { brightness: 0, saturation: 0, contrast: 0, edgeDensity: 0, flatness: 0, darkShare: 0, brightShare: 0, warmth: 0 }, all = new Map<number, number>(), bs: number[] = [];
   let n = 0;
   for (const f of pick) {
     try {
@@ -210,6 +231,7 @@ export async function artQuant(ffmpeg: string, frames: string[], max = 24, signa
       if (px.length < W * H * 3) continue;
       const a = artOfPixels(px, W, H);
       for (const k of Object.keys(acc) as Array<keyof typeof acc>) acc[k] += a[k];
+      bs.push(a.brightness);
       for (const [k, v] of a.hist) all.set(k, (all.get(k) ?? 0) + v);
       n++;
     } catch { /* quadro ilegível */ }
@@ -218,8 +240,81 @@ export async function artQuant(ffmpeg: string, frames: string[], max = 24, signa
   const avg = Object.fromEntries(Object.entries(acc).map(([k, v]) => [k, r2(v / n)])) as typeof acc;
   const palette = [...all.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => '#' + [k >> 8, (k >> 4) & 15, k & 15].map((c) => (c * 17).toString(16).padStart(2, '0')).join(''))
     .filter((c, i, arr) => arr.indexOf(c) === i).slice(0, 6);
-  return { ...avg, palette, artClass: artClass(avg), frames: n };
+  const bm = bs.reduce((x, y) => x + y, 0) / bs.length, bvar = r2(Math.sqrt(bs.reduce((x, y) => x + (y - bm) ** 2, 0) / bs.length));
+  const lightKey = avg.darkShare >= 0.4 || avg.brightness < 0.3 ? 'baixa' : avg.brightShare >= 0.3 || avg.brightness > 0.65 ? 'alta' : 'média';
+  return { ...avg, palette, artClass: artClass(avg), frames: n, brightnessVar: bvar, lightKey };
 }
+
+/* ───────── movimento de câmera ───────── */
+
+function grayFrames(ffmpeg: string, file: string, w: number, h: number, fps: number, maxSec: number, signal?: AbortSignal): Promise<Uint8Array[]> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(resolveBin(ffmpeg), ['-v', 'error', '-t', String(maxSec), '-i', file, '-vf', `fps=${fps},scale=${w}:${h}:flags=area,format=gray`, '-f', 'rawvideo', 'pipe:1'], { windowsHide: true });
+    const ch: Buffer[] = [];
+    p.stdout.on('data', (d: Buffer) => ch.push(d));
+    signal?.addEventListener('abort', () => p.kill(), { once: true });
+    p.on('error', reject);
+    p.on('close', (c) => {
+      if (c !== 0) return reject(new Error('ffmpeg ' + c));
+      const b = Buffer.concat(ch), size = w * h, out: Uint8Array[] = [];
+      for (let o = 0; o + size <= b.length; o += size) out.push(new Uint8Array(b.buffer, b.byteOffset + o, size));
+      resolve(out);
+    });
+  });
+}
+
+/** deslocamento (dx, dy) que melhor alinha a região de A com B (busca ±r, amostrando 1 a cada 2 pixels) */
+function shiftOf(a: Uint8Array, b: Uint8Array, w: number, h: number, x0: number, y0: number, x1: number, y1: number, r: number): [number, number] {
+  let best = Infinity, bx = 0, by = 0;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    let sad = 0, n = 0;
+    for (let y = Math.max(y0, r); y < Math.min(y1, h - r); y += 2) for (let x = Math.max(x0, r); x < Math.min(x1, w - r); x += 2) { sad += Math.abs(a[y * w + x]! - b[(y + dy) * w + (x + dx)]!); n++; }
+    const v = sad / (n || 1) + (Math.abs(dx) + Math.abs(dy)) * 0.02;
+    if (v < best) { best = v; bx = dx; by = dy; }
+  }
+  return [bx, by];
+}
+
+/**
+ * Movimento de câmera entre quadros consecutivos (função pura sobre quadros em cinza w×h a fps):
+ * deslocamento dos 4 quadrantes → pan/tilt (todos iguais), zoom in/out (afastam/aproximam do centro),
+ * câmera na mão (pequeno e mudando de direção), estático. Trocas bruscas contam como corte e são ignoradas.
+ */
+export function motionFromFrames(frames: Uint8Array[], w: number, h: number, fps: number): MotionQuant {
+  const cls = { st: 0, pan: 0, tilt: 0, zin: 0, zout: 0, hand: 0 };
+  let cuts = 0, pairs = 0, speed = 0, prevDx = 0;
+  const r = Math.max(3, Math.round(w / 32));
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1]!, b = frames[i]!;
+    let mad = 0; for (let k = 0; k < a.length; k += 3) mad += Math.abs(a[k]! - b[k]!);
+    if (mad / (a.length / 3) > 38) { cuts++; continue; }
+    const hw = w / 2, hh = h / 2;
+    const q = [shiftOf(a, b, w, h, 0, 0, hw, hh, r), shiftOf(a, b, w, h, hw, 0, w, hh, r), shiftOf(a, b, w, h, 0, hh, hw, h, r), shiftOf(a, b, w, h, hw, hh, w, h, r)];
+    const dx = (q[0]![0] + q[1]![0] + q[2]![0] + q[3]![0]) / 4, dy = (q[0]![1] + q[1]![1] + q[2]![1] + q[3]![1]) / 4;
+    /* divergência: no zoom in o conteúdo foge do centro (quadrantes da esquerda andam para a esquerda, da
+       direita para a direita…) → div negativo; zoom out → positivo */
+    const div = ((q[0]![0] + q[2]![0]) - (q[1]![0] + q[3]![0]) + (q[0]![1] + q[1]![1]) - (q[2]![1] + q[3]![1])) / 4;
+    const m = Math.hypot(dx, dy);
+    pairs++; speed += (m / w) * 100 * fps;
+    if (Math.abs(div) >= 0.75 && Math.abs(div) >= m * 0.6) { if (div < 0) cls.zin++; else cls.zout++; }
+    else if (m < 0.75) cls.st++;
+    else if (m < 2.5 && Math.sign(dx) !== 0 && Math.sign(dx) === -Math.sign(prevDx)) cls.hand++;
+    else if (Math.abs(dx) >= Math.abs(dy)) cls.pan++; else cls.tilt++;
+    prevDx = dx;
+  }
+  const t = pairs || 1, mins = frames.length / fps / 60 || 1;
+  return { staticShare: r2(cls.st / t), panShare: r2(cls.pan / t), tiltShare: r2(cls.tilt / t), zoomInShare: r2(cls.zin / t), zoomOutShare: r2(cls.zout / t), handheldShare: r2(cls.hand / t),
+    speedPctPerSec: r2(speed / t), cutsPerMin: r1(cuts / mins)! };
+}
+
+export async function motionQuant(ffmpeg: string, file: string, maxSec = 300, signal?: AbortSignal): Promise<MotionQuant | undefined> {
+  const w = 192, h = 108, fps = 2;
+  const frames = await grayFrames(ffmpeg, file, w, h, fps, maxSec, signal);
+  return frames.length > 3 ? motionFromFrames(frames, w, h, fps) : undefined;
+}
+
+/** O que não dá para medir só pelos pixels: a IA CONTA nas folhas de 1 quadro/s e escreve as porcentagens. */
+export const SHOT_COUNT_RULE = 'CONTE nas folhas a 1 quadro por segundo (cada quadro = 1 s) e escreva na skill.md, na Etapa scene_plan, as PORCENTAGENS do tempo de: enquadramento (plano geral/aberto, médio, close, detalhe/macro), ângulo (altura dos olhos, plongée/de cima, contra-plongée/de baixo, zenital/top-down, holandês), tipo de imagem (render 3D, foto, ilustração 2D, gráfico/infográfico, texto na tela) e luz (natural, estúdio, neon/brilho, dramática/contraluz). Some 100% em cada grupo. Use os números medidos de luz e câmera acima como verdade.';
 
 /* ───────── resumo de vários vídeos ───────── */
 
@@ -229,11 +324,14 @@ export interface CloneQuant {
   lufs?: number; speechDb?: number; musicRelDb?: number; musicShare?: number; sfxPerMin?: number; sfxMedianGapSec?: number;
   desc?: Partial<Record<keyof DescQuant, number>>;
   art?: ArtQuant;
+  motion?: Partial<Record<keyof MotionQuant, number>>;
   titles?: { avgChars?: number; withNumbers?: number; withQuestion?: number };
 }
 
 /** Mediana de cada métrica entre os vídeos (robusta a um vídeo fora da curva). */
-export function summarizeQuant(per: Array<{ metrics?: { durationSec?: number; wpm?: number; cutsPerMin?: number; avgShotSec?: number; wordsPerSentence?: number; secPerFact?: number; audio?: { lufs?: number } }; aq?: AudioQuant; dq?: DescQuant }>, art?: ArtQuant): CloneQuant {
+export function summarizeQuant(per: Array<{ metrics?: { durationSec?: number; wpm?: number; cutsPerMin?: number; avgShotSec?: number; wordsPerSentence?: number; secPerFact?: number; audio?: { lufs?: number } }; aq?: AudioQuant; dq?: DescQuant; mq?: MotionQuant }>, art?: ArtQuant): CloneQuant {
+  const mqs = per.map((p) => p.mq).filter((x): x is MotionQuant => !!x);
+  const mk: Array<keyof MotionQuant> = ['staticShare', 'panShare', 'tiltShare', 'zoomInShare', 'zoomOutShare', 'handheldShare', 'speedPctPerSec', 'cutsPerMin'];
   const m = (f: (x: (typeof per)[number]) => number | undefined) => r1(median(per.map(f).filter((x): x is number => typeof x === 'number')));
   const keys: Array<keyof DescQuant> = ['chars', 'words', 'lines', 'paragraphs', 'firstLineChars', 'hashtags', 'links', 'chapters', 'emojis', 'ctas', 'mentions'];
   const dqs = per.map((p) => p.dq).filter((x): x is DescQuant => !!x);
@@ -247,6 +345,7 @@ export function summarizeQuant(per: Array<{ metrics?: { durationSec?: number; wp
     sfxPerMin: m((p) => p.aq?.sfxPerMin), sfxMedianGapSec: m((p) => p.aq?.sfxMedianGapSec),
     desc: dqs.length ? Object.fromEntries(keys.map((k) => [k, r1(median(dqs.map((d) => d[k])))])) : undefined,
     art,
+    motion: mqs.length ? Object.fromEntries(mk.map((k) => [k, r2(median(mqs.map((x) => x[k]))!)])) : undefined,
   };
 }
 
@@ -262,5 +361,7 @@ export function quantText(q: CloneQuant, label = 'vídeos de referência'): stri
   add(q.sfxPerMin, `efeitos sonoros: mediana de ${q.sfxPerMin}/min${q.sfxMedianGapSec ? ` (1 a cada ${q.sfxMedianGapSec} s)` : ''}`);
   if (q.desc) add(q.desc.chars, `descrição: ~${q.desc.chars} caracteres, ${q.desc.lines} linhas, ${q.desc.paragraphs} parágrafos, 1ª linha ${q.desc.firstLineChars} car., ${q.desc.hashtags} hashtags, ${q.desc.links} links, ${q.desc.chapters} capítulos, ${q.desc.emojis} emojis, ${q.desc.ctas} chamadas para ação`);
   if (q.art) add(q.art.artClass, `arte: ${q.art.artClass} · paleta ${q.art.palette.join(' ')} · brilho ${q.art.brightness} · saturação ${q.art.saturation} · contraste ${q.art.contrast} · contornos ${q.art.edgeDensity} · cores chapadas ${q.art.flatness} (0–1)`);
+  if (q.art?.lightKey) add(1, 'luz: clave ' + q.art.lightKey + ' · ' + Math.round((q.art.darkShare ?? 0) * 100) + '% da imagem em sombra, ' + Math.round((q.art.brightShare ?? 0) * 100) + '% em alta luz · temperatura ' + ((q.art.warmth ?? 0) > 0.05 ? 'quente' : (q.art.warmth ?? 0) < -0.05 ? 'fria' : 'neutra') + ' (' + q.art.warmth + ') · variação de luz entre cenas ' + q.art.brightnessVar);
+  if (q.motion) { const p = (x?: number) => Math.round((x ?? 0) * 100) + '%'; add(1, 'câmera: estática ' + p(q.motion.staticShare) + ' · pan ' + p(q.motion.panShare) + ' · tilt ' + p(q.motion.tiltShare) + ' · zoom in ' + p(q.motion.zoomInShare) + ' · zoom out ' + p(q.motion.zoomOutShare) + ' · na mão ' + p(q.motion.handheldShare) + ' do tempo · velocidade ' + q.motion.speedPctPerSec + '% da largura/s'); }
   return L.join('\n');
 }

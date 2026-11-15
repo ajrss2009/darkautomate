@@ -12,7 +12,7 @@ import { fitSceneSfx } from '../main/editor';
 import * as ff from '../main/ffmpeg';
 import type { Route } from '../shared/types';
 import { drawFrame, hexColor, spectrumAt, visualizerBox, VISUALIZER_STYLES } from '../main/visualizer';
-import { artClass, artOfPixels, audioQuantFromSamples, descQuant, median, quantText, summarizeQuant } from '../main/clone-metrics';
+import { artClass, artOfPixels, audioQuantFromSamples, descQuant, median, motionFromFrames, quantText, summarizeQuant } from '../main/clone-metrics';
 
 /** Coletâneas de N a M minutos (YuE 2 instrumental, sem silêncio) e efeitos sincronizados com o visual pela IA. */
 async function main() {
@@ -150,6 +150,21 @@ async function main() {
     const q = summarizeQuant([{ metrics: { wpm: 150 }, aq, dq: d }, { metrics: { wpm: 170 }, aq: silentBed, dq: d }, { metrics: { wpm: 160 } }]);
     assert.equal(q.wpm, 160); assert.equal(q.musicShare, 0.5); assert.equal(q.desc?.chapters, 2);
     assert.match(quantText(q), /160 palavras\/min/); assert.match(quantText(q), /música de fundo: em 50%/);
+  }
+  /* câmera: quadros sintéticos de uma textura com pan, zoom in, zoom out e parado */
+  {
+    const W = 192, H = 108;
+    const tex = (x: number, y: number) => 128 + 60 * Math.sin(x * 0.21) * Math.cos(y * 0.17) + 40 * Math.sin((x + y) * 0.07);
+    const frame = (sx: number, sy: number, zoom: number) => { const f = new Uint8Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) f[y * W + x] = Math.max(0, Math.min(255, Math.round(tex((x - W / 2) / zoom + W / 2 + sx, (y - H / 2) / zoom + H / 2 + sy)))); return f; };
+    const seq = (fn: (i: number) => Uint8Array) => Array.from({ length: 10 }, (_, i) => fn(i));
+    const pan = motionFromFrames(seq((i) => frame(i * 3, 0, 1)), W, H, 2);
+    const zin = motionFromFrames(seq((i) => frame(0, 0, 1 + i * 0.06)), W, H, 2);
+    const zout = motionFromFrames(seq((i) => frame(0, 0, 1.6 - i * 0.06)), W, H, 2);
+    const still = motionFromFrames(seq(() => frame(0, 0, 1)), W, H, 2);
+    assert.ok(pan.panShare >= 0.8, 'pan detectado ' + JSON.stringify(pan));
+    assert.ok(zin.zoomInShare >= 0.6, 'zoom in detectado ' + JSON.stringify(zin));
+    assert.ok(zout.zoomOutShare >= 0.6, 'zoom out detectado ' + JSON.stringify(zout));
+    assert.equal(still.staticShare, 1, 'parado');
   }
   console.log('compilation tests: OK');
 }

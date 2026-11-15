@@ -13,7 +13,7 @@ import { VIDEO_TYPES } from './presets';
 import { ALL_ANGLES } from '../shared/angles';
 import { checkSkillRoute } from '../shared/compat';
 import { frameSheets, measureVideo, type VideoMetrics } from './channel-dna';
-import { artQuant, audioQuant, descQuant, quantText, readWords, summarizeQuant, type AudioQuant, type DescQuant } from './clone-metrics';
+import { artQuant, audioQuant, descQuant, motionQuant, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type AudioQuant, type DescQuant, type MotionQuant } from './clone-metrics';
 
 /*
  * Nova SKILL a partir de vídeos de referência:
@@ -245,7 +245,7 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
   const sources: Array<{ url?: string; file?: string }> = [...links.map((u) => ({ url: u })), ...files.map((f) => ({ file: f }))];
   /* números de cada vídeo (medidos no arquivo antes de apagar): fala, cortes, voz × música, efeitos, descrição
      e 1 QUADRO POR SEGUNDO até 5 min (folhas de 12 s) para a arte e para a IA */
-  const per: Array<{ metrics?: VideoMetrics; aq?: AudioQuant; dq?: DescQuant }> = [];
+  const per: Array<{ metrics?: VideoMetrics; aq?: AudioQuant; dq?: DescQuant; mq?: MotionQuant }> = [];
   const sheets: string[] = [];
   for (const [k, src] of sources.entries()) {
     const idx = k + 1;
@@ -255,6 +255,7 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
     const item: (typeof per)[number] = { dq: descQuant(String(ref.info['description'] ?? '')) };
     if (file) {
       try { item.metrics = await measureVideo(s.ffmpeg || 'ffmpeg', s.ffprobe || 'ffprobe', file, ref.transcript, signal); } catch (e) { log(`vídeo ${idx}: sem métricas de corte/fala (${(e as Error).message.slice(0, 80)})`); }
+      try { item.mq = await motionQuant(s.ffmpeg || 'ffmpeg', file, 300, signal); } catch { /* sem movimento medido */ }
       try { item.aq = await audioQuant(s.ffmpeg || 'ffmpeg', file, readWords(path.join(workdir, 'transcripts', `video${idx}.json`)), signal); } catch { /* sem áudio */ }
       try { sheets.push(...(await frameSheets(s.ffmpeg || 'ffmpeg', file, path.join(workdir, 'sheets', `video${idx}`), 300, signal))); } catch { /* sem folhas */ }
       const m = item.metrics, a = item.aq;
@@ -262,8 +263,9 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
     }
     per.push(item);
   }
-  const art = await artQuant(s.ffmpeg || 'ffmpeg', sheets.length ? sheets : videos.flatMap((v) => v.frames.map((f) => path.join(workdir, f))), 24, signal).catch(() => undefined);
-  const quant = summarizeQuant(per, art);
+  /* arte nos quadros-chave inteiros (as folhas têm bordas e etiquetas); duração real pelos metadados */
+  const art = await artQuant(s.ffmpeg || 'ffmpeg', videos.flatMap((v) => v.frames.map((f) => path.join(workdir, f))), 32, signal).catch(() => undefined);
+  const quant = summarizeQuant(per.map((p, i) => ({ ...p, metrics: p.metrics ? { ...p.metrics, durationSec: Number(videos[i]?.info['duration']) || p.metrics.durationSec } : p.metrics })), art);
   const qText = quantText(quant, 'vídeo(s) de referência');
   fs.writeFileSync(path.join(workdir, 'quant.json'), JSON.stringify(quant, null, 1));
   log(qText);
@@ -277,6 +279,7 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
 
 ${qText}
 FOLHAS A 1 QUADRO POR SEGUNDO (12 s cada, em ordem; leia a arte, o texto na tela e o ritmo): ${sheetRel.slice(0, 25).join(', ')}
+${SHOT_COUNT_RULE}
 Use ESTES números na skill.md — não invente outros.`, model, effort: input.effort, signal: signal ?? new AbortController().signal, onLine: (l) => log(l.slice(0, 300)), timeoutSec: 1800,
       env: id === 'antigravity' ? activeAgyEnv(s) : undefined, tools: { roots: [workdir], allowShell: false },
       images: isHttpHarness(cfg) ? [...sheets.slice(0, 6), ...videos.flatMap((v) => v.frames.filter((_, i) => i % 2 === 0)).slice(0, 6).map((f) => path.join(workdir, f))] : undefined });

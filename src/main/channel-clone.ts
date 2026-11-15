@@ -18,7 +18,7 @@ import { applyDnaToSkill, audioSummary, averageMetrics, catchphrases, channelTit
   type AudioProfile, type ChannelDna, type LanguagePick, type PickedVideo, type VideoMetrics } from './channel-dna';
 import type { TitleStructure } from './youtube-rules';
 import { LocalCloneStore } from './clone-store';
-import { artQuant, audioQuant, descQuant, quantText, readWords, summarizeQuant, type AudioQuant, type CloneQuant, type DescQuant } from './clone-metrics';
+import { artQuant, audioQuant, descQuant, motionQuant, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type AudioQuant, type CloneQuant, type DescQuant, type MotionQuant } from './clone-metrics';
 
 /*
  * CLONAR CANAL (Obter vídeos → Canais):
@@ -49,7 +49,7 @@ export interface NicheBend { title: string; angle: string; why: string; audience
   /** melhores idiomas para esta dobra (nota 0–10) */
   languages?: LanguagePick[]; demand?: string; competition?: string; cpm?: string }
 /** Vídeo analisado a fundo: por que foi escolhido, o que se mediu e as folhas de contato. */
-export interface AnalyzedVideo extends PickedVideo { /** áudio quantificado (voz, música, efeitos) e descrição medida */ aq?: AudioQuant; dq?: DescQuant; /** link do vídeo (YouTube ou a rede do perfil) */ url?: string; metrics?: VideoMetrics; sheet?: string; /** folhas a 1 quadro/segundo, em ordem */ sheets?: string[]; audio?: AudioProfile; frames?: string[]; transcriptWords?: number }
+export interface AnalyzedVideo extends PickedVideo { /** áudio quantificado (voz, música, efeitos) e descrição medida */ aq?: AudioQuant; dq?: DescQuant; /** movimento de câmera medido */ mq?: MotionQuant; /** link do vídeo (YouTube ou a rede do perfil) */ url?: string; metrics?: VideoMetrics; sheet?: string; /** folhas a 1 quadro/segundo, em ordem */ sheets?: string[]; audio?: AudioProfile; frames?: string[]; transcriptWords?: number }
 /** Etapas da clonagem (para a interface mostrar o progresso). */
 export type CloneStage = 'list' | 'thumbs' | 'videos' | 'ai' | 'render' | 'save' | 'done';
 export interface CloneProgress { stage: CloneStage; pct: number; label: string; name?: string }
@@ -403,6 +403,7 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
         a.sheets = abs.map((f) => path.relative(dir, f).replace(/\\/g, '/'));
         a.audio = a.metrics.audio;
         /* números: voz × música por baixo (pausas entre palavras) e efeitos sonoros por minuto */
+        try { a.mq = await motionQuant(s.ffmpeg || 'ffmpeg', file, 300, signal); } catch { /* sem movimento medido */ }
         try { a.aq = await audioQuant(s.ffmpeg || 'ffmpeg', file, readWords(path.join(dir, 'transcripts', `video${k + 1}.json`)), signal); } catch (e) { log(`vídeo ${k + 1}: áudio não quantificado (${(e as Error).message.slice(0, 80)})`); }
         if (a.sheets[0]) a.sheet = a.sheets[0];
         log(`vídeo ${k + 1}: ${a.metrics.shots} planos (${a.metrics.avgShotSec} s cada, ${a.metrics.cutsPerMin} cortes/min)` +
@@ -430,9 +431,10 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
   /* bordões/conectivos recorrentes nas transcrições (medido, sem IA) */
   const phrases = catchphrases(videos.map((v) => v.transcript ?? '').filter(Boolean));
   /* estilo de arte medido nos quadros (1 por segundo, até 5 min) e todos os números em mediana */
-  const artFrames = analyzed.flatMap((a) => a.sheets ?? []).map((f) => path.join(dir, f));
-  const art = await artQuant(s.ffmpeg || 'ffmpeg', artFrames.length ? artFrames : videos.flatMap((v) => v.frames).map((f) => path.join(dir, f)), 24, signal).catch(() => undefined);
-  const quant = summarizeQuant(analyzed, art);
+  /* arte nos quadros-chave inteiros (as folhas têm bordas e etiquetas que sujariam a paleta e os contornos) */
+  const art = await artQuant(s.ffmpeg || 'ffmpeg', videos.flatMap((v) => v.frames).map((f) => path.join(dir, f)), 32, signal).catch(() => undefined);
+  /* duração real do vídeo (o download para em 5 min) */
+  const quant = summarizeQuant(analyzed.map((a, i) => ({ ...a, metrics: a.metrics ? { ...a.metrics, durationSec: Number(videos[i]?.info['duration']) || a.durationSec || a.metrics.durationSec } : a.metrics })), art);
   const qText = quantText(quant, 'vídeos de mais views do canal');
   fs.writeFileSync(path.join(dir, 'quant.json'), JSON.stringify(quant, null, 1));
   log(qText);
@@ -443,7 +445,8 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
   const full = (buildPrompt(s, input, list, metrics, videos, thumbs, refs, aspect, { analyzed, measured, titles: titleStr, phrases }) + `
 
 ${qText}
-Use ESTES números na skill.md (ritmo, música, efeitos, descrição e arte) — não invente outros.`).replace(/canal do YouTube "/, `canal do ${plat.label} "`)
+${SHOT_COUNT_RULE}
+Use ESTES números na skill.md (ritmo, música, efeitos, descrição, arte, luz e câmera) — não invente outros.`).replace(/canal do YouTube "/, `canal do ${plat.label} "`)
     .replace('pronta para colar no YouTube', `pronta para colar no ${plat.label}`);
   const http = isHttpHarness(cfg);
   const env = hid === 'antigravity' ? activeAgyEnv(s) : undefined;

@@ -410,3 +410,97 @@ export async function youtubeEditVideo(job: { port: number; videoId: string; tit
     return res;
   } finally { await st.close(); }
 }
+
+/* ───────── canal novo (conta de marca) e identidade visual ───────── */
+
+/** escreve num <input> de verdade (foco, seleciona tudo, apaga e digita) e confere pelo value */
+async function typeInto(st: Studio, js: string, text: string): Promise<boolean> {
+  for (let i = 0; i < 3; i++) {
+    const box = await st.ev<number[] | null>(`(() => { ${DEEP} const el = ${js}; if (!el) return null; el.scrollIntoView({ block: 'center' }); el.focus(); const r = el.getBoundingClientRect(); return [r.x + Math.min(20, r.width / 2), r.y + r.height / 2]; })()`);
+    if (!box) return false;
+    for (const type of ['mousePressed', 'mouseReleased']) await st.cdp.send('Input.dispatchMouseEvent', { type, x: box[0], y: box[1], button: 'left', clickCount: 1 }, st.session);
+    await st.ev(`(() => { ${DEEP} const el = ${js}; if (el && el.select) el.select(); return true; })()`);
+    await st.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 }, st.session);
+    await st.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 }, st.session);
+    await st.cdp.send('Input.insertText', { text }, st.session);
+    await wait(900);
+    const v = await st.ev<string>(`(() => { ${DEEP} const el = ${js}; return el ? String(el.value ?? el.innerText ?? '') : ''; })()`);
+    if (sameText(v, text)) return true;
+  }
+  return false;
+}
+
+/**
+ * Cria um CANAL NOVO (conta de marca gerida pela conta Google logada) pela tela "Criar um canal" do YouTube:
+ * nome e identificador (@handle; ocupado → tenta variações). Devolve o id UC… e o handle aceito.
+ * A foto, o banner e a descrição entram depois, no Studio (youtubeBrandChannel).
+ */
+export async function youtubeCreateChannel(job: { port: number; name: string; handle: string; log: (l: string) => void; debugDir?: string; signal?: AbortSignal }): Promise<{ channelId: string; handle: string; studioUrl: string }> {
+  const cdp = await Cdp.connect(job.port);
+  const st = new Studio(cdp, job);
+  try {
+    await st.open('https://www.youtube.com/channel_switcher');
+    const opened = await until(() => st.ev<boolean>(`(() => { ${DEEP} const a = deepAll('a').filter(vis).find((e) => /create_channel/.test(e.getAttribute('href') || '')); if (!a) return false; a.click(); return true; })()`), 30_000, 1500);
+    if (!opened) await st.fail('criar canal', 'não achei "Criar um canal" na lista de canais da conta');
+    const DLG = `deepAll('ytd-channel-creation-dialog-renderer').filter(vis)[0]`;
+    if (!(await until(() => st.ev<boolean>(`(() => { ${DEEP} return !!${DLG}; })()`), 30_000, 1000))) await st.fail('diálogo criar canal', 'o diálogo "Como você vai aparecer" não abriu');
+    const nameJs = `(deepAll('input', ${DLG}).filter(vis)[0])`, handleJs = `(deepAll('input', ${DLG}).filter(vis)[1])`;
+    if (!(await typeInto(st, nameJs, job.name))) await st.fail('nome do canal', 'não consegui escrever o nome do canal');
+    job.log(`YouTube: nome do canal "${job.name}"`);
+    const base = job.handle.replace(/^@/, '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 26) || 'canal';
+    let handle = '';
+    for (const cand of [base, `${base}tv`, `${base}br`, `${base}-${Math.floor(Math.random() * 900 + 100)}`]) {
+      if (!(await typeInto(st, handleJs, cand))) continue;
+      await wait(3000);    // o YouTube confere a disponibilidade enquanto digita
+      const bad = await st.ev<boolean>(`(() => { ${DEEP} const d = ${DLG}; return /indispon|unavailable|not available|em uso|already taken|inválid|invalid/i.test(d ? d.innerText : ''); })()`);
+      if (!bad) { handle = cand; break; }
+      job.log(`YouTube: @${cand} indisponível — tentando outro`);
+    }
+    if (!handle) await st.fail('identificador', `nenhum identificador disponível a partir de @${base}`);
+    job.log(`YouTube: identificador @${handle}`);
+    const created = await st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('button', ${DLG}).filter(vis).find((x) => /^\\s*(create channel|criar canal)\\s*$/i.test(x.innerText || '')); if (!b) return false; b.click(); return true; })()`);
+    if (!created) await st.fail('botão criar', 'não achei o botão "Criar canal"');
+    const url = await until(async () => { const h = await st.ev<string>('location.href', 5000); return /\/channel\/UC[\w-]{20,}/.test(h) ? h : undefined; }, 120_000, 2000);
+    if (!url) await st.fail('canal criado', 'cliquei em "Criar canal" mas a página do canal novo não abriu (pode pedir verificação: faça no navegador da conta)');
+    const channelId = /\/channel\/(UC[\w-]{20,})/.exec(url!)![1]!;
+    job.log(`YouTube: canal criado — ${channelId} (@${handle})`);
+    return { channelId, handle, studioUrl: `https://studio.youtube.com/channel/${channelId}` };
+  } finally { await st.close(); }
+}
+
+/**
+ * Identidade do canal no Studio (Personalização, aba Perfil): banner, foto e descrição; publica e confere.
+ * O canal precisa ser o ATIVO da conta (o Studio abre no canal ativo).
+ */
+export async function youtubeBrandChannel(job: { port: number; channelId: string; banner?: string; avatar?: string; description?: string; log: (l: string) => void; debugDir?: string; signal?: AbortSignal }): Promise<{ banner?: boolean; avatar?: boolean; description?: boolean }> {
+  const cdp = await Cdp.connect(job.port);
+  const st = new Studio(cdp, job);
+  const res: { banner?: boolean; avatar?: boolean; description?: boolean } = {};
+  try {
+    await st.open(`https://studio.youtube.com/channel/${job.channelId}/editing/profile`);
+    if (!(await until(() => st.ev<boolean>(`(() => { ${DEEP} return deepAll('input#file-selector').length >= 2 && !!deep('#publish-button'); })()`), 60_000, 1500))) await st.fail('personalização', 'a página de personalização do canal não abriu');
+    await wait(2500);
+    await cdp.send('DOM.enable', {}, st.session);
+    /* entradas na ordem da página: banner, foto, marca da imagem; cada imagem abre um recorte (botão Concluído) */
+    const setImage = async (idx: number, file: string, what: string) => {
+      const r = await cdp.send('Runtime.evaluate', { expression: `(() => { ${DEEP} return deepAll('input#file-selector')[${idx}] || null; })()`, returnByValue: false }, st.session) as { result?: { objectId?: string } };
+      if (!r.result?.objectId) return false;
+      await cdp.send('DOM.setFileInputFiles', { files: [path.resolve(file)], objectId: r.result.objectId }, st.session);
+      const done = await until(() => st.ev<boolean>(`(() => { ${DEEP} const b = deepAll('ytcp-button, button').filter(vis).find((x) => /^\\s*(done|concluído|concluir)\\s*$/i.test(x.innerText || '')); if (!b) return false; b.click(); return true; })()`), 30_000, 1000);
+      job.log(`YouTube: ${what} ${done ? 'enviado' : 'sem o recorte (seguindo)'}`);
+      await wait(2500);
+      return !!done;
+    };
+    if (job.banner && fs.existsSync(job.banner)) res.banner = await setImage(0, job.banner, 'banner');
+    if (job.avatar && fs.existsSync(job.avatar)) res.avatar = await setImage(1, job.avatar, 'foto do canal');
+    if (job.description) {
+      const ok = await st.setText('#description-container #textbox, ytcp-social-suggestions-textbox#description-container #textbox', job.description.slice(0, 1000));
+      res.description = ok; job.log(`YouTube: descrição ${ok ? 'escrita' : 'NÃO escrita (campo não encontrado)'}`);
+    }
+    await st.click('#publish-button');
+    const saved = await until(() => st.ev<boolean>(`(() => { ${DEEP} const b = deep('#publish-button'); return !!b && (b.hasAttribute('disabled') || b.getAttribute('aria-disabled') === 'true'); })()`), 60_000, 1500);
+    if (!saved) await st.fail('publicar personalização', 'cliquei em Publicar mas o Studio não confirmou');
+    job.log('YouTube: personalização publicada');
+    return res;
+  } finally { await st.close(); }
+}
