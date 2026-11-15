@@ -96,6 +96,8 @@ const videoChain: Binding[] = [
 const loopVideoChain: Binding[] = [
   { type: 'comfyui', server: 'local', workflow: 'minimax-h3-perfect-loop-3step.json' },
   { type: 'comfyui', server: 'local', workflow: 'minimax-h3-perfect-loop.json' },
+  /* Wan2GP: o mesmo H3 com a imagem como primeiro E último quadro (loop sem emenda sem precisar do ComfyUI) */
+  { type: 'wan2gp', template: 'wan2gp-h3-perfect-loop.json' },
   { type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v.json' },
   { type: 'comfyui', server: 'local', workflow: 'minimax-h3-t2v.json' },
 ];

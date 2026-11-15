@@ -944,6 +944,8 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8')) as { model_type: string; settings: Record<string, unknown>; maxSide?: number; multiple?: number; megapixels?: number; refAudio?: string; vars?: Record<string, string | number>; needsRefs?: boolean; needsRefAudio?: boolean;
     /** música com lipsync: o trecho da canção desta cena vira a trilha mantida do H3 (audio_guide) */
     songSlice?: boolean;
+    /** loop perfeito: a mesma imagem como primeiro e último quadro (o clip-musical fecha o loop sem emenda) */
+    loop?: boolean;
     /** UGC: as fotos do produto anexadas ao projeto entram em image_refs depois do elenco */
     productRefs?: boolean };
   const lang = wan2gpLanguage(c.project.language);
@@ -1035,6 +1037,11 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   if (c.step.kind === 'narration') await trimNarration(c, dest);
   if (h3Talk && !dubAudio) await keepVideoSpeech(c, dest, o.toolsDir ?? path.resolve(__dirname, '../../tools'));
   if (c.step.kind === 'sfx') return { files: [await sceneSfxWav(c, dest)] };
+  /* loop perfeito (mesma imagem no início e no fim): a mesma marca dos workflows do ComfyUI */
+  if (c.step.kind === 'video' && c.sceneDir && tpl.loop && vars['init_image']) {
+    fs.mkdirSync(path.join(c.sceneDir, 'clips'), { recursive: true });
+    fs.writeFileSync(path.join(c.sceneDir, 'clips', 'loop.json'), JSON.stringify({ template: b.template, firstFrame: 'scene image', lastFrame: 'scene image', at: new Date().toISOString() }, null, 2));
+  } else if (c.step.kind === 'video' && c.sceneDir) fs.rmSync(path.join(c.sceneDir, 'clips', 'loop.json'), { force: true });
   return { files: [dest] };
 };
 
@@ -1687,7 +1694,8 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
       let exactLoop = false;
       if (isVideo) {
         const loopMarker = path.join(sceneDir, 'clips', 'loop.json');
-        const perfectLoop = clipParams.perfectLoop !== false && fs.existsSync(loopMarker);
+        /* a marca só vale para o clipe que a gerou (clipe refeito depois por outra rota não fecha o loop) */
+        const perfectLoop = clipParams.perfectLoop !== false && fs.existsSync(loopMarker) && fs.statSync(loopMarker).mtimeMs >= fs.statSync(visual).mtimeMs - 120_000;
         if (perfectLoop) {
           const meta = await probeVideoMeta(c, visual);
           if (meta.frames > 2) {
@@ -1702,9 +1710,23 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
           }
         }
         if (!exactLoop) {
+          /* clipe sem último quadro igual ao primeiro (Snapgen, Flow, I2V comum): o fim FUNDE no começo.
+             Usa o trecho [F, D] e, nos últimos F s, faz fade para o trecho [0, F]: o vídeo termina no quadro em que
+             começa e a repetição não tem pulo. Período = D − F. */
           const loopFile = path.join(outDir, `visual-loop-${scene.id}.mp4`);
-          await ff.run(ffmpeg, ['-y', '-stream_loop', '-1', '-i', visual, '-t', String(loopPeriod), '-an',
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', loopFile], c.signal);
+          const D = await ff.duration(c.settings.ffprobe, visual);
+          const F = D >= 3 ? Math.min(1.2, Math.round((D / 4) * 100) / 100) : 0;
+          if (F > 0) {
+            await ff.run(ffmpeg, ['-y', '-i', visual, '-filter_complex',
+              `[0:v]split[s1][s2];[s1]trim=start=${F}:end=${D},setpts=PTS-STARTPTS[a];[s2]trim=start=0:end=${F},setpts=PTS-STARTPTS[b];[a][b]xfade=transition=fade:duration=${F}:offset=${(D - 2 * F).toFixed(3)},format=yuv420p[v]`,
+              '-map', '[v]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', loopFile], c.signal);
+            loopPeriod = (await ff.duration(c.settings.ffprobe, loopFile)) || D - F;
+            exactLoop = true;
+            c.log(`loop com fusão: clipe de ${D.toFixed(1)} s sem quadro final igual ao inicial — fim funde no começo (${F.toFixed(2)} s), período ${loopPeriod.toFixed(2)} s`);
+          } else {
+            await ff.run(ffmpeg, ['-y', '-stream_loop', '-1', '-i', visual, '-t', String(loopPeriod), '-an',
+              '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', loopFile], c.signal);
+          }
           visual = loopFile;
         }
       }
@@ -1855,7 +1877,7 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
       '-t', total.toFixed(3), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', final], c.signal);
   }
-  c.log(`clipe musical pronto: ${total.toFixed(2)}s em ${files.length} faixas (${perTrack ? 'um loop por faixa' : 'loop unico'}, ${wfName}), waveform ${waveform}, ${c.project.aspect}`);
+  c.log(`clipe musical pronto: ${total.toFixed(2)}s em ${files.length} faixas (${perTrack ? 'um loop por faixa' : 'loop único'}, música: ${engine === 'comfy' ? wfName : engine === 'wan2gp' ? wanTpl : 'código'}), waveform ${waveform}, ${c.project.aspect}`);
   return { files: [final] };
 }
 
