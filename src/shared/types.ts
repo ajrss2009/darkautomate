@@ -771,6 +771,10 @@ export interface Channel {
   handle?: string;
   /** endereço do canal, quando ele já existe na plataforma */
   url?: string;
+  /** id do canal NA plataforma (YouTube: UC…), quando o app criou o canal */
+  platformId?: string;
+  /** pasta do clone de onde vieram a marca e as imagens (canal criado pelo app) */
+  fromClone?: string;
   brand?: ChannelBrand;
   /** marcas anteriores (a mais recente primeiro) — "recriar marca" guarda a atual aqui */
   brandHistory?: ChannelBrand[];

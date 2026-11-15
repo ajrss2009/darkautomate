@@ -1261,3 +1261,26 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .np-only-picked input { width:auto; margin:0; }
 .lib-missing { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px; margin:6px 0 10px; border:1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius:10px; background:color-mix(in srgb, var(--warn) 8%, var(--panel)); }
 .lib-missing select { width:auto; max-width:320px; }
+
+/* Canais e perfis: visão geral em cartões (clique = detalhe) */
+.ch-overview { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.ch-ov-card { position: relative; border: 1px solid var(--line); border-top: 3px solid var(--pl, var(--line)); border-radius: 12px; background: var(--panel); overflow: hidden; cursor: pointer;
+  display: flex; flex-direction: column; transition: transform .12s, box-shadow .12s, border-color .12s; }
+.ch-ov-card:hover, .ch-ov-card:focus-visible { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.35); border-color: var(--pl, var(--acc)); outline: none; }
+.ch-ov-cover { position: relative; height: 92px; background: linear-gradient(120deg, var(--pl, #333), var(--pl2, #111)); }
+.ch-ov-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ch-ov-id { display: flex; gap: 12px; align-items: flex-end; padding: 0 14px; margin-top: -26px; position: relative; }
+.ch-ov-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-bottom: 2px; }
+.ch-ov-name b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-ov-name .muted { font-size: 12px; }
+.ch-ov-tag { margin: 8px 14px 0; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ch-ov-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 12px 14px 8px; }
+.ch-ov-stat { display: flex; flex-direction: column; align-items: center; padding: 6px 2px; border-radius: 8px; background: var(--panel2); }
+.ch-ov-stat b { font-size: 14px; }
+.ch-ov-stat span { font-size: 10.5px; color: var(--mut); }
+.ch-ov-card .ch-badges { padding: 0 14px; }
+.ch-ov-open { padding: 8px 14px 12px; margin-top: auto; text-align: right; }
+.ch-ov-card:hover .ch-ov-open { color: var(--pl, var(--acc)); }
+.ch-nav { margin-bottom: 10px; gap: 8px; align-items: center; }
+.ch-add-tabs { gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+@media (max-width: 600px) { .ch-overview { grid-template-columns: 1fr; } }

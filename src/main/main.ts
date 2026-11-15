@@ -58,6 +58,7 @@ import { ComfyClient } from './comfyui';
 import { ROUTES, VIDEO_TYPES } from './presets';
 import { CATEGORY_OF, allProfiles, downstreamSteps, profileSkips } from '../shared/profiles';
 import * as auto from './automations';
+import { youtubeBrandChannel, youtubeCreateChannel } from './youtube-upload';
 import { generateSkillFromVideos, type SkillGenInput } from './skillgen';
 import { closeBrowser, flowCredits, flowDiagnose, flowGenerate } from './flow';
 import { DEFAULT_FISH_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
@@ -1076,9 +1077,37 @@ function registerIpc() {
   /* ── Canais (os SEUS: identidade de publicação) — namespace 'channels:' para não colidir com os clones ── */
   const channelsState = () => ({ list: myChannels.listChannels(settings), platforms: myChannels.PLATFORM_INFO, ready: myChannelPub.readyPlatforms(),
     max: myChannels.MAX_CHANNELS, accounts: auto.listAccounts(settings).map((a) => ({ id: a.id, label: a.label, email: a.email, hasProfile: a.hasProfile })) });
-  h('channels:get', () => ({ ...channelsState(), types: CHANNEL_TYPES, thumbStyles: THUMB_STYLES,
+  h('channels:get', () => {
+    /* canais criados pelo app (pasta do clone) entram na lista na primeira vez que ela abre */
+    try { if (myChannels.adoptCreatedChannels(settings, auto.listAccounts(settings).map((a) => a.id)).length) saveSettings(settings); } catch { /* ignora */ }
+    return channelsGetState();
+  });
+  /* Cria um canal NOVO no YouTube (sessão da conta), cadastra em Canais e perfis e envia banner/foto da marca do clone */
+  h('channels:create-youtube', async (input: { accountId: string; name: string; handle?: string; cloneId?: string }) => {
+    if (!input?.accountId) throw new Error('escolha a conta do navegador que vai criar o canal');
+    if (!input.name?.trim()) throw new Error('o canal precisa de um nome');
+    const log = (line: string) => send({ t: 'log', line } as EngineEvent);
+    const clone = input.cloneId ? listChannelClones(settings).find((x) => x.id === input.cloneId) : undefined;
+    const cloneDir = clone ? path.join(settings.workspace, 'channels', clone.id) : undefined;
+    const port = await auto.ensureFlowBrowser(settings, input.accountId, log);
+    const made = await youtubeCreateChannel({ port, name: input.name.trim(), handle: input.handle?.trim() || input.name, log });
+    const info = { ...made, name: input.name.trim(), accountId: input.accountId, at: new Date().toISOString() };
+    const ch = myChannels.registerCreatedChannel(settings, { name: info.name, handle: made.handle, channelId: made.channelId, accountId: input.accountId,
+      cloneId: clone?.id, cloneDir, brand: clone?.brand as never, language: typeof clone?.language === 'string' ? clone.language : undefined });
+    if (cloneDir) fs.writeFileSync(path.join(cloneDir, myChannels.CREATED_FILE), JSON.stringify({ ...info, registeredAs: ch.id }, null, 1));
+    saveSettings(settings);
+    /* marca no YouTube: banner e foto (falha aqui não desfaz o canal — dá para refazer pelo Studio) */
+    let brand: unknown;
+    if (ch.assets?.banner || ch.assets?.avatar) {
+      const dir = myChannels.channelDir(settings, ch.id);
+      try { brand = await youtubeBrandChannel({ port, channelId: made.channelId, name: info.name, banner: ch.assets.banner ? path.join(dir, ch.assets.banner) : undefined, avatar: ch.assets.avatar ? path.join(dir, ch.assets.avatar) : undefined, description: ch.brand?.description, log }); }
+      catch (e) { brand = { error: (e as Error).message }; }
+    }
+    return { channel: ch, brand, state: channelsState() };
+  });
+  const channelsGetState = () => ({ ...channelsState(), types: CHANNEL_TYPES, thumbStyles: THUMB_STYLES,
     apis: { youtube: !!settings.stock?.youtube?.apiKey?.trim(), tiktok: !!settings.channelApis?.tiktok?.token, facebook: !!settings.channelApis?.facebook?.token,
-      instagram: !!settings.channelApis?.instagram?.token, kwai: !!settings.channelApis?.kwai?.token } }));
+      instagram: !!settings.channelApis?.instagram?.token, kwai: !!settings.channelApis?.kwai?.token } });
   h('channels:add', (input: { name?: string; platform?: ChannelPlatform; accountId?: string; link?: string; type?: string; language?: string }) => {
     const c = myChannels.addChannel(settings, input); saveSettings(settings); return { channel: c, state: channelsState() };
   });

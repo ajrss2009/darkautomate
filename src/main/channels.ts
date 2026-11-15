@@ -268,3 +268,62 @@ export function appendPublish(projectDir: string, rec: PublishRecord): PublishRe
   fs.writeFileSync(path.join(out, 'publish.json'), JSON.stringify(next, null, 2));
   return next;
 }
+
+/** Arquivo que a criação do canal na plataforma grava na pasta do clone (nome, @, id UC…, conta). */
+export const CREATED_FILE = 'youtube-channel.json';
+interface CreatedInfo { channelId: string; handle?: string; name?: string; studioUrl?: string; accountId?: string; at?: string; registeredAs?: string }
+
+/**
+ * Canal CRIADO pelo app na plataforma → cadastrado em Canais e perfis, com a marca e as imagens (banner, avatar,
+ * thumbnail) do clone de onde veio. Login confirmado: foi a própria sessão da conta que criou o canal.
+ */
+export function registerCreatedChannel(s: Settings, o: { name: string; handle?: string; channelId: string; accountId?: string; platform?: ChannelPlatform; cloneId?: string; cloneDir?: string; brand?: ChannelBrand; type?: string; language?: string }): Channel {
+  const existing = config(s).find((c) => c.platformId === o.channelId || (!!o.handle && c.platform === (o.platform ?? 'youtube') && c.handle?.replace(/^@/, '').toLowerCase() === o.handle.replace(/^@/, '').toLowerCase()));
+  if (existing) return existing;
+  const hnd = o.handle?.replace(/^@/, '');
+  const ch = addChannel(s, { name: o.name, platform: o.platform ?? 'youtube', accountId: o.accountId, link: hnd ? `https://www.youtube.com/@${hnd}` : `https://www.youtube.com/channel/${o.channelId}`, type: o.type, language: o.language });
+  ch.platformId = o.channelId;
+  ch.auth = { status: 'confirmed', at: new Date().toISOString() };
+  if (o.brand) ch.brand = { ...o.brand, createdAt: o.brand.createdAt ?? new Date().toISOString() };
+  if (o.cloneId) { ch.fromClone = o.cloneId; linkClone(s, ch.id, o.cloneId, true); }
+  if (o.cloneDir) {
+    const dir = channelDir(s, ch.id);
+    const assets: NonNullable<Channel['assets']> = {};
+    for (const k of ['banner', 'avatar', 'thumb'] as const) {
+      const src = path.join(o.cloneDir, `${k}.png`);
+      if (fs.existsSync(src)) { fs.copyFileSync(src, path.join(dir, `${k}.png`)); assets[k] = `${k}.png`; }
+    }
+    if (Object.keys(assets).length) ch.assets = assets;
+  }
+  return ch;
+}
+
+/**
+ * Canais que o app criou (youtube-channel.json nas pastas dos clones) e que ainda não estão em Canais e perfis:
+ * cadastra cada um uma vez (o arquivo guarda registeredAs; remover o canal da lista não o traz de volta).
+ */
+export function adoptCreatedChannels(s: Settings, accountIds: string[] = []): Channel[] {
+  const root = path.join(s.workspace, 'channels');
+  if (!fs.existsSync(root)) return [];
+  const out: Channel[] = [];
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name === 'mine') continue;
+    const dir = path.join(root, e.name), file = path.join(dir, CREATED_FILE);
+    if (!fs.existsSync(file)) continue;
+    let info: CreatedInfo;
+    try { info = JSON.parse(fs.readFileSync(file, 'utf8')) as CreatedInfo; } catch { continue; }
+    if (!info?.channelId || info.registeredAs || config(s).length >= MAX_CHANNELS) continue;
+    let clone: { brand?: ChannelBrand & { names?: string[] }; language?: string } = {};
+    try { clone = JSON.parse(fs.readFileSync(path.join(dir, 'channel.json'), 'utf8')) as typeof clone; } catch { /* sem marca */ }
+    try {
+      const ch = registerCreatedChannel(s, {
+        name: info.name || clone.brand?.names?.[0] || info.handle || info.channelId, handle: info.handle, channelId: info.channelId,
+        accountId: info.accountId ?? (accountIds.length === 1 ? accountIds[0] : undefined),
+        cloneId: e.name, cloneDir: dir, brand: clone.brand, language: typeof clone.language === 'string' ? clone.language : undefined,
+      });
+      fs.writeFileSync(file, JSON.stringify({ ...info, registeredAs: ch.id }, null, 1));
+      out.push(ch);
+    } catch { /* limite, link inválido: tenta de novo na próxima abertura */ }
+  }
+  return out;
+}

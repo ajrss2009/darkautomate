@@ -40,6 +40,7 @@ interface ChannelView {
   id: string; name: string; platform: string; accountId?: string; handle?: string; url?: string;
   brand?: ChannelBrand; brandHistory?: ChannelBrand[]; assets?: { banner?: string; avatar?: string; thumb?: string };
   type?: string; language?: string; auth?: { status: 'pending' | 'opened' | 'confirmed'; at?: string }; identity?: Identity; analytics?: Analytics; cloneIds?: string[];
+  platformId?: string; fromClone?: string;
   createdAt: string; lastPublishAt?: string;
   dir: string; hasBrand: boolean; hasAssets: { banner: boolean; avatar: boolean; thumb: boolean }; projects: number;
   setup?: { done: SetupStep[]; next?: SetupStep };
@@ -105,7 +106,6 @@ export async function renderChannelsPage(c: ChannelsCtx): Promise<void> {
 
   /* mantém a seleção válida quando o canal é removido */
   if (selected && !st.list.some((x) => x.id === selected)) selected = undefined;
-  if (!selected && st.list.length) selected = st.list[0]!.id;
 
   const head = h('div', { class: 'row pagehead' },
     h('h2', {}, '📺 Canais e perfis'), helpButton('automations'), h('span', { class: 'sp' }),
@@ -137,13 +137,62 @@ export async function renderChannelsPage(c: ChannelsCtx): Promise<void> {
   }
 
   const shown = filter ? st.list.filter((x) => x.platform === filter) : st.list;
-  const cur = st.list.find((x) => x.id === selected)!;
+  const cur = selected ? st.list.find((x) => x.id === selected) : undefined;
+  if (!cur) {
+    /* VISÃO GERAL: todos os canais e perfis em cartões; clicar abre o detalhe */
+    const grid = h('div', { class: 'ch-overview' }, ...(shown.length ? shown.map((ch) => overviewCard(c, ch, st, () => { selected = ch.id; again(); }))
+      : [h('p', { class: 'muted' }, `Nenhum ${noun(filter)} de ${st.platforms[filter]?.label ?? filter}.`)]));
+    main.replaceChildren(head, tiles, grid);
+    return;
+  }
+  /* DETALHE: voltar, anterior/próximo e a lista compacta ao lado para trocar sem voltar */
+  const pos = shown.findIndex((x) => x.id === cur.id);
+  const go = (d: number) => { const n = shown[(pos + d + shown.length) % shown.length]; if (n) { selected = n.id; again(); } };
+  const nav = h('div', { class: 'row ch-nav' },
+    h('button', { class: 'small', onclick: () => { selected = undefined; again(); } }, '← Todos os canais'),
+    h('span', { class: 'muted small' }, pos >= 0 ? `${pos + 1} de ${shown.length}` : ''),
+    h('span', { class: 'sp' }),
+    shown.length > 1 ? h('button', { class: 'small', title: 'Anterior', onclick: () => go(-1) }, '‹') : null,
+    shown.length > 1 ? h('button', { class: 'small', title: 'Próximo', onclick: () => go(1) }, '›') : null,
+  );
   const cols = h('div', { class: 'ch-cols' },
     h('div', { class: 'ch-list' }, ...(shown.length ? shown.map((ch) => channelCard(c, ch, st, () => { selected = ch.id; again(); }))
       : [h('p', { class: 'muted' }, `Nenhum ${noun(filter)} de ${st.platforms[filter]?.label ?? filter}.`)])),
     channelDetail(c, cur, st, again),
   );
-  main.replaceChildren(head, tiles, cols);
+  main.replaceChildren(head, tiles, nav, cols);
+}
+
+/** Cartão da visão geral: banner, avatar, nome, rede, situação do cadastro e números principais. Clique = detalhe. */
+function overviewCard(c: ChannelsCtx, ch: ChannelView, st: State, onPick: () => void): HTMLElement {
+  const info = st.platforms[ch.platform] ?? { icon: '📺', label: ch.platform, loginUrl: '' };
+  const cover = h('div', { class: `ch-ov-cover pl-${ch.platform}` });
+  const cols = (ch.brand?.colors ?? []).filter((x) => /^#[0-9a-f]{3,6}$/i.test(x));
+  if (cols.length >= 2) cover.style.background = `linear-gradient(120deg, ${cols[0]}, ${cols[1]})`;
+  if (ch.hasAssets.banner && ch.assets?.banner) cover.append(h('img', { src: c.forge.mediaUrl(`${ch.dir}/${ch.assets.banner}`), alt: '' }));
+  const a = ch.analytics;
+  const stat = (v: string, l: string) => h('div', { class: 'ch-ov-stat' }, h('b', {}, v), h('span', {}, l));
+  const steps = ch.setup ? `${ch.setup.done.length}/7` : '—';
+  return h('div', { class: `ch-ov-card pl-${ch.platform}`, tabindex: '0', title: `Abrir ${ch.name}`, onclick: onPick,
+    onkeydown: (e: Event) => { const k = (e as KeyboardEvent).key; if (k === 'Enter' || k === ' ') { e.preventDefault(); onPick(); } } },
+    cover,
+    h('div', { class: 'ch-ov-id' },
+      avatarOf(ch, c.forge, 'lg'),
+      h('div', { class: 'ch-ov-name' }, h('b', {}, ch.name), h('span', { class: 'muted' }, `${info.icon} ${info.label}${ch.handle ? ` · ${ch.handle}` : ''}`)),
+    ),
+    ch.brand?.tagline ? h('p', { class: 'ch-ov-tag muted small' }, ch.brand.tagline) : null,
+    h('div', { class: 'ch-ov-stats' },
+      stat(fmtN(a?.followers), 'inscritos'), stat(fmtN(a?.avgViews), 'views/vídeo'), stat(String(ch.projects || 0), 'projetos'), stat(steps, 'cadastro'),
+    ),
+    h('div', { class: 'ch-badges' },
+      ch.fromClone ? h('span', { class: 'ch-badge ok', title: `Criado pelo app a partir do clone ${ch.fromClone}` }, '✨ criado pelo app') : null,
+      ch.hasBrand ? h('span', { class: 'ch-badge ok' }, 'marca ✓') : h('span', { class: 'ch-badge' }, 'sem marca'),
+      ch.auth?.status === 'confirmed' ? h('span', { class: 'ch-badge ok' }, 'login ✓') : ch.accountId ? h('span', { class: 'ch-badge' }, 'conta ✓') : h('span', { class: 'ch-badge warn' }, 'sem conta'),
+      ch.lastPublishAt ? h('span', { class: 'ch-badge' }, `publicou ${new Date(ch.lastPublishAt).toLocaleDateString('pt-BR')}`) : null,
+      st.ready.includes(ch.platform) ? null : h('span', { class: 'ch-badge' }, 'em breve'),
+    ),
+    h('div', { class: 'ch-ov-open muted small' }, 'Ver detalhes →'),
+  );
 }
 
 function channelCard(c: ChannelsCtx, ch: ChannelView, st: State, onPick: () => void): HTMLElement {
@@ -516,8 +565,54 @@ function openAdd(c: ChannelsCtx, st: State, again: () => void, initial?: string)
 
   const bg = h('div', { class: 'ch-modal-bg' });
   const close = () => bg.remove();
+
+  /* criar canal novo no YouTube: conta (obrigatória), clone de onde vem a marca (opcional), nome e @ */
+  const cAcc = h('select', {}, h('option', { value: '' }, '— escolha a conta —'), ...st.accounts.map((a) => h('option', { value: a.id }, `${a.label}${a.email ? ` (${a.email})` : ''}${a.hasProfile ? ' · com login' : ' · sem login'}`))) as HTMLSelectElement;
+  if (st.accounts.length === 1) cAcc.value = st.accounts[0]!.id;
+  const cClone = h('select', {}, h('option', { value: '' }, '— sem marca de clone —')) as HTMLSelectElement;
+  const cName = h('input', { placeholder: 'Nome do canal' }) as HTMLInputElement;
+  const cHandle = h('input', { placeholder: '@identificador (vazio = a partir do nome)' }) as HTMLInputElement;
+  const clones: Array<{ id: string; brand?: { names?: string[]; handle?: string }; source?: { name?: string } }> = [];
+  void (async () => {
+    try {
+      const list = ((await forge['channelList']()) ?? []) as typeof clones;
+      for (const x of list) if (x.brand?.names?.length) { clones.push(x); cClone.append(h('option', { value: x.id }, `${x.brand.names[0]} — clone de ${x.source?.name ?? x.id}${st.list.some((ch) => ch.fromClone === x.id) ? " · já tem canal" : ""}`)); }
+    } catch { /* sem clones */ }
+  })();
+  cClone.addEventListener('change', () => { const x = clones.find((y) => y.id === cClone.value); if (x?.brand) { cName.value = x.brand.names?.[0] ?? cName.value; cHandle.value = x.brand.handle ?? cHandle.value; } });
+  const createBox = h('div', { class: 'ch-create', hidden: true },
+    h('p', { class: 'muted small' }, 'O app abre o navegador da conta, cria o canal (conta de marca) no YouTube com o nome e o @ — se o @ estiver ocupado, tenta variações — e já cadastra aqui. Com um clone, a marca, o banner e a foto vêm dele e são enviados ao canal.'),
+    h('div', { class: 'ch-grid' },
+      h('label', { class: 'ch-wide' }, 'Conta do navegador *', cAcc),
+      h('label', { class: 'ch-wide' }, 'Marca de um clone (opcional)', cClone),
+      h('label', {}, 'Nome *', cName), h('label', {}, 'Identificador', cHandle),
+    ),
+    h('div', { class: 'row' }, h('span', { class: 'sp' }),
+      h('button', { class: 'small', onclick: close }, 'Cancelar'),
+      h('button', { class: 'small primary', onclick: async (e: Event) => {
+        if (!cAcc.value) { toast('Escolha a conta do navegador', true); return; }
+        if (!cName.value.trim()) { toast('Dê um nome ao canal', true); cName.focus(); return; }
+        const btn = e.currentTarget as HTMLButtonElement; btn.disabled = true; btn.textContent = 'Criando no YouTube…';
+        try {
+          const r = await guard(() => forge['channelsCreateYoutube']({ accountId: cAcc.value, name: cName.value, handle: cHandle.value || undefined, cloneId: cClone.value || undefined })) as { channel?: { id: string; name: string }; brand?: { error?: string } } | undefined;
+          if (!r?.channel) return;
+          close(); selected = r.channel.id; filter = '';
+          toast(r.brand && (r.brand as { error?: string }).error ? `Canal criado; a marca não subiu (${(r.brand as { error?: string }).error}) — refaça pelo Studio` : `Canal "${r.channel.name}" criado e cadastrado`);
+          again();
+        } finally { btn.disabled = false; btn.textContent = '✨ Criar canal'; }
+      } }, '✨ Criar canal'),
+    ),
+  );
+  const linkBox = h('div', { class: 'ch-linkbox' });
+  const tabBtn = (label: string, on: boolean, show: () => void) => h('button', { class: `small${on ? ' primary' : ''}`, onclick: (e: Event) => { for (const b of Array.from((e.currentTarget as HTMLElement).parentElement!.children)) b.classList.remove('primary'); (e.currentTarget as HTMLElement).classList.add('primary'); show(); } }, label);
+  const tabs = h('div', { class: 'row ch-add-tabs' },
+    tabBtn('🔗 Já tenho o canal', true, () => { linkBox.hidden = false; createBox.hidden = true; }),
+    tabBtn('✨ Criar canal novo no YouTube', false, () => { linkBox.hidden = true; createBox.hidden = false; cName.focus(); }),
+  );
   const box = h('div', { class: 'ch-modal' },
-    h('h3', {}, 'Novo canal ou perfil'),
+    h('h3', {}, 'Novo canal ou perfil'), tabs, createBox, linkBox,
+  );
+  linkBox.append(
     h('ol', { class: 'ch-wizard muted small' }, h('li', {}, 'Link do canal (obrigatório)'), h('li', {}, 'Autenticação: você faz o login no navegador da conta'), h('li', {}, 'Tipo do canal → a IA sugere nome, descrição e tags'), h('li', {}, 'Marca e banner (pode recriar)'), h('li', {}, 'Thumbnail e paletas; análise de métricas')),
     h('div', { class: 'ch-grid' },
       h('label', { class: 'ch-wide' }, '1. Link do canal *', linkIn),

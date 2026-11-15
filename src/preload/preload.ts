@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld('forge', {
   /* Canais do usuário (aba Canais) — namespace próprio, distinto dos clones acima */
   channelsGet: () => call('channels:get'),
   channelsAdd: (input: unknown) => call('channels:add', input),
+  channelsCreateYoutube: (input: unknown) => call('channels:create-youtube', input),
   channelsUpdate: (id: string, patch: unknown) => call('channels:update', id, patch),
   channelsRemove: (id: string) => call('channels:remove', id),
   channelsOpenLogin: (id: string) => call('channels:open-login', id),

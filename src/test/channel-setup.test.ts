@@ -6,7 +6,7 @@ import {
   CHANNEL_TYPES, THUMB_STYLES, contrastRatio, defaultIdentity, identityPrompt, mergeIdentity, normalizePalette, paletteList, paletteRoles,
   parseChannelLink, pushBrandHistory, recreateNote, restoreBrand, setupStatus, BRAND_HISTORY_MAX,
 } from '../main/channel-setup';
-import { addChannel, getChannel, linkClone, listChannels, markAuthOpened, restoreChannelBrand, saveAnalytics, saveBrand, updateChannel, PLATFORM_INFO } from '../main/channels';
+import { addChannel, adoptCreatedChannels, CREATED_FILE, getChannel, linkClone, listChannels, markAuthOpened, restoreChannelBrand, saveAnalytics, saveBrand, updateChannel, PLATFORM_INFO } from '../main/channels';
 import { PLATFORM_ADAPTERS } from '../main/channel-publish';
 import { buildBrandPrompt, sanitizeBrand, thumbModelHtml } from '../main/channel-brand';
 import type { Channel, Settings } from '../shared/types';
@@ -118,6 +118,21 @@ async function main() {
   assert.equal(getChannel(s, a.id).cloneIds, undefined);
   const view = listChannels(s).find((x) => x.id === a.id)!;
   assert.ok(view.setup.done.includes('link') && view.setup.done.includes('auth') && view.setup.done.includes('type') && view.setup.done.includes('brand'));
+
+  /* ───────── canal CRIADO pelo app (pasta do clone) entra em Canais e perfis uma vez, com marca e imagens ───────── */
+  const cdir = path.join(ws, 'channels', 'clone-hadal'); fs.mkdirSync(cdir, { recursive: true });
+  fs.writeFileSync(path.join(cdir, 'channel.json'), JSON.stringify({ brand: { names: ['Hadal Metric'], handle: '@hadalmetric', tagline: 't', colors: ['#000000', '#00ffcc'] } }));
+  fs.writeFileSync(path.join(cdir, 'banner.png'), 'x'); fs.writeFileSync(path.join(cdir, 'avatar.png'), 'y');
+  fs.writeFileSync(path.join(cdir, CREATED_FILE), JSON.stringify({ channelId: 'UC71Yd0AKXDFGAIq4hfVgZKA', handle: 'hadalmetric', name: 'Hadal Metric' }));
+  const adopted = adoptCreatedChannels(s, ['g1']);
+  assert.equal(adopted.length, 1, 'canal criado pelo app cadastrado');
+  const hd = getChannel(s, adopted[0]!.id);
+  assert.equal(hd.name, 'Hadal Metric'); assert.equal(hd.platformId, 'UC71Yd0AKXDFGAIq4hfVgZKA'); assert.equal(hd.url, 'https://www.youtube.com/@hadalmetric');
+  assert.equal(hd.accountId, 'g1', 'única conta'); assert.equal(hd.auth?.status, 'confirmed'); assert.equal(hd.brand?.tagline, 't');
+  assert.deepEqual(hd.cloneIds, ['clone-hadal']); assert.deepEqual(hd.assets, { banner: 'banner.png', avatar: 'avatar.png' });
+  assert.ok(fs.existsSync(path.join(ws, 'channels', 'mine', hd.id, 'banner.png')), 'imagens copiadas');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(cdir, CREATED_FILE), 'utf8')).registeredAs, hd.id);
+  assert.equal(adoptCreatedChannels(s, ['g1']).length, 0, 'não cadastra de novo (nem depois de removido)');
 
   /* ───────── marca: prompt com tipo/recriar e saneamento da identidade ───────── */
   const prompt = buildBrandPrompt({ idea: 'mistérios da história', harness: 'auto', type: 'dark-narrado', link: 'https://www.youtube.com/@x', recreate: recreateNote(ch), analytics: '100 seguidores', platform: 'kwai' }, 'pt-BR');
