@@ -1,7 +1,7 @@
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { refPrompt, speechSeconds, wan2gpKind, wan2gpLanguage } from '../main/wan2gp';
+import { refPrompt, speechSeconds, wan2gpKind, wan2gpLanguage, wan2gpSafeSettings } from '../main/wan2gp';
 import { applyH3Choice, classifyH3Lora, h3Family, h3Options } from '../main/h3accel';
 import { classifySpecial } from '../main/wan2gp-special';
 import { frameEditPrompt, VIGGLE_SECTIONS, viggleInputs, viggleMode, viggleprompt } from '../main/viggle';
@@ -149,6 +149,8 @@ function main() {
   assert.equal(classifySpecial('hi3d', { name: 'Hi3D Mesh Refiner', description: 'coarse 3D mesh' }), 'refine3d');
   assert.equal(classifySpecial('animate_any_mesh', {}), 'animate3d'); assert.equal(classifySpecial('geosam2', { description: '3D Part Segmentation' }), 'parts3d');
   assert.equal(classifySpecial('hunyuan_1_5_i2v', { description: 'video' }), undefined);
+  { const st = wan2gpSafeSettings({ prompt: 'homem { jacket:"#B91C1C" }', negative_prompt: '{x}', steps: 4 });
+    assert.equal(st['prompt'], 'homem ( jacket:"#B91C1C" )', 'chaves no prompt não viram variável do Wan2GP'); assert.equal(st['negative_prompt'], '(x)'); assert.equal(st['steps'], 4); }
   console.log('wan2gp models tests: OK');
 }
 main();

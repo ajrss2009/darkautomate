@@ -27,6 +27,16 @@ export function speechSeconds(text: string): number {
 }
 
 /** Prompt do MiniMax H3 com referências: "<Subject N> is the person in <Picture N>" para cada retrato, e a cena. */
+/**
+ * O Wan2GP lê {nome} no prompt como VARIÁVEL de template e recusa a geração ("Unknown variable"): aparências escritas como
+ * objeto ({ jacket:"#B91C1C", … }) quebravam a folha. Chaves viram parênteses nos textos de prompt (função pura).
+ */
+export function wan2gpSafeSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...settings };
+  for (const k of ['prompt', 'negative_prompt', 'alt_prompt']) if (typeof out[k] === 'string') out[k] = (out[k] as string).replace(/\{/g, '(').replace(/\}/g, ')');
+  return out;
+}
+
 export function refPrompt(names: string[], prompt: string): string {
   if (!names.length) return prompt;
   return ['subject_definitions:', ...names.map((n, i) => `<Subject ${i + 1}> is ${n}, the person in <Picture ${i + 1}>, preserving their face, hair and outfit.`), '', prompt].join('\n');
@@ -117,7 +127,7 @@ export class Wan2gpClient {
 
   async generate(modelType: string, settings: Record<string, unknown>, signal: AbortSignal, log: (l: string) => void): Promise<GenerateResult> {
     this.log = log;
-    const r = await this.request({ op: 'generate', model_type: modelType, settings }, signal);
+    const r = await this.request({ op: 'generate', model_type: modelType, settings: wan2gpSafeSettings(settings) }, signal);
     if (r.cancelled || signal.aborted) throw new Error('cancelado');
     if (!r.ok || !r.files?.length) throw new Error(`Wan2GP: ${(r.errors?.length ? r.errors : [r.error ?? 'sem arquivos gerados']).join('; ')}`);
     return { files: r.files, unknownKeys: r.unknownKeys ?? [] };
