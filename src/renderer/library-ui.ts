@@ -1349,8 +1349,10 @@ export async function renderSettings(c: Ctx, reload = true) {
         /* MiniMax H3 com LoRA de aceleração: lê os modelos instalados e as LoRAs (2/3/4/8 passos) e escolhe por família */
         (() => {
           w.h3 = w.h3 ?? {};
-          type Opt = { id: string; family: 'fl2va' | 'ref2va'; model: string; lora?: string; steps?: number; label: string };
-          const mk = (fam: 'fl2va' | 'ref2va') => {
+          type Fam = 'fl2va' | 'ref2va' | 'ltx23' | 'ltx25' | 'viggle_swap' | 'viggle_edit';
+          const FAMS: Array<[Fam, string]> = [['fl2va', 'MiniMax H3 — imagem → vídeo e loop (FL2VA)'], ['ref2va', 'MiniMax H3 — elenco / UGC / lipsync (Ref2VA)'], ['ltx23', 'LTX 2.3'], ['ltx25', 'LTX 2.5'], ['viggle_swap', 'Viggle — troca de personagens'], ['viggle_edit', 'Viggle — troca de objetos / cenário']];
+          type Opt = { id: string; family: Fam; model: string; lora?: string; steps?: number; label: string };
+          const mk = (fam: Fam) => {
             const cur = w.h3![fam];
             const s1 = h('select', { 'data-field': 'wan-h3-' + fam }, h('option', { value: '' }, '(o do template)'),
               ...(cur?.model ? [h('option', { value: cur.model + (cur.lora ? '|' + cur.lora : ''), selected: true }, cur.model + (cur.lora ? ' + ' + cur.lora + ' (' + (cur.steps ?? '?') + ' passos)' : ''))] : [])) as HTMLSelectElement;
@@ -1358,23 +1360,24 @@ export async function renderSettings(c: Ctx, reload = true) {
             return s1;
           };
           let opts: Opt[] = [];
-          const fl = mk('fl2va'), rf = mk('ref2va');
+          const sels = FAMS.map(([fam]) => [mk(fam), fam] as const);
           const load = () => void guard(async () => {
             await forge['setSettings'](s);
             const r = await forge['wan2gpH3Options']() as { options: Opt[]; loras: Array<{ file: string; steps: number; family: string }> };
             opts = r.options;
-            for (const [el, fam] of [[fl, 'fl2va'], [rf, 'ref2va']] as const) {
+            for (const [el, fam] of sels) {
               const keep = el.value;
               el.replaceChildren(h('option', { value: '' }, '(o do template)'), ...opts.filter((o) => o.family === fam).map((o) => h('option', { value: o.id }, o.label + (o.steps ? '' : ''))));
               el.value = keep && opts.some((o) => o.id === keep) ? keep : '';
             }
-            wout.textContent = r.loras.length ? 'LoRAs de aceleração do MiniMax H3:\n' + r.loras.map((l) => `• ${l.steps} passos — ${l.file} (${l.family === 'any' ? 'FL2VA e Ref2VA' : l.family.toUpperCase()})`).join('\n') : 'nenhuma LoRA de aceleração em loras/minimax_h3';
+            wout.textContent = (r.loras.length ? 'LoRAs de aceleração:\n' + r.loras.map((l) => `• ${l.steps} passos — ${l.file}`).join('\n') : 'nenhuma LoRA de aceleração em loras/minimax_h3 nem loras/ltx2') +
+              '\n\nModelos por família:\n' + FAMS.map(([f, lab]) => `${lab}: ${opts.filter((o) => o.family === f).length} opção(ões)`).join('\n');
             toast(`${opts.length} combinação(ões) de modelo H3 + aceleração — escolha e salve as Configurações`);
           });
-          return h('div', { class: 'card' }, h('strong', {}, 'MiniMax H3 — modelo e aceleração'),
-            h('p', { class: 'muted' }, 'Menos passos = muito mais rápido (2, 3, 4 ou 8 passos com a LoRA de aceleração). Vale para todos os templates H3 do app da mesma família.'),
-            h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Imagem → vídeo e loop (FL2VA)', fl), h('label', { class: 'grow' }, 'Elenco / UGC / lipsync (Ref2VA)', rf),
-              h('button', { 'data-act': 'wan-h3', onclick: load }, '🔎 Ler modelos H3 e acelerações')));
+          return h('div', { class: 'card' }, h('strong', {}, 'Vídeo no Wan2GP — modelo e aceleração (MiniMax H3, LTX 2.3/2.5, Viggle)'),
+            h('p', { class: 'muted' }, 'Menos passos = muito mais rápido (2, 3, 4 ou 8 passos com LoRA de aceleração ou modelo destilado). Vale para todos os templates do app da mesma família.'),
+            h('div', { class: 'row', style: 'flex-wrap:wrap' }, ...sels.map(([el, fam]) => h('label', { class: 'grow' }, FAMS.find(([f]) => f === fam)![1], el)),
+              h('button', { 'data-act': 'wan-h3', onclick: load }, '🔎 Ler modelos e acelerações')));
         })(),
         h('div', {}, h('strong', {}, 'Modelos Wan2GP carregados'), h('span', { class: 'muted' }, ' — por modalidade; as rotas avisam quando um template usa um model_type fora desta lista'),
           ...wanLists.map((w) => h('div', { class: 'wanlist' }, h('span', { class: 'muted' }, w.l), w.ml.el)))));

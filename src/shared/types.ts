@@ -61,7 +61,7 @@ export interface Wan2gpConfig { root: string; python: string; cliArgs: string[];
   /** versão do diretor do Showrunner gravada no wgp_config.json (qwen38_9b, qwen38_27b…); vazio = a do Wan2GP */ director?: string;
   /** perfil de memória (--profile) do servidor que o app abre para o Showrunner; padrão '5' (à prova de falhas); '' = o do Wan2GP */ serverProfile?: string;
   /** MiniMax H3: modelo + LoRA de aceleração (2/3/4/8 passos) por família — fl2va = imagem→vídeo/loop; ref2va = elenco/UGC */
-  h3?: { fl2va?: { model?: string; lora?: string; steps?: number }; ref2va?: { model?: string; lora?: string; steps?: number } } }
+  h3?: Partial<Record<'fl2va' | 'ref2va' | 'ltx23' | 'ltx25' | 'viggle_swap' | 'viggle_edit', { model?: string; lora?: string; steps?: number }>> }
 /** Perfis de memória do Wan2GP para o servidor do Showrunner (o 4.5 padrão mantém ~19 GB de modelos na RAM e falta memória com o diretor). */
 export const WAN2GP_PROFILES: Array<[string, string]> = [['5', 'Perfil 5 — à prova de falhas (recomendado com o diretor)'], ['0', 'Perfil 0 — pouca RAM fixa'], ['', 'o configurado no Wan2GP'], ['4', 'Perfil 4 — modelos principais na RAM']];
 /** Pós-processamento do Wan2GP no vídeo final (valores do próprio Wan2GP; vazio = desligado). */
@@ -78,7 +78,7 @@ export interface ApiBinding { type: 'api'; provider: string; model: string; voic
  * - lyric-words: grava os tempos da letra de cada cena (audio/words.json) para a cena por código;
  * - frame-thumbnail: thumbnail a partir de um quadro real do final.mp4 + texto do SEO.
  */
-export type BuiltinTool = 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'wan2gp-showrunner';
+export type BuiltinTool = 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'wan2gp-showrunner' | 'viggle-remake';
 export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool }
 export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */

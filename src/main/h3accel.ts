@@ -10,21 +10,29 @@ import * as path from 'node:path';
  * Funções puras (testáveis), exceto a leitura da pasta.
  */
 
-export type H3Family = 'fl2va' | 'ref2va';
-export interface H3Lora { file: string; steps: number; family: H3Family | 'any'; label: string }
+/** famílias de vídeo do Wan2GP com escolha de modelo/aceleração: H3 (FL2VA, Ref2VA), LTX 2.3, LTX 2.5 e Viggle */
+export type H3Family = 'fl2va' | 'ref2va' | 'ltx23' | 'ltx25' | 'viggle_swap' | 'viggle_edit';
+export const FAMILY_LABEL: Record<H3Family, string> = { fl2va: 'MiniMax H3 — imagem → vídeo e loop (FL2VA)', ref2va: 'MiniMax H3 — elenco / UGC / lipsync (Ref2VA)', ltx23: 'LTX 2.3', ltx25: 'LTX 2.5', viggle_swap: 'Viggle — troca de personagens', viggle_edit: 'Viggle — troca de objetos / cenário' };
+/** pasta das LoRAs de cada família (loras/<pasta>) */
+const LORA_DIRS: Record<string, H3Family[]> = { minimax_h3: ['fl2va', 'ref2va', 'viggle_swap', 'viggle_edit'], ltx2: ['ltx23', 'ltx25'] };
+export interface H3Lora { file: string; steps: number; family: H3Family | 'any'; label: string; /** pasta (minimax_h3 | ltx2): a LoRA só vale para as famílias dessa pasta */ dir?: string }
 export interface H3Choice { model?: string; lora?: string; steps?: number }
 export interface H3Option { id: string; family: H3Family; model: string; lora?: string; steps?: number; label: string; distilled: boolean }
 
 /** família do modelo H3 pelo model_type (TTS, controle e imagem ficam de fora) */
 export function h3Family(modelType: string): H3Family | undefined {
   const m = modelType.toLowerCase();
+  if (m.startsWith('viggle_remake')) return /edit/.test(m) ? 'viggle_edit' : 'viggle_swap';
+  if (m.startsWith('viggle_animate')) return 'viggle_swap';
+  if (m.startsWith('ltx2_25')) return /alpha|layout|msr/.test(m) ? undefined : 'ltx25';
+  if (/^ltx2_(22b|19b|distilled)/.test(m)) return /edit_anything|msr/.test(m) ? undefined : 'ltx23';
   if (!m.startsWith('minimax_h3') || /tts|image|control|vdn|music/.test(m)) return undefined;
   if (m.includes('fl2va')) return 'fl2va';
   if (m.includes('ref2va')) return 'ref2va';
   return undefined;
 }
 /** modelo que já vem destilado/acelerado (PDD, Veda, Hyperflow, PTD, FastH3): não precisa de LoRA de aceleração */
-export const h3Distilled = (modelType: string) => /_pdd|_veda|hyperflow|_ptd|fasth3|singularity/i.test(modelType);
+export const h3Distilled = (modelType: string) => /_pdd|_veda|hyperflow|_ptd|fasth3|singularity|distilled|viggle_animate/i.test(modelType);
 
 /** Classifica um arquivo de LoRA: só as de ACELERAÇÃO (com passos no nome) entram. */
 export function classifyH3Lora(file: string): H3Lora | undefined {
@@ -42,10 +50,19 @@ export function classifyH3Lora(file: string): H3Lora | undefined {
 }
 
 export function scanH3Loras(wan2gpRoot: string): H3Lora[] {
-  const dir = path.join(wan2gpRoot, 'loras', 'minimax_h3');
-  let files: string[] = [];
-  try { files = fs.readdirSync(dir); } catch { return []; }
-  return files.map(classifyH3Lora).filter((x): x is H3Lora => !!x).sort((a, b) => a.steps - b.steps || a.label.localeCompare(b.label));
+  const out: H3Lora[] = [];
+  for (const d of Object.keys(LORA_DIRS)) {
+    let files: string[] = [];
+    try { files = fs.readdirSync(path.join(wan2gpRoot, 'loras', d)); } catch { continue; }
+    out.push(...files.map(classifyH3Lora).filter((x): x is H3Lora => !!x).map((x) => ({ ...x, dir: d })));
+  }
+  return out.sort((a, b) => a.steps - b.steps || a.label.localeCompare(b.label));
+}
+/** a LoRA serve para a família? (mesma pasta; FL2V/Ref2V só na família certa do H3) */
+export function loraFits(l: H3Lora, fam: H3Family): boolean {
+  if (l.dir && !(LORA_DIRS[l.dir] ?? []).includes(fam)) return false;
+  if (fam === 'viggle_swap' || fam === 'viggle_edit') return false;      // o Viggle já traz a própria LoRA
+  return l.family === 'any' || l.family === fam;
 }
 
 /**
@@ -58,9 +75,9 @@ export function h3Options(models: Array<{ model_type: string; name?: string; sta
     const fam = h3Family(m.model_type);
     if (!fam || (m.status && m.status !== 'available' && m.status !== 'partial')) continue;
     const base = m.name || m.model_type, distilled = h3Distilled(m.model_type);
-    out.push({ id: m.model_type, family: fam, model: m.model_type, label: `${base}${distilled ? ' (já acelerado)' : ' (passos do modelo)'}`, distilled });
+    out.push({ id: m.model_type, family: fam, model: m.model_type, label: `${base}${distilled ? ' (já acelerado)' : ' (passos do modelo)'}${m.status === 'partial' ? ' — baixa o resto no 1º uso' : ''}`, distilled });
     if (distilled) continue;
-    for (const l of loras.filter((x) => x.family === 'any' || x.family === fam)) {
+    for (const l of loras.filter((x) => loraFits(x, fam))) {
       out.push({ id: `${m.model_type}|${l.file}`, family: fam, model: m.model_type, lora: l.file, steps: l.steps, label: `${base} + ${l.label}`, distilled: false });
     }
   }

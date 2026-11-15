@@ -544,6 +544,17 @@ export const ROUTES: Route[] = ([
       step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail (formato do projeto)', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: thumbChain, timeoutSec: 900 }),
     ],
   },
+  {
+    id: 'viggle-remake', name: 'Remake de vídeo curto (Viggle — troca de personagens e objetos)',
+    description: 'Vídeo curto anexado → quadro editado no Flow (ou anexado) → Viggle Remake no Wan2GP (Swap: troca pessoas/personagens; Edit: objetos, cenário, clima, luz) mantendo movimento, câmera, tempo e som.',
+    videoTypes: [],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Prompt do remake (6 seções do Viggle)', scope: 'project', bindings: textChain }),
+      step({ id: 'edit', kind: 'edit', label: 'Remake no Viggle (vídeo original + quadro editado)', scope: 'project', dependsOn: ['script'], params: { mode: '', maxSec: 15, frameAt: 0.5 }, bindings: [{ type: 'builtin', tool: 'viggle-remake' }], timeoutSec: 5400, retry: { max: 1, backoffMs: 5000 } }),
+      step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição SEO e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),
+      step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail (quadro do remake)', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }, { type: 'flow' }] }),
+    ],
+  },
 ] as Route[]).map(withAllMediaRoutes);
 
 /**

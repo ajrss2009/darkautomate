@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { refPrompt, speechSeconds, wan2gpKind, wan2gpLanguage } from '../main/wan2gp';
 import { applyH3Choice, classifyH3Lora, h3Family, h3Options } from '../main/h3accel';
+import { frameEditPrompt, VIGGLE_SECTIONS, viggleInputs, viggleMode, viggleprompt } from '../main/viggle';
 import { cleanWan2gpPost } from '../main/ops';
 import { placeholders } from '../main/comfyui';
 import { pickShowrunnerTemplates, setWanDirector, showrunnerBrief, showrunnerKind, showrunnerShots } from '../main/showrunner';
@@ -112,6 +113,32 @@ function main() {
     assert.equal(r.settings['loras_multipliers'], '0.6 1.0'); assert.equal(r.settings['num_inference_steps'], 3);
     assert.equal(applyH3Choice('minimax_h3_fl2va_pruned', { a: 1 }, { model: 'minimax_h3_ref2va_pruned' }).modelType, 'minimax_h3_fl2va_pruned', 'não troca de família');
     assert.equal(applyH3Choice('z_image', { a: 1 }, { lora: 'x' }).modelType, 'z_image', 'só H3');
+  }
+  /* LTX 2.3/2.5 e Viggle nas famílias de modelo/aceleração */
+  assert.equal(h3Family('ltx2_22B_distilled'), 'ltx23'); assert.equal(h3Family('ltx2_25_22B_distilled_nvfp4'), 'ltx25'); assert.equal(h3Family('ltx2_22B_edit_anything'), undefined);
+  assert.equal(h3Family('viggle_remake'), 'viggle_swap'); assert.equal(h3Family('viggle_remake_edit'), 'viggle_edit'); assert.equal(h3Family('viggle_animate'), 'viggle_swap');
+  {
+    const o = h3Options([{ model_type: 'ltx2_25_22B', status: 'available' }, { model_type: 'ltx2_25_22B_distilled', status: 'partial' }, { model_type: 'viggle_remake', status: 'partial' }],
+      [{ file: 'minimax_h3_taomate_3step.safetensors', steps: 3, family: 'any', label: 'Taomate 3 passos', dir: 'minimax_h3' }, { file: 'ltx2-turbo-4step.safetensors', steps: 4, family: 'any', label: 'Turbo 4 passos', dir: 'ltx2' }]);
+    assert.ok(o.some((x) => x.model === 'ltx2_25_22B' && x.steps === 4), 'LTX com LoRA da pasta ltx2');
+    assert.ok(!o.some((x) => x.model === 'ltx2_25_22B' && x.steps === 3), 'LoRA do H3 não vai no LTX');
+    assert.equal(o.filter((x) => x.model === 'viggle_remake').length, 1, 'Viggle sem LoRA extra');
+    assert.match(o.find((x) => x.model === 'ltx2_25_22B_distilled')!.label, /já acelerado.*1º uso/);
+  }
+  /* Viggle: entradas, modo e prompt nas 6 seções */
+  {
+    const att = { attachments: [{ file: 'dança.mp4', kind: 'video', use: 'scene' }, { file: 'robo.png', kind: 'image', use: 'reference', note: 'robô prateado' }, { file: 'q.png', kind: 'image', use: 'reference', note: 'quadro editado' }] } as never;
+    const inp = viggleInputs(att);
+    assert.equal(inp.video?.file, 'dança.mp4'); assert.equal(inp.editedFrame?.file, 'q.png'); assert.deepEqual(inp.refs.map((r) => r.file), ['robo.png']);
+    assert.equal(viggleMode('Troque o dançarino por um robô prateado (personagem)'), 'swap');
+    assert.equal(viggleMode('Deixe a rua coberta de neve à noite'), 'edit');
+    assert.equal(viggleMode('qualquer', 'swap'), 'swap');
+    const basic = viggleprompt(undefined, 'a silver robot dances', 'swap', 12.5);
+    for (const sec of VIGGLE_SECTIONS) assert.ok(basic.includes(sec + ':'), sec);
+    assert.match(basic, /00:12\.500/);
+    const fromScript = viggleprompt('Aqui está:\n\n' + VIGGLE_SECTIONS.map((x) => x + ':\nX').join('\n\n'), 'idea', 'edit', 5);
+    assert.ok(fromScript.startsWith('subject_definitions:'), 'usa o prompt do roteiro');
+    assert.match(frameEditPrompt('troque por um robô', 'swap', ['imagem 2 — robô']), /Keep EVERYTHING else/);
   }
   console.log('wan2gp models tests: OK');
 }

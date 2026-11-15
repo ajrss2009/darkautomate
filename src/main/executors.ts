@@ -16,6 +16,7 @@ import * as ff from './ffmpeg';
 import { spawn } from 'node:child_process';
 import { decodeMono, hexColor, isAppVisualizer, visualizerBox, writeVisualizer } from './visualizer';
 import { applyH3Choice, h3Family } from './h3accel';
+import { frameEditPrompt, prepareViggleSource, VIGGLE_MODEL, viggleInputs, viggleMode, viggleprompt } from './viggle';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
 import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, primaryFileFor, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
@@ -1939,6 +1940,7 @@ export async function uploadProjectToYouTube(s: import('../shared/types').Settin
 const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
   const tool = (c.binding as Extract<Binding, { type: 'builtin' }>).tool;
   if (tool === 'clip-musical') return clipMusical(c, o);
+  if (tool === 'viggle-remake') return viggleRemake(c, o);
   const scenes = c.project.scenes;
   const dirOf = (s: Scene) => path.join(c.projectDir, 'scenes', s.id);
   if (tool === 'whisper' || tool === 'estimate-words') {
@@ -2281,6 +2283,62 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
   }
   throw new Error(`ferramenta builtin desconhecida: ${tool}`);
 };
+
+/* ───────── remake de vídeo curto com o Viggle (Wan2GP) ───────── */
+
+async function viggleRemake(c: ExecContext, o: ExecutorOptions): Promise<ExecResult> {
+  const prm = (c.step.params ?? {}) as Record<string, unknown>;
+  const cfg = c.settings.wan2gp;
+  if (!cfg?.root) throw new Error('Wan2GP não configurado (o Viggle roda no Wan2GP: Provedores → Wan2GP)');
+  const inp = viggleInputs(c.project);
+  if (!inp.video) throw new Error('anexe o vídeo curto que será refeito (anexo de vídeo no projeto)');
+  const mode = viggleMode(c.project.idea, String(prm['mode'] ?? ''));
+  const src = await prepareViggleSource(c.settings.ffmpeg, c.settings.ffprobe, attachmentPath(c.projectDir, inp.video), c.outDir,
+    clamp(Number(prm['maxSec'] ?? 15), 3, 30), Number(prm['frameAt'] ?? 0.5), c.signal);
+  c.log(`Viggle ${mode === 'swap' ? 'troca de personagem' : 'troca de objeto/cenário'}: vídeo de ${src.seconds.toFixed(1)} s`);
+  /* quadro editado: o anexado pelo usuário ou o quadro original editado no Flow com as fotos de referência */
+  let edited: string;
+  if (inp.editedFrame) { edited = attachmentPath(c.projectDir, inp.editedFrame); c.log(`quadro editado anexado: ${inp.editedFrame.file}`); }
+  else {
+    const acc = flowAccount(c.settings, c.project.flowAccount);
+    const port = await ensureFlowBrowser(c.settings, acc.id, c.log);
+    const refs = [{ name: 'imagem 1 — quadro original do vídeo (edite ESTA imagem)', file: src.frame },
+      ...inp.refs.map((a, i) => ({ name: `imagem ${i + 2} — ${a.note || a.character || path.basename(a.file)}`, file: attachmentPath(c.projectDir, a) })).filter((r) => fs.existsSync(r.file))];
+    const dest = path.join(c.outDir, 'viggle-frame-edit.png');
+    c.log(`Flow: editando o quadro original${refs.length > 1 ? ` com ${refs.length - 1} referência(s)` : ''}…`);
+    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: frameEditPrompt(c.project.idea, mode, refs.slice(1).map((r) => r.name)),
+      media: 'image', dest, timeoutSec: 900, refs, aspect: c.project.aspect, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
+      signal: c.signal, log: c.log, debugDir: path.join(c.outDir, 'flow-debug') });
+    if (got !== dest) { await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', got, '-frames:v', '1', dest], c.signal); fs.rmSync(got, { force: true }); }
+    edited = dest;
+  }
+  /* prompt nas 6 seções do Viggle: o que a etapa de roteiro escreveu (script.md) ou um básico a partir do pedido */
+  let script: string | undefined;
+  try { script = fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8'); } catch { /* sem roteiro */ }
+  const prompt = viggleprompt(script, c.project.idea, mode, src.seconds);
+  /* resolução na proporção do vídeo de origem (~0,6 MP, múltiplo de 32) */
+  const dims = await ff.run(c.settings.ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', src.video], c.signal).then((r) => r.stdout.trim().split(',').map(Number)).catch(() => [1280, 720]);
+  const size = fitArea(dims[0] || 1280, dims[1] || 720, 0.6, 32);
+  const base = VIGGLE_MODEL[mode];
+  const settings: Record<string, unknown> = { prompt, video_guide: src.video, image_refs: [edited], video_prompt_type: 'IVU', video_length: `${Math.max(1, Math.round(src.seconds))}s`,
+    resolution: `${size.width}x${size.height}`, seed: parseInt(crypto.createHash('md5').update(c.project.id).digest('hex').slice(0, 8), 16) % 2147483647 };
+  const fam = h3Family(base);
+  const ch = applyH3Choice(base, settings, fam ? cfg.h3?.[fam] : undefined);
+  if (ch.note) c.log(ch.note);
+  const client = Wan2gpClient.get(cfg, path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'wan2gp_bridge.py'));
+  const res = await client.generate(ch.modelType, ch.settings, c.signal, c.log);
+  if (res.unknownKeys.length) c.log(`Wan2GP: chaves desconhecidas para ${ch.modelType}: ${res.unknownKeys.join(', ')}`);
+  const pick = res.files.find((f) => /\.(mp4|mov|webm|mkv)$/i.test(f) && fs.existsSync(f));
+  if (!pick) throw new Error(`o Viggle não gerou o vídeo: ${res.files.join(', ')}`);
+  const final = primaryFile('edit', c);
+  ensureDir(final);
+  /* o Viggle mantém o som; se o arquivo vier mudo, entra o som do vídeo de origem */
+  const hasAudio = await ff.run(c.settings.ffprobe, ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', pick], c.signal).then((r) => !!r.stdout.trim()).catch(() => false);
+  if (hasAudio) fs.copyFileSync(pick, final);
+  else await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', pick, '-i', src.video, '-map', '0:v:0', '-map', '1:a:0?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', final], c.signal);
+  c.log(`remake pronto: ${path.basename(final)} (${mode}, ${ch.modelType})`);
+  return { files: [final] };
+}
 
 /* ───────── lyric video ───────── */
 
