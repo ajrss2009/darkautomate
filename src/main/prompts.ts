@@ -4,6 +4,7 @@ import type { Project, Scene, Skill, StepKind } from '../shared/types';
 import { dnaScriptRule, dnaSfxRule, wordsPerSecond } from './channel-dna';
 import { identityPrompt, paletteEnglish, projectPalettePrompt } from './channel-setup';
 import { charactersPrompt } from './characters';
+import { rigSceneText } from './rig';
 import { mixPrompt } from './skill-mix';
 import { productCtaPrompt } from './clone-business';
 import { emotionInstruction, h3SpeechScene, isH3Video } from './speech-emotion';
@@ -450,9 +451,10 @@ export function freeThreePrompt(p: Pick<Project, 'idea' | 'aspect'>, html: strin
  * import map local, e põe no import map as entradas que faltam (junta com o que já existe). Função pura.
  */
 export function ensureThreeImport(page: string, imports: Record<string, string>): string {
-  /* addons (examples/jsm, addons/) não vêm com o app: esses ficam como estão e o erro aparece no render */
+  /* addons (examples/jsm, addons/): com o import map "three/addons/" (GLTFLoader, OBJLoader…) viram o caminho local; sem ele ficam como estão */
+  if (imports['three/addons/']) page = page.replace(/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])https?:\/\/[^"']*?(?:examples\/jsm|addons)\/([^"']+)\2/gi, '$1$2three/addons/$3$2');
   let out = page.replace(/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])(https?:\/\/(?![^"']*(?:examples|addons|jsm)\/)[^"']*three[^"']*)\2/gi, '$1$2three$2');
-  if (!/["']three["']/.test(out)) return out;
+  if (!/["']three(?:\/addons\/[^"']*)?["']/.test(out)) return out;
   const m = /<script\s+type=["']importmap["']\s*>([\s\S]*?)<\/script>/i.exec(out);
   if (m) {
     let map: { imports?: Record<string, string> } = {};
@@ -945,7 +947,7 @@ export function buildPromptMarked(c: ExecContext): string {
     charactersPrompt(p, c.step.kind, c.scene), mixPrompt(p, c.step.kind), productCtaPrompt(channel?.products, c.step.kind),
     seriesBlock(p, c.step.kind), styleBlock(p, c.step.kind)].filter(Boolean).join('\n');
   const extra = [workerText(p, c.step), briefText(c.projectDir, c.step.kind), referenceText(p, c.step.kind),
-    sceneImageText(c),
+    sceneImageText(c), sceneRigText(c),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });
   const head = `Você é um módulo de produção do FilmForge. IDIOMA do vídeo (narração, textos na tela, título, descrição): ${languageName(p.language)} (${p.language}). Aparência: ${vt?.label ?? p.videoType}. ` +
@@ -1183,4 +1185,27 @@ export function sceneImageText(c: Pick<ExecContext, 'step' | 'scene' | 'sceneDir
   const rel = (l: string[]) => l.map((f) => `"${path.relative(pageDir, f).split(path.sep).join('/')}"`).join(', ');
   return [vids.length ? `CLIPE ANIMADO GERADO DESTA CENA (é o conteúdo principal e SE MEXE: use-o como <video muted> no layout pedido — fundo cheio ou dentro do cartão —, controlado por currentTime em seek(t); se a cena for mais longa que o clipe, segure o último quadro ou repita em vaivém): ${rel(vids)}` : '',
     imgs.length ? `IMAGEM GERADA DESTA CENA (${vids.length ? 'quadro do clipe: use enquanto o vídeo carrega ou em cartões estáticos' : 'é a ilustração principal: use-a no layout pedido — cartão, quadro ou fundo cheio'}), carregada pelo caminho RELATIVO antes do 1º quadro: ${rel(imgs)}` : ''].filter(Boolean).join('\n');
+}
+
+/**
+ * Cena por código com personagens da Biblioteca que têm RIG ARTICULADO (ou modelo 3D escolhido como o personagem):
+ * caminhos relativos à página do motor ForgeRig e de cada rig, e como usar. Função pura (lê só a existência dos arquivos).
+ */
+export function sceneRigText(c: Pick<ExecContext, 'step' | 'scene' | 'sceneDir'> & { project: Project; projectDir: string; outDir: string }): string {
+  if (!(c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics' || c.step.kind === 'free')) return '';
+  const chars = (c.project.characters ?? []).filter((x) => (x.entity ?? 'character') === 'character');
+  const pageDir = path.dirname(primaryFile(c.step.kind, c as never));
+  const rel = (f: string) => path.relative(pageDir, path.join(c.projectDir, f)).split(path.sep).join('/');
+  const rigged = chars.filter((x) => x.rig && !x.prefer3d && fs.existsSync(path.join(c.projectDir, x.rig)));
+  const in3d = chars.filter((x) => x.prefer3d && x.models?.length);
+  const parts: string[] = [];
+  if (rigged.length) parts.push(rigSceneText(rigged.map((x) => ({ name: x.name, script: rel(x.rig!) })), rel('assets/user/rigs/forge-rig.js')));
+  if (in3d.length) parts.push([
+    'PERSONAGENS EM 3D (o modelo da Biblioteca É o personagem — não desenhe em 2D):',
+    ...in3d.map((x) => `- ${x.name}: "${rel(x.models![0]!)}"`),
+    '- Página com <script type="module">: import * as THREE from "three"; import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js" (OBJLoader em "three/addons/loaders/OBJLoader.js") — o app mapeia "three" e "three/addons/" para cópias locais (sem internet).',
+    '- Carregue (await loader.loadAsync(caminho)) ANTES do 1º quadro; se o GLB tiver animações (gltf.animations), use THREE.AnimationMixer e em seek(t) chame mixer.setTime(t) — nunca o relógio real; sem animações, mova/gire o modelo por t (passos, balanço, giro da cabeça).',
+    '- Luz: HemisphereLight + DirectionalLight; câmera enquadrando o modelo inteiro (calcule pela Box3 do modelo).',
+  ].join('\n'));
+  return parts.join('\n');
 }

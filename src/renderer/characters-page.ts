@@ -29,7 +29,7 @@ export interface Variant { id: string; label: string; look: string; episodes?: n
 export interface CharRow {
   id: string; name: string; kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro'; description?: string; look: string; gender?: string; age?: string;
   voice?: { refAudio?: string; apiVoice?: string; description?: string }; code?: string; sheet?: string; portrait?: string; images?: string[]; tags?: string[]; dir: string;
-  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string;
+  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string; rig?: string; prefer3d?: boolean;
 }
 export const KIND_LABEL: Record<CharRow['kind'], string> = { pessoa: '🧑 Pessoa (realista)', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Animal / criatura', outro: '✨ Outro' };
 const STYLE_LABEL: Record<CharRow['kind'], string> = { pessoa: '📷 Realista', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Criatura', outro: '✨ Outro' };
@@ -41,7 +41,7 @@ const TABS: Array<[Entity | 'stories', string, string]> = [['character', '👥 P
 let tab: Entity | 'stories' = 'character';
 /** Aba interna: por imagem, por código ou tudo (vale para personagens, cenários e objetos). */
 let originFilter: 'all' | 'image' | 'code' = 'all';
-const isCodeItem = (x: CharRow) => x.kind === 'codigo' || !!x.code || !!x.models?.length;
+const isCodeItem = (x: CharRow) => x.kind === 'codigo' || !!x.code || !!x.models?.length || !!x.rig;
 let selected: string | undefined;
 
 export async function renderCharactersPage(c: CharactersCtx): Promise<void> {
@@ -209,6 +209,7 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
   for (const v of ch?.variants ?? []) addVariant(v);
   const collect = () => ({ id: ch?.id, entity, name: name.value, kind: kind.value, gender: isChar ? gender.value || undefined : undefined, age: isChar ? age.value : undefined, look: look.value, description: desc.value,
     voice: isChar ? { refAudio: refAudio.value || undefined, apiVoice: apiVoice.value, description: voiceDesc.value } : undefined, code: code.value,
+    prefer3d: isChar && ch?.models?.length ? prefer3d.checked : undefined,
     aliases: aliases.value.split(',').map((t) => t.trim()).filter(Boolean), tags: tags.value.split(',').map((t) => t.trim()).filter(Boolean),
     variants: isChar ? vrows.map((r) => ({ label: r.label.value, look: r.look.value, episodes: r.eps.value.split(/[,\s]+/).map(Number).filter((n) => n > 0) })).filter((v) => v.label.trim() && v.look.trim()) : undefined });
   const save = async () => {
@@ -241,11 +242,58 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
       isChar ? h('button', { class: 'small', onclick: () => void guard(async () => { const r = await forge['charactersAddImage'](ch.id, 'portrait'); if (r) { toast('Retrato atualizado'); again(); } }) }, '⬆ Retrato') : null,
       h('button', { class: 'small', title: 'Copia o pedido da folha para usar no ChatGPT/Gemini/Flow', onclick: () => void guard(async () => { const p = (await forge['charactersSheetPrompt'](ch.id)) as string; await forge['copyText']?.(p); toast('Pedido da folha copiado'); }) }, '⧉ Copiar pedido')),
     isChar ? h('div', { class: 'muted small' }, 'Dica do método: aparência "beleza natural" e sem lembrar ninguém famoso — o Google Flow recusa rostos parecidos com celebridades.') : null) : h('div', { class: 'muted small' }, `Salve o ${noun} para gerar ou enviar a folha.`);
+  /* usar o modelo 3D como o personagem nas cenas por código */
+  const prefer3d = h('input', { type: 'checkbox', id: 'chr-prefer3d' }) as HTMLInputElement;
+  prefer3d.checked = !!ch?.prefer3d;
+  /* ── 🦴 RIG ARTICULADO EM CAMADAS: a IA desenha as peças, o motor ForgeRig anima (andar, falar, acenar…) ── */
+  let rigRefs: string[] = [];
+  let rigUseModel = false;
+  let pendingRig: { rig?: unknown; png?: string; error?: string } | undefined;
+  let savedRigPng: string | undefined;
+  const rigBox = h('div', { class: 'chr-rig', id: 'chr-rig' });
+  const paintRig = () => {
+    if (!isChar) { rigBox.replaceChildren(); return; }
+    if (!ch) { rigBox.replaceChildren(h('div', { class: 'muted small' }, 'Salve o personagem para criar o rig articulado.')); return; }
+    const genRig = h('button', { class: 'small primary', id: 'chr-rig-gen', title: 'A IA desenha o personagem em PEÇAS (cabeça, tronco, braços e pernas em dois segmentos, olhos e boca) com as juntas; o app anima' }, pendingRig?.rig ? '↻ Outra versão' : '✨ Gerar rig articulado') as HTMLButtonElement;
+    genRig.addEventListener('click', () => void guard(async () => {
+      if (!look.value.trim()) { toast('Preencha a aparência fixa antes.', true); return; }
+      genRig.disabled = true; genRig.textContent = '⏳ a IA está desenhando as peças…';
+      try {
+        pendingRig = (await forge['charactersGenerateRig']({ id: ch.id, name: name.value, look: look.value, code: code.value, refs: rigRefs, useModel: rigUseModel, previous: !!pendingRig?.rig })) as typeof pendingRig;
+        if (pendingRig?.error) toast(pendingRig.error, true);
+      } finally { paintRig(); }
+    }));
+    const refsRow = h('div', { class: 'row wrap chr-rig-refs' }, ...rigRefs.map((f) => /\.(mp4|mov|webm|mkv)$/i.test(f)
+      ? h('span', { class: 'ch-badge' }, '🎞 ' + (f.split(/[\\/]/).pop() ?? 'vídeo'))
+      : h('img', { class: 'chr-ref-thumb', src: forge.mediaUrl(f), alt: '' })),
+      rigRefs.length ? h('button', { class: 'small', onclick: () => { rigRefs = []; paintRig(); } }, '✕') : null);
+    const useModel = h('input', { type: 'checkbox' }) as HTMLInputElement;
+    useModel.checked = rigUseModel; useModel.addEventListener('change', () => { rigUseModel = useModel.checked; });
+    const preview = pendingRig?.png ? h('div', { class: 'chr-rig-preview' },
+      h('img', { src: forge.mediaUrl(pendingRig.png), alt: 'prévia do rig em 4 poses' }),
+      h('div', { class: 'row' },
+        h('button', { class: 'small primary', id: 'chr-rig-accept', onclick: () => void guard(async () => { await forge['charactersSaveRig'](ch.id, pendingRig!.rig); toast('Rig salvo — as cenas por código vão animar este personagem'); savedRigPng = pendingRig!.png; pendingRig = undefined; ch.rig = 'rig.json'; paintRig(); }) }, '✓ Usar este rig'),
+        h('button', { class: 'small', onclick: () => { pendingRig = undefined; paintRig(); } }, 'Descartar')))
+      : savedRigPng ? h('div', { class: 'chr-rig-preview' }, h('img', { src: forge.mediaUrl(savedRigPng), alt: 'rig salvo' })) : null;
+    rigBox.replaceChildren(
+      h('div', { class: 'muted small' }, 'Personagem em CAMADAS articuladas (como recorte/cut-out): a IA desenha só as peças e as juntas; o app anima com poses prontas — parado, andar, correr, falar (boca e piscar), acenar, apontar, pular, comemorar, sentar e pensar. As cenas por código usam este rig em vez de redesenhar o personagem.'),
+      h('div', { class: 'row wrap' },
+        h('button', { class: 'small', id: 'chr-rig-ref', title: 'Copiar o estilo de imagens ou de um vídeo (o app tira 4 quadros do vídeo)', onclick: () => void guard(async () => { const fs0 = (await forge['pickMedia']({ title: 'Estilo de imagem ou vídeo' })) as string[]; if (fs0?.length) { rigRefs = fs0; paintRig(); } }) }, '🖼 Estilo de imagem/vídeo…'),
+        ch.portrait || ch.sheet || ch.images?.length ? h('button', { class: 'small', title: 'Usar a folha/retrato deste item como referência de estilo', onclick: () => { const f = ch.sheet ?? ch.portrait ?? ch.images![0]!; rigRefs = [`${ch.dir}/${f}`]; paintRig(); } }, '↩ Folha do item') : null,
+        ch.models?.length ? h('label', { class: 'row', title: 'O app renderiza 3 vistas do modelo 3D do item e a IA copia forma e cores' }, useModel, '🧊 Estilo do modelo 3D') : null,
+        genRig,
+        ch.rig ? h('button', { class: 'small', onclick: () => void guard(async () => { const r = (await forge['charactersRigPreview'](ch.id)) as { png?: string } | null; if (r?.png) { savedRigPng = r.png; paintRig(); } }) }, '▶ Ver rig salvo') : null,
+        ch.rig ? h('button', { class: 'small danger', onclick: () => void guard(async () => { if (!await askConfirm('Remover o rig articulado deste personagem?')) return; await forge['charactersSaveRig'](ch.id, null); delete ch.rig; savedRigPng = undefined; toast('Rig removido'); paintRig(); }) }, '🗑 Remover rig') : null,
+        ch.rig ? h('span', { class: 'ch-badge ok' }, '🦴 rig salvo') : null),
+      ...[rigRefs.length ? refsRow : null, preview].filter((x): x is HTMLDivElement => !!x));
+  };
+  paintRig();
   /* modelos 3D (cenas por código) */
   const modelsBox = ch ? h('div', { class: 'chr-models' },
     ...(ch.models ?? []).map((m) => h('span', { class: 'ch-badge ok' }, `🧊 ${m}`, h('button', { class: 'small', title: 'Remover', onclick: () => void guard(async () => { await forge['charactersRemoveModel'](ch.id, m); again(); }) }, '✕'))),
     h('button', { class: 'small', onclick: () => void guard(async () => { if (await forge['charactersAddModel'](ch.id)) { toast('Modelo 3D adicionado'); again(); } }) }, '⬆ Adicionar modelo 3D (GLB/GLTF/OBJ/FBX)'),
-    h('div', { class: 'muted small' }, 'Nas cenas por código (Three.js) o modelo é copiado para o projeto e o prompt manda carregar ESTE arquivo em vez de modelar à mão.')) : h('div', { class: 'muted small' }, `Salve o ${noun} para adicionar modelos 3D.`);
+    h('div', { class: 'muted small' }, 'Nas cenas por código (Three.js) o modelo é copiado para o projeto e o prompt manda carregar ESTE arquivo em vez de modelar à mão.'),
+    isChar && ch.models?.length ? h('label', { class: 'row', title: 'Nas cenas por código o personagem aparece como este modelo 3D (Three.js, com as animações do GLB quando houver) em vez do desenho 2D/rig' }, prefer3d, '🧊 Usar o modelo 3D como o personagem nas cenas por código') : null) : h('div', { class: 'muted small' }, `Salve o ${noun} para adicionar modelos 3D.`);
   /* teste da voz do personagem (ouvir falando + salvar o teste) */
   const testBar = voiceTestBar(forge, guard);
   const ttsOpts: Array<[string, unknown]> = [
@@ -290,6 +338,7 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
       refRow),
     h('div', { class: 'muted small' }, 'Com referência, a IA olha a imagem e cria um desenho SEMELHANTE (mesma silhueta, roupa e paleta) — não copia pixels.'),
     h('div', { class: 'row' }, genCodeBtn, drawBtn), previewBox,
+    isChar ? h('h4', {}, '🦴 Rig articulado (camadas)') : null, isChar ? rigBox : null,
     h('h4', {}, '🧊 Modelos 3D'), modelsBox,
     h('div', { class: 'ch-grid' }, h('label', {}, 'Apelidos', aliases), h('label', {}, 'Etiquetas', tags)),
     h('div', { class: 'row' }, h('button', { class: 'primary', onclick: () => void save() }, ch ? 'Salvar' : `Criar ${noun}`), h('span', { class: 'sp' }),

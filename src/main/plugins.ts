@@ -1159,8 +1159,12 @@ export function stageThree(projectDir: string, htmlDir: string): { importmap: Re
   try {
     if (!fs.existsSync(dest) || fs.statSync(dest).size !== fs.statSync(src).size) { fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(src, dest); }
   } catch { return undefined; }
+  /* addons que vêm com o app (GLTFLoader, OBJLoader e o que eles importam): vendor/three/addons → plugins/_three/addons */
+  const addons = path.join(path.dirname(src), 'addons');
+  let hasAddons = false;
+  try { if (fs.existsSync(addons)) { fs.cpSync(addons, path.join(projectDir, 'plugins', '_three', 'addons'), { recursive: true }); hasAddons = true; } } catch { /* sem addons: só o módulo principal */ }
   const up = path.relative(htmlDir, projectDir).split(path.sep).join('/') || '.';
-  return { importmap: { three: `${up}/plugins/_three/three.module.min.js` } };
+  return { importmap: { three: `${up}/plugins/_three/three.module.min.js`, ...(hasAddons ? { 'three/addons/': `${up}/plugins/_three/addons/` } : {}) } };
 }
 
 /**

@@ -11,6 +11,10 @@ import { thumbnailPrompt, visualPrompt } from '../main/prompts';
 import { characterPhoto } from '../main/attachments';
 import { buildStoryboard } from '../main/project-storyboard';
 import type { Project, Scene } from '../shared/types';
+import { RIG_RUNTIME, normalizeRig, rigSceneText, sanitizeSvg, stageRig } from '../main/rig';
+import { setCharacterRig, readCharacterRig, toProjectCharacter } from '../main/characters';
+import { sceneRigText, ensureThreeImport } from '../main/prompts';
+import * as vm from 'node:vm';
 
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex');
 
@@ -160,6 +164,73 @@ async function main() {
     const again = syncBibleToLibrary(s, p, dir);
     assert.equal(again.created, 0, 'idempotente: não duplica na biblioteca');
     assert.equal(listCharacters(s, 'character').filter((c) => ['Ana', 'Beto'].includes(c.name)).length, 2);
+  }
+
+
+  // ───────── rig articulado em camadas (ForgeRig)
+  {
+    const seg = (id: string, x: number, y: number, z: number, parent?: string) => ({ id, parent, pivot: [x, y], z, svg: `<rect x="${x - 10}" y="${y}" width="20" height="120" fill="#335"/>` });
+    const raw = { name: 'Beto', size: [400, 800], view: 'front', palette: ['#335', 'nada'], parts: [
+      { id: 'torso', pivot: [200, 470], z: 5, svg: '<rect x="150" y="250" width="100" height="230" fill="#B91C1C" onclick="alert(1)"/><script>alert(1)</script>' },
+      { id: 'head', pivot: [200, 250], z: 8, svg: '<circle cx="200" cy="190" r="60" fill="#E2A782"/><image href="http://x/y.png"/>' },
+      seg('armL_up', 150, 260, 11), seg('armL_low', 150, 380, 12), seg('armR_up', 250, 260, 3), seg('armR_low', 250, 380, 4),
+      seg('legL_up', 175, 470, 6), seg('legL_low', 175, 620, 7), seg('legR_up', 225, 470, 1), seg('legR_low', 225, 620, 2),
+      { id: 'mouth', pivot: [200, 215], z: 10, svg: '<path d="M185 215 h30" stroke="#000"/>' },
+      { id: 'mouthOpen', pivot: [200, 215], z: 10, svg: '<ellipse cx="200" cy="218" rx="12" ry="8" fill="#400"/>' },
+      { id: 'hair', parent: 'nao-existe', pivot: [200, 150], z: 9, svg: '<path d="M140 170 Q200 100 260 170" fill="#1E293B"/>' },
+    ] };
+    const rig = normalizeRig(raw);
+    assert.equal(rig.parts.length, 13);
+    assert.equal(rig.parts.find((x) => x.id === 'armL_low')!.parent, 'armL_up', 'pai padrão: antebraço pendurado no braço');
+    assert.equal(rig.parts.find((x) => x.id === 'mouthOpen')!.parent, 'head');
+    assert.equal(rig.parts.find((x) => x.id === 'hair')!.parent, 'torso', 'pai inexistente vira o tronco');
+    assert.ok(!/script|onclick|http:/.test(JSON.stringify(rig)), 'SVG sem script, eventos nem links externos');
+    assert.deepEqual(rig.palette, ['#335']);
+    assert.throws(() => normalizeRig({ parts: [raw.parts[0]] }), /não tem as peças/);
+    assert.equal(sanitizeSvg('<svg><foreignObject><div/></foreignObject><path d="M0 0"/></svg>'), '<path d="M0 0"/>');
+    // motor: roda num contexto isolado e é determinístico
+    const ctx: Record<string, unknown> = { Math, Promise, Image: class {}, encodeURIComponent };
+    ctx['window'] = ctx;
+    vm.runInNewContext(RIG_RUNTIME, ctx);
+    const R = ctx['ForgeRig'] as { state: (r: unknown, o: unknown) => { j: Record<string, number>; mouthOpen: boolean }; solve: (r: unknown, st: unknown) => Record<string, number[]>; svgGroup: (r: unknown, o: unknown) => string; poses: string[] };
+    assert.ok(R.poses.includes('walk') && R.poses.includes('talk') && R.poses.includes('wave'));
+    const st = R.state(rig, { pose: 'wave', t: 0.3 });
+    const m = R.solve(rig, st);
+    const hand = (mm: number[], x: number, y: number) => [mm[0]! * x + mm[2]! * y + mm[4]!, mm[1]! * x + mm[3]! * y + mm[5]!];
+    const [hx, hy] = hand(m['armR_low']!, 250, 500);
+    assert.ok(hy < 260 && hx > 250, `acenar levanta o braço direito acima do ombro (mão em ${Math.round(hx)},${Math.round(hy)})`);
+    const w1 = R.solve(rig, R.state(rig, { pose: 'walk', t: 0.25 })), w2 = R.solve(rig, R.state(rig, { pose: 'walk', t: 0.25 }));
+    assert.deepEqual(w1, w2, 'mesmo t, mesma pose');
+    const [fx] = hand(w1['legL_low']!, 175, 780), [gx] = hand(w1['legR_low']!, 225, 780);
+    assert.ok(Math.abs(fx - 175) > 3 || Math.abs(gx - 225) > 3, 'andar mexe as pernas');
+    const talks = Array.from({ length: 30 }, (_, i) => R.state(rig, { pose: 'talk', t: i / 30 }).mouthOpen);
+    assert.ok(talks.some(Boolean) && talks.some((x) => !x), 'falar abre e fecha a boca');
+    const g = R.svgGroup(rig, { x: 540, y: 1000, height: 600, pose: 'walk', t: 1 });
+    assert.ok(g.startsWith('<g transform="translate(540 1000) scale(0.75 0.75)') && !g.includes('<ellipse'), 'svgGroup: boca fechada fora da fala');
+    // biblioteca → projeto → prompt da cena por código
+    const beto = saveCharacter(s, { name: 'Beto Rig', look: 'jaqueta vermelha, boné', kind: 'codigo' });
+    setCharacterRig(s, beto.id, rig);
+    const back = readCharacterRig(s, getCharacter(s, beto.id));
+    assert.equal(back?.parts.length, 13, 'rig salvo e lido da biblioteca');
+    const pdir = path.join(ws, 'projects', 'rigp'); fs.mkdirSync(pdir, { recursive: true });
+    const pr = createProject(s, { name: 'Rig', idea: 'x', videoType: 'custom', routeId: 'stickman-explainer' });
+    applyCharacters(s, pr, pdir, [beto.id]);
+    const pc = pr.characters!.find((c) => c.id === beto.id)!;
+    assert.equal(pc.rig, `assets/user/rigs/${beto.id}.rig.js`);
+    assert.ok(fs.existsSync(path.join(pdir, 'assets', 'user', 'rigs', 'forge-rig.js')) && fs.existsSync(path.join(pdir, pc.rig!)), 'motor e rig copiados para o projeto');
+    assert.match(charactersPrompt(pr, 'code_scene'), /RIG ARTICULADO pronto/);
+    const sc = { id: 's01', title: 'A', narration: 'n', visualIntent: 'v', kind: 'code' } as unknown as Scene;
+    const txt = sceneRigText({ step: { kind: 'code_scene' } as never, scene: sc, sceneDir: path.join(pdir, 'scenes', 's01'), project: pr, projectDir: pdir, outDir: path.join(pdir, 'out') });
+    assert.match(txt, /<script src="\.\.\/\.\.\/\.\.\/assets\/user\/rigs\/forge-rig\.js"><\/script>/, 'caminho relativo da página da cena até o motor');
+    assert.match(txt, /FORGE_RIGS\["Beto Rig"\]|"Beto Rig"/);
+    assert.equal(rigSceneText([], 'x'), '');
+    // 3D como o personagem
+    assert.equal(toProjectCharacter({ ...getCharacter(s, beto.id), prefer3d: true }).prefer3d, undefined, 'sem modelo 3D, prefer3d não vale');
+    const st3 = stageRig(pdir, 'x', rig, 'X'); assert.equal(st3.runtime, 'assets/user/rigs/forge-rig.js');
+    // addons do Three.js (GLTFLoader) de CDN viram o mapa local
+    const page3 = '<script type="module">import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"; import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";</script>';
+    const fixed3 = ensureThreeImport(page3, { three: '../p/three.module.min.js', 'three/addons/': '../p/addons/' });
+    assert.ok(fixed3.includes('from "three"') && fixed3.includes('from "three/addons/loaders/GLTFLoader.js"') && fixed3.includes('"three/addons/":"../p/addons/"'), 'addons locais no import map');
   }
 
   console.log('characters: ok');

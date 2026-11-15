@@ -453,7 +453,8 @@ __version__='0.0-fake'
     assert.ok(sk.includes('import * as THREE from "three"') && sk.includes('preserveDrawingBuffer: true') && sk.includes('window.__forge'));
     const pd = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-three-'));
     const st = stageThree(pd, path.join(pd, 'out'));
-    assert.deepEqual(st?.importmap, { three: '../plugins/_three/three.module.min.js' });
+    assert.deepEqual(st?.importmap, { three: '../plugins/_three/three.module.min.js', 'three/addons/': '../plugins/_three/addons/' });
+    assert.ok(fs.existsSync(path.join(pd, 'plugins', '_three', 'addons', 'loaders', 'GLTFLoader.js')) && fs.existsSync(path.join(pd, 'plugins', '_three', 'addons', 'utils', 'BufferGeometryUtils.js')), 'GLTFLoader local copiado');
     assert.ok(fs.statSync(path.join(pd, 'plugins', '_three', 'three.module.min.js')).size > 500_000, 'Three.js copiado para o projeto');
   }
   /* exemplo do próprio plugin: template Node (run({ setup, frame })) vira render(t) com as mesmas chamadas */

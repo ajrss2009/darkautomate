@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Attachment, Binding, CastMember, CharacterVariant, LibraryCharacter, LibraryEntity, Project, ProjectCharacter, RouteStep, Scene, Settings } from '../shared/types';
+import { normalizeRig, saveRigFile, stageRig, type Rig } from './rig';
 import type { Executor } from './engine';
 
 /*
@@ -104,7 +105,8 @@ export function saveCharacter(s: Settings, raw: Partial<LibraryCharacter>): Libr
   if (!id) { const base = slugChar(n.name); id = base; for (let k = 2; fs.existsSync(path.join(charactersRoot(s), id)); k++) id = `${base}-${k}`; }
   const c: LibraryCharacter = { ...prev, ...n, id, createdAt: prev?.createdAt ?? new Date().toISOString(), updatedAt: prev ? new Date().toISOString() : undefined,
     /* arquivos só mudam por addCharacterImage (a interface não manda caminhos arbitrários) */
-    sheet: prev?.sheet, portrait: prev?.portrait, images: prev?.images, models: prev?.models,
+    sheet: prev?.sheet, portrait: prev?.portrait, images: prev?.images, models: prev?.models, rig: prev?.rig,
+    prefer3d: raw.prefer3d === undefined ? prev?.prefer3d : raw.prefer3d === true || undefined,
     variants: raw.variants === undefined ? prev?.variants : normalizeVariants(raw.variants, prev?.variants),
     storyId: n.storyId ?? prev?.storyId };
   if (!c.variants) delete c.variants;
@@ -245,8 +247,26 @@ export async function generateCharacterSheet(s: Settings, executors: Partial<Rec
 export const toProjectCharacter = (c: LibraryCharacter, variantId?: string): ProjectCharacter => {
   const v = variantId ? c.variants?.find((x) => x.id === variantId || slugChar(x.label) === slugChar(variantId)) : undefined;
   return { id: c.id, name: c.name, look: v ? `${v.look} (variação "${v.label}"; rosto e corpo de sempre: ${c.look})` : c.look, kind: c.kind, voice: c.voice, code: c.code, description: c.description,
-    entity: c.entity, variant: v?.label };
+    entity: c.entity, variant: v?.label, prefer3d: c.prefer3d && c.models?.length ? true : undefined };
 };
+
+/** Grava o rig articulado (já validado) no item da biblioteca. */
+export function setCharacterRig(s: Settings, id: string, rig: Rig | null): LibraryCharacter {
+  const c = getCharacter(s, id);
+  const f = path.join(charDir(s, id), 'rig.json');
+  if (rig) { saveRigFile(charDir(s, id), rig); c.rig = 'rig.json'; }
+  else { try { fs.rmSync(f, { force: true }); } catch { /* sem arquivo */ } delete c.rig; }
+  c.updatedAt = new Date().toISOString();
+  fs.writeFileSync(path.join(charDir(s, id), 'character.json'), JSON.stringify(c, null, 2));
+  return c;
+}
+
+/** Rig do item (ou undefined). */
+export function readCharacterRig(s: Settings, c: Pick<LibraryCharacter, 'id' | 'rig' | 'name'>): Rig | undefined {
+  const f = charFile(s, c, c.rig);
+  if (!f) return undefined;
+  try { return normalizeRig(JSON.parse(fs.readFileSync(f, 'utf8')), c.name); } catch { return undefined; }
+}
 
 /** Membro do elenco a partir do personagem (voz de referência, voz de API e descrição). */
 export function castFromCharacter(c: Pick<LibraryCharacter, 'name' | 'look' | 'voice'>): CastMember {
@@ -325,6 +345,11 @@ export function applyCharacters(s: Settings, p: Project, projectDir: string, ids
       if (!atts.some((a) => a.file === rel)) atts.push({ file: rel, kind: 'other', use: 'reference', note: `Modelo 3D de "${c.name}" (biblioteca) para cenas por código: carregue com Three.js (GLTFLoader para .glb/.gltf, OBJLoader ou FBXLoader) e use sempre este modelo para ${c.name}` });
     }
     if (models.length) pc.models = models;
+    const rig = readCharacterRig(s, c);
+    if (rig) {
+      const st = stageRig(projectDir, c.id, rig, c.name);
+      pc.rig = st.script;
+    }
     if (e === 'character' && !cast.some((m) => m.speaker.toLowerCase() === c.name.toLowerCase())) cast.push(castFromCharacter({ ...c, look: pc.look }));
   }
   p.attachments = atts.length ? atts : undefined;
@@ -483,7 +508,8 @@ export function charactersPrompt(p: Pick<Project, 'characters'>, stepKind: strin
   }
   const near = (list: ProjectCharacter[]) => scene ? list.filter((c) => inScene(c.name, scene)) : list;
   if (CODE.has(stepKind)) {
-    const m3d = (c: ProjectCharacter) => c.models?.length ? ` [modelo 3D: ${c.models.join(', ')} — relativo à pasta do projeto; em cenas 3D carregue ESTE modelo em vez de modelar à mão]` : '';
+    const m3d = (c: ProjectCharacter) => (c.models?.length ? ` [modelo 3D: ${c.models.join(', ')} — relativo à pasta do projeto; ${c.prefer3d ? 'USE ESTE MODELO 3D COMO O PERSONAGEM nesta cena (Three.js + GLTFLoader/OBJLoader), não desenhe em 2D' : 'em cenas 3D carregue ESTE modelo em vez de modelar à mão'}]` : '')
+      + (c.rig && !c.prefer3d ? ' [RIG ARTICULADO pronto: anime com ForgeRig — ver "PERSONAGENS ARTICULADOS"]' : '');
     const parts = [cs.length && `PERSONAGENS (desenhe sempre do mesmo jeito em todas as cenas):\n${cs.map((c) => `- ${c.name}: ${c.code || c.look}${m3d(c)}`).join('\n')}`,
       near(locs).length && `CENÁRIO desta cena (sempre igual): ${near(locs).map((c) => `${c.name}: ${c.code || c.look}${m3d(c)}`).join('; ')}`,
       near(props).length && `OBJETOS (sempre iguais): ${near(props).map((c) => `${c.name}: ${c.code || c.look}${m3d(c)}`).join('; ')}`].filter(Boolean);

@@ -567,6 +567,13 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
         const page = fs.readFileSync(file, 'utf8'), fixed = forceCartoon3dImports(page, kit.importmap);
         if (fixed !== page) fs.writeFileSync(file, fixed);
       } else c.log('⚠ biblioteca cartoon3d não encontrada no app (vendor/cartoon3d) — a cena pode falhar ao importar');
+    } else if ((c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && /\.html?$/i.test(file)) {
+      /* cena Three.js (ex.: personagem da Biblioteca em 3D): "three" e "three/addons/" (GLTFLoader/OBJLoader) apontam para cópias locais */
+      const page = fs.readFileSync(file, 'utf8');
+      if (/\bfrom\s*["'](?:three(?:\/addons\/[^"']*)?|https?:[^"']*three[^"']*)["']|\bimport\s*\(\s*["'][^"']*three/i.test(page)) {
+        const t3 = stageThree(c.projectDir, path.dirname(file));
+        if (t3) { const fixed = ensureThreeImport(page, t3.importmap); if (fixed !== page) { fs.writeFileSync(file, fixed); c.log('Three.js e carregadores 3D locais mapeados na página'); } }
+      }
     }
     try {
       const done = await finishRendered(c, o, file);

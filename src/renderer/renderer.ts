@@ -1100,73 +1100,103 @@ async function renderNew() {
   };
   paintStyle();
 
-  /* ── 👥 personagens da biblioteca (viram o elenco: folha como referência, aparência fixa e voz) ── */
+  /* ── 👥 personagens da biblioteca (viram o elenco: folha como referência, aparência fixa e voz) ──
+     Escolhidos aparecem como cartões; "Escolher" abre o painel com busca/filtros; "Biblioteca" abre a Biblioteca
+     inteira num MODAL (criar/editar personagens, rigs, folhas) sem sair do Novo projeto — nada do formulário se perde. */
   const pickedChars = new Set<string>(episode?.characterIds ?? []);
   const charVariants: Record<string, string> = { ...(episode?.variants ?? {}) };
   const charsBox = h('div', { class: 'card', id: 'np-characters' });
   let charRows: CharRow[] = [];
   let repaintChars: () => void = () => {};
-  void guard(() => forge.charactersList()).then((list) => {
-    const rows = (list ?? []) as CharRow[];
-    charRows = rows;
-    const chip = (ch: CharRow) => {
-        const img = charImage(forge as never, ch);
-        const v = charVariants[ch.id];
-        return h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, 'data-pick-char': ch.id, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}${v ? ` · variação: ${v}` : ''}`,
-          onclick: () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); paintChars(); } },
-          img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name), v ? h('small', { class: 'tag done' }, v) : h('small', { class: 'muted' }, (ch.entity && ch.entity !== 'character') ? '' : KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
+  const isCode = (c: CharRow) => c.kind === 'codigo' || !!c.code || !!c.models?.length || !!c.rig;
+  const entLabel = (c: CharRow) => c.entity === 'location' ? '🏞 cenário' : c.entity === 'prop' ? '📦 objeto' : KIND_LABEL[c.kind] ?? '';
+  const badges = (c: CharRow) => [
+    (c.sheet || c.portrait) && h('span', { class: 'ch-badge ok' }, 'folha ✓'),
+    (c.voice?.refAudio || c.voice?.apiVoice) && h('span', { class: 'ch-badge ok' }, 'voz ✓'),
+    c.rig && h('span', { class: 'ch-badge ok', title: 'Rig articulado em camadas: anda, fala e gesticula nas cenas por código' }, '🦴 rig'),
+    c.models?.length && h('span', { class: 'ch-badge ok', title: 'Modelo 3D para cenas por código' }, '🧊 3D'),
+    c.code && !c.rig && h('span', { class: 'ch-badge' }, '💻 código'),
+  ].filter((x): x is HTMLSpanElement => !!x);
+  const thumb = (c: CharRow) => { const img = charImage(forge as never, c); return img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, c.name.slice(0, 1)); };
+  const loadChars = async () => { charRows = ((await guard(() => forge.charactersList())) ?? []) as CharRow[]; for (const id of [...pickedChars]) if (!charRows.some((c) => c.id === id)) pickedChars.delete(id); };
+  /* a Biblioteca inteira num modal (mesma tela da aba Biblioteca); ao fechar, a lista e os cartões são recarregados */
+  const openLibraryModal = (onClose?: () => void) => {
+    const body = h('div', { class: 'lib-modal-body' });
+    let bg: HTMLElement;
+    const close = () => void (async () => { bg.remove(); document.removeEventListener('keydown', onKey, true); await loadChars(); repaintChars(); onClose?.(); })();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.ff-dialog')) { e.stopPropagation(); close(); } };
+    bg = h('div', { class: 'modal-bg lib-modal-bg', id: 'np-library-modal' },
+      h('div', { class: 'modal lib-modal' },
+        h('div', { class: 'row lib-modal-head' }, h('strong', { class: 'grow' }, '📚 Biblioteca'), h('span', { class: 'muted small' }, 'crie ou edite aqui — o Novo projeto continua como está'), h('button', { class: 'primary', id: 'np-library-close', onclick: close }, 'Concluir')),
+        body));
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(bg);
+    void renderCharactersPage({ forge: forge as unknown as CharactersCtx['forge'], toast, main: body, guard, openEpisode: (ep) => { close(); openEpisodeInNew(ep as never); } });
+  };
+  const openPanel = () => {
+    let filter: 'all' | 'character' | 'location' | 'prop' = 'all';
+    let mode: 'all' | 'image' | 'code' = 'all';
+    let onlyPicked = false;
+    let term = '';
+    const grid = h('div', { class: 'np-lib-grid' });
+    const count = h('span', { class: 'muted small' });
+    const paintPanel = () => {
+      count.textContent = `${pickedChars.size} escolhido(s)`;
+      const list = charRows.filter((c) => (filter === 'all' || (c.entity ?? 'character') === filter) && (mode === 'all' || (mode === 'code' ? isCode(c) : !isCode(c)))
+        && (!onlyPicked || pickedChars.has(c.id)) && (!term || `${c.name} ${c.look} ${(c.tags ?? []).join(' ')}`.toLowerCase().includes(term)));
+      grid.replaceChildren(...(list.length ? list.map((ch) => {
+        const card = h('button', { class: `np-lib-card${pickedChars.has(ch.id) ? ' on' : ''}`, 'data-pick-char': ch.id, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}`, onclick: () => {
+          if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id);
+          card.classList.toggle('on', pickedChars.has(ch.id)); count.textContent = `${pickedChars.size} escolhido(s)`;
+        } }, h('span', { class: 'np-lib-check' }, '✓'), thumb(ch), h('strong', {}, ch.name), h('small', { class: 'muted' }, entLabel(ch)), h('div', { class: 'ch-badges' }, ...badges(ch)));
+        return card;
+      }) : [h('div', { class: 'muted small' }, charRows.length ? 'Nada com esse filtro.' : 'A Biblioteca está vazia — clique em “＋ Criar na Biblioteca”.')]));
     };
-    const group = (e: string, title: string) => { const g = rows.filter((x) => (x.entity ?? 'character') === e); return g.length ? h('div', {}, h('div', { class: 'muted small' }, title), h('div', { class: 'chr-pick' }, ...g.map(chip))) : null; };
-    const paintChars = () => charsBox.replaceChildren(...([
-      h('div', { class: 'row' }, h('strong', {}, '📚 Biblioteca (personagens, cenários, objetos)'), h('span', { class: 'muted small' }, rows.length ? ` ${pickedChars.size} escolhido(s) — folhas como referência de imagem, aparência fixa, voz e modelos 3D em todas as cenas` : ' nada ainda — crie na aba Biblioteca'), h('span', { class: 'sp' }),
-        h('button', { class: 'small', onclick: () => go('characters') }, '＋ Abrir a Biblioteca'),
-        h('button', { class: 'small', id: 'np-char-panel', title: 'Abre um painel com busca e filtros para escolher personagens, cenários e objetos', onclick: openPanel }, '🔎 Escolher em painel')),
+    const tabBtns = ([['all', 'Tudo'], ['character', '👥 Personagens'], ['location', '🏞 Cenários'], ['prop', '📦 Objetos']] as const).map(([k, l]) =>
+      h('button', { class: `lib-tab${filter === k ? ' on' : ''}`, onclick: () => { filter = k; for (const [i, b] of tabBtns.entries()) b.classList.toggle('on', i === ['all', 'character', 'location', 'prop'].indexOf(k)); paintPanel(); } }, l));
+    const modeBtns = ([['all', 'Todas as origens'], ['image', 'Por imagem'], ['code', 'Por código / 3D']] as const).map(([k, l]) =>
+      h('button', { class: `small${mode === k ? ' primary' : ''}`, onclick: () => { mode = k; for (const [i, b] of modeBtns.entries()) b.classList.toggle('primary', i === ['all', 'image', 'code'].indexOf(k)); paintPanel(); } }, l));
+    const pickedOnly = h('input', { type: 'checkbox' }) as HTMLInputElement;
+    pickedOnly.addEventListener('change', () => { onlyPicked = pickedOnly.checked; paintPanel(); });
+    const q = h('input', { placeholder: 'Buscar por nome, aparência ou etiqueta', class: 'grow', oninput: () => { term = q.value.toLowerCase(); paintPanel(); } }) as HTMLInputElement;
+    let bg: HTMLElement;
+    const close = () => { bg.remove(); repaintChars(); };
+    bg = h('div', { class: 'modal-bg', id: 'np-char-panel-modal', onclick: (e) => { if (e.target === bg) close(); } },
+      h('div', { class: 'modal np-lib-modal' },
+        h('div', { class: 'row' }, h('h3', { class: 'grow' }, '📚 Escolher da Biblioteca'),
+          h('button', { class: 'small', id: 'np-lib-create', title: 'Abre a Biblioteca por cima (criar ou editar personagens, cenários, objetos, rigs); ao concluir, volta aqui', onclick: () => openLibraryModal(paintPanel) }, '＋ Criar na Biblioteca'),
+          h('button', { onclick: close }, '✕')),
+        h('p', { class: 'muted small' }, 'Clique para escolher. Os escolhidos entram no projeto com folha/aparência fixa, voz, rig articulado e modelos 3D — e economizam tokens porque o app reutiliza o que já existe.'),
+        h('div', { class: 'lib-tabs' }, ...tabBtns), h('div', { class: 'row wrap' }, ...modeBtns, h('label', { class: 'np-only-picked' }, pickedOnly, 'só os escolhidos')), q,
+        grid,
+        h('div', { class: 'row actions' }, count, h('span', { class: 'sp' }),
+          h('button', { class: 'small', onclick: () => { pickedChars.clear(); paintPanel(); } }, 'Limpar'),
+          h('button', { class: 'primary', onclick: close }, 'Concluir'))));
+    document.body.append(bg);
+    paintPanel();
+    q.focus();
+  };
+  const paintChars = () => {
+    const picked = charRows.filter((c) => pickedChars.has(c.id));
+    const card = (ch: CharRow) => {
+      const v = charVariants[ch.id];
+      return h('div', { class: 'np-pick-card', 'data-picked': ch.id, title: ch.look }, thumb(ch),
+        h('div', { class: 'grow' }, h('strong', {}, ch.name), h('div', { class: 'muted small' }, entLabel(ch), v ? ` · variação: ${v}` : ''), h('div', { class: 'ch-badges' }, ...badges(ch))),
+        h('button', { class: 'small', title: 'Tirar do projeto', onclick: () => { pickedChars.delete(ch.id); paintChars(); } }, '✕'));
+    };
+    const group = (e: string, title: string) => { const g = picked.filter((x) => (x.entity ?? 'character') === e); return g.length ? h('div', { class: 'np-pick-group' }, h('div', { class: 'muted small' }, title), h('div', { class: 'np-pick-cards' }, ...g.map(card))) : null; };
+    charsBox.replaceChildren(...([
+      h('div', { class: 'row' }, h('strong', {}, '📚 Elenco, cenários e objetos'),
+        h('span', { class: 'muted small' }, charRows.length ? ` ${pickedChars.size} de ${charRows.length} escolhido(s) — folha, aparência fixa, voz, rig e 3D em todas as cenas` : ' a Biblioteca está vazia'), h('span', { class: 'sp' }),
+        h('button', { class: 'small primary', id: 'np-char-panel', title: 'Painel com busca e filtros para escolher personagens, cenários e objetos', onclick: openPanel }, '🔎 Escolher'),
+        h('button', { class: 'small', id: 'np-library-open', title: 'Abre a Biblioteca num modal (criar/editar sem sair do Novo projeto)', onclick: () => openLibraryModal() }, '📚 Biblioteca')),
+      picked.length ? null : h('div', { class: 'muted small np-pick-empty' }, charRows.length ? 'Nenhum escolhido — o vídeo cria o elenco sozinho. Clique em “Escolher” para usar personagens, cenários e objetos fixos.' : 'Crie personagens, cenários e objetos em “Biblioteca” — eles ficam para todos os projetos.'),
       group('character', '👥 Personagens'), group('location', '🏞 Cenários'), group('prop', '📦 Objetos'),
-      false ? h('div', { class: 'chr-pick' }, ...rows.map((ch) => {
-        const img = charImage(forge as never, ch);
-        return h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, 'data-pick-char': ch.id, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}`,
-          onclick: () => { if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id); paintChars(); } },
-          img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name), h('small', { class: 'muted' }, KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
-      })) : null] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
-    const openPanel = () => {
-      let filter: 'all' | 'character' | 'location' | 'prop' = 'all';
-      let mode: 'all' | 'image' | 'code' = 'all';
-      const isCode = (c: CharRow) => c.kind === 'codigo' || !!c.code || !!c.models?.length;
-      let term = '';
-      const grid = h('div', { class: 'chr-pick chr-pick-panel' });
-      const paintPanel = () => {
-        const list = rows.filter((c) => (filter === 'all' || (c.entity ?? 'character') === filter) && (mode === 'all' || (mode === 'code' ? isCode(c) : !isCode(c))) && (!term || `${c.name} ${c.look}`.toLowerCase().includes(term)));
-        grid.replaceChildren(...(list.length ? list.map((ch) => {
-          const img = charImage(forge as never, ch);
-          const btn = h('button', { class: `chr-chip${pickedChars.has(ch.id) ? ' on' : ''}`, title: `${ch.look}${ch.voice?.description ? ` · voz: ${ch.voice.description}` : ''}`, onclick: () => {
-            if (pickedChars.has(ch.id)) pickedChars.delete(ch.id); else pickedChars.add(ch.id);
-            btn.classList.toggle('on', pickedChars.has(ch.id));
-          } }, img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, ch.name.slice(0, 1)), h('span', {}, ch.name),
-            h('small', { class: 'muted' }, ch.entity === 'location' ? 'cenário' : ch.entity === 'prop' ? 'objeto' : KIND_LABEL[ch.kind]?.split(' ')[0] ?? ''));
-          return btn;
-        }) : [h('div', { class: 'muted small' }, rows.length ? 'Nada com esse filtro.' : 'A Biblioteca está vazia — crie personagens/cenários lá.')]));
-      };
-      const tabs = ([['all', 'Tudo'], ['character', '👥 Personagens'], ['location', '🏞 Cenários'], ['prop', '📦 Objetos']] as const).map(([k, l]) =>
-        h('button', { class: `small${filter === k ? ' primary' : ''}`, onclick: (e) => { filter = k as typeof filter; for (const b of tabs) b.classList.toggle('primary', b.textContent === l); paintPanel(); } }, l));
-      const modeTabs = ([['all', 'Todas as origens'], ['image', 'Por imagem'], ['code', 'Por código']] as const).map(([k, l]) =>
-        h('button', { class: `small${mode === k ? ' primary' : ''}`, onclick: () => { mode = k; for (const b of modeTabs) b.classList.toggle('primary', b.textContent === l); paintPanel(); } }, l));
-      const q = h('input', { placeholder: 'Buscar por nome ou aparência', class: 'grow', oninput: () => { term = q.value.toLowerCase(); paintPanel(); } }) as HTMLInputElement;
-      let bg: HTMLElement;
-      const close = () => { bg.remove(); paintChars(); };
-      bg = h('div', { class: 'modal-bg', id: 'np-char-panel-modal', onclick: (e) => { if (e.target === bg) close(); } },
-        h('div', { class: 'modal' },
-          h('div', { class: 'row' }, h('h3', { class: 'grow' }, '📚 Escolher da Biblioteca'), h('button', { onclick: close }, '✕')),
-          h('p', { class: 'muted small' }, 'Selecione personagens, cenários e objetos. Eles entram no projeto com folha/aparência fixa, voz e modelos 3D — e economizam tokens porque o app reutiliza o que já existe.'),
-          h('div', { class: 'row' }, ...tabs), h('div', { class: 'row' }, ...modeTabs), q,
-          grid,
-          h('div', { class: 'row actions' }, h('span', { class: 'muted small' }, `${pickedChars.size} escolhido(s)`), h('span', { class: 'sp' }),
-            h('button', { class: 'primary', onclick: close }, 'Concluir'))));
-      document.body.append(bg);
-      paintPanel();
-    };
-    paintChars();
-    repaintChars = paintChars;
-  });
+    ] as Array<HTMLElement | null>).filter((x): x is HTMLElement => !!x));
+  };
+  repaintChars = paintChars;
+  paintChars();
+  void loadChars().then(paintChars);
 
   /* ── 🧠 misturar skills (percentual de tempo de cada uma) ── */
   const mixRows: Array<{ skill: HTMLSelectElement; pct: HTMLInputElement }> = [];

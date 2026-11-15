@@ -838,6 +838,10 @@ export interface LibraryCharacter {
   aliases?: string[];
   /** modelos 3D (GLB/GLTF/OBJ/FBX, relativos à pasta do item) para cenas geradas por código (Three.js) */
   models?: string[];
+  /** rig articulado em camadas (rig.json na pasta do item) para cenas por código — animado pelo ForgeRig */
+  rig?: string;
+  /** nas cenas por código, usar o modelo 3D como o personagem (em vez do desenho 2D) */
+  prefer3d?: boolean;
   /** pessoa (foto-realista), cartoon/animação, desenho por código, animal/criatura, outro */
   kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro';
   /** descrição livre do criador (personalidade, história, papel) */
@@ -866,7 +870,11 @@ export interface CharacterVariant { id: string; label: string; look: string; epi
 export interface ProjectCharacter { id: string; name: string; look: string; kind: LibraryCharacter['kind']; voice?: LibraryCharacter['voice']; code?: string; description?: string;
   entity?: LibraryEntity; variant?: string;
   /** modelos 3D copiados para o projeto (relativos à pasta do projeto) */
-  models?: string[] }
+  models?: string[];
+  /** rig articulado copiado para o projeto (script relativo à pasta do projeto: assets/user/rigs/<id>.rig.js) */
+  rig?: string;
+  /** usar o modelo 3D como o personagem nas cenas por código */
+  prefer3d?: boolean }
 
 /** Relação entre personagens extraída da história. */
 export interface StoryRelation { a: string; b: string; type: string; note?: string }

@@ -47,6 +47,8 @@ import { kitRerender } from './kit-exec';
 import { generateSkillFromDoc, type SkillDocInput } from './skilldoc';
 import { TOOL_SPECS } from './tools';
 import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginFile, installPluginFolder, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
+import { normalizeRig, rigPreviewHtml } from './rig';
+import { generateRig, type RigGenInput } from './rig-gen';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
 import { DEFAULT_HARNESSES } from './harness';
 import { isHttpHarness, resolveHarnessCommand } from './harness';
@@ -2121,6 +2123,28 @@ function registerIpc() {
       catch (e) { return { error: `a página não renderizou: ${(e as Error).message.slice(0, 180)}`, code, html: htmlFile }; }
       return { code, png, html: htmlFile, binding };
     } finally { clearTimeout(timer); }
+  });
+  /**
+   * RIG ARTICULADO (personagem por código em camadas): a IA desenha as peças em SVG com os pivôs; o motor ForgeRig anima.
+   * Referência de estilo opcional: imagens, um vídeo (o app tira 4 quadros) ou o modelo 3D do item (o app renderiza 3 vistas).
+   * Devolve o rig validado e uma prévia PNG com 4 poses — nada é gravado até "characters:save-rig".
+   */
+  h('characters:generate-rig', (input: RigGenInput) => generateRig(settings, input));
+  h('characters:save-rig', (id: string, rig: unknown) => characters.setCharacterRig(settings, String(id), rig ? normalizeRig(rig) : null));
+  h('characters:rig-preview', async (id: string) => {
+    const ch = characters.getCharacter(settings, String(id));
+    const rig = characters.readCharacterRig(settings, ch);
+    if (!rig) return null;
+    const dir = path.join(settings.workspace, 'cache', 'library-previews'); fs.mkdirSync(dir, { recursive: true });
+    const htmlFile = path.join(dir, `rig-${ch.id}.html`), png = path.join(dir, `rig-${ch.id}-${Date.now()}.png`);
+    fs.writeFileSync(htmlFile, rigPreviewHtml(rig), 'utf8');
+    await snapHtml(htmlFile, png, { w: 1200, h: 600 });
+    return { png, rig };
+  });
+  /** Escolher imagens ou vídeos de referência (só caminhos). */
+  h('file:pick-media', async (input?: { title?: string }) => {
+    const r = await dialog.showOpenDialog(win!, { title: input?.title ?? 'Imagem ou vídeo de referência', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Imagens e vídeos', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'webm', 'mkv'] }] });
+    return r.canceled ? [] : r.filePaths.slice(0, 4);
   });
   /** Copia para o item uma imagem já gerada (prévia aceita), sem abrir diálogo. */
   h('characters:add-generated-image', (id: string, file: string, role: 'sheet' | 'portrait' | 'extra') => {
