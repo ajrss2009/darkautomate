@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { runRoute, type Executor } from '../main/engine';
 import { sceneFileFresh } from '../main/executors';
 import { agyJsonArgs, agyStreamLine, AUTO_ORDER, autoOrder, DEFAULT_HARNESSES, parseAgyJson, resolveHarness } from '../main/harness';
+import { routeUsability } from '../main/usability';
 import { agyWindows, codexLimitsFrom } from '../main/usage';
 import { createProject, defaultSettings } from '../main/settings';
 import type { EngineEvent, Route } from '../shared/types';
@@ -133,6 +134,13 @@ async function main() {
   assert.ok(!used.includes('claude'), 'e nenhuma reserva depois dele');
   void res7;
   delete s.noFallback;
+  /* Novo projeto guiado: quem roda de fato — API sem chave pulada, o 1º utilizável escolhido; nenhum = sem use */
+  const us = await routeUsability(s, [
+    { id: 'narration', label: 'Narração', bindings: [{ type: 'api', provider: 'sem-chave-x', model: 'tts' } as never, { type: 'harness', harness: 'codex' }] },
+    { id: 'image', label: 'Imagem', bindings: [{ type: 'comfyui', server: 'nao-existe', workflow: 'x.json' } as never] },
+  ]);
+  assert.equal(us[0]!.use, 'harness:codex'); assert.match(us[0]!.skipped[0]!.reason, /não configurado/);
+  assert.equal(us[1]!.use, undefined); assert.match(us[1]!.skipped[0]!.reason, /nao-existe/);
   console.log('usage tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

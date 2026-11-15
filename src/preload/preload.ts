@@ -204,6 +204,7 @@ contextBridge.exposeInMainWorld('forge', {
   pickMedia: (input?: unknown) => call('file:pick-media', input),
   skillFavorite: (id: string, on: boolean) => call('skill:favorite', id, on),
   workflowsPick: () => call('workflows:pick'),
+  routeUsability: (steps: unknown) => call('route:usability', steps),
   workflowsImport: (o: unknown) => call('workflows:import', o),
   workflowsRemove: (file: string) => call('workflows:remove', file),
   openDir: (o?: unknown) => call('dialog:open-dir', o),

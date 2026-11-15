@@ -1412,6 +1412,7 @@ async function renderNew() {
   let providers: ProvidersChoice | undefined;
   const chainsNow = () => providers?.chains ?? (providers?.profileId ? (meta.profiles ?? []).find((p) => p.id === providers!.profileId)?.chains : undefined);
   const provBox = h('div', { class: 'card provbox', id: 'np-providers' });
+  let onProvidersChanged: () => void = () => {};
   const routePlan = provBox;   // compatível com o nome antigo
   const paintRoutePlan = () => {
     const r = meta.routes.find((x) => x.id === route.value);
@@ -1432,6 +1433,7 @@ async function renderNew() {
       r ? h('div', { class: 'pminis' }, ...tiles) : h('div', { class: 'muted' }, 'Escolha uma rota para ver quem executa cada parte.'),
       r && providers?.steps ? h('div', { class: 'pchips', id: 'np-steps' }, h('span', { class: 'muted' }, '⚖ Por etapa: '), ...r.steps.filter((st) => providers!.steps![st.id]).map((st) => h('span', { class: 'chip' }, `${st.label} → ${bindingArt(providers!.steps![st.id]!).title}${(providers!.steps![st.id] as { model?: string }).model ? ` (${(providers!.steps![st.id] as { model?: string }).model})` : ''}`))) : '');
     paintVoice();
+    onProvidersChanged();
   };
 
   /* ── elenco (skills com várias vozes) ── */
@@ -1805,6 +1807,8 @@ async function renderNew() {
 
   let guided: HTMLElement | null = null;
   let voiceHome: HTMLElement | null = null;
+  /* cartão de provedores e reservas: moram na gaveta Produção; o passo "Rota e provedores" do guiado os pega emprestado */
+  const provMark = document.createComment('np-providers'), fbMark = document.createComment('np-fallback');
   function openGuided() {
     guided?.remove();
     let step = 0;
@@ -1878,11 +1882,12 @@ async function renderNew() {
     const paint = () => {
       paintReview();
       void paintPrev();
-      if (voiceHome && step !== 2 && voiceBox.parentElement !== voiceHome) voiceHome.append(voiceBox);
-      next.replaceChildren(step >= 4 ? 'Criar projeto' : 'Avançar');
-      next.disabled = step === 0 ? (!name.value.trim() || !idea.value.trim() || !skill.value) : step === 1 ? !route.value : false;
+      if (voiceHome && step !== 3 && voiceBox.parentElement !== voiceHome) voiceHome.append(voiceBox);
+      if (step !== 2) restoreProv();
+      next.replaceChildren(step >= 5 ? 'Criar projeto' : 'Avançar');
+      next.disabled = step === 0 ? (!name.value.trim() || !idea.value.trim() || !skill.value) : step === 2 ? !route.value : false;
       def.style.display = step === 2 || step === 3 ? '' : 'none';
-      dots.replaceChildren(...[0, 1, 2, 3, 4].map((i) => h('span', { class: `np-dot${i === step ? ' on' : ''}` })));
+      dots.replaceChildren(...[0, 1, 2, 3, 4, 5].map((i) => h('span', { class: `np-dot${i === step ? ' on' : ''}` })));
       const k = skills.find((x) => x.id === skill.value);
       if (step === 0) {
         const n2 = h('input', { placeholder: 'Nome do vídeo' }) as HTMLInputElement; n2.value = name.value;
@@ -1905,8 +1910,27 @@ async function renderNew() {
           h('div', { class: 'row' }, h('label', {}, 'Duração (s)', d2), h('label', { class: 'grow' }, 'Idioma', l2)),
           h('div', { class: 'muted small' }, review.textContent ?? ''));
       } else if (step === 2) {
+        /* 03 · Rota e provedores: a rota (sugerida pela skill), quem executa cada parte, perfis, reservas e o aviso
+           de provedor que não pode rodar agora (sem chave, não instalado) — antes de criar o projeto */
+        const k2 = skills.find((x) => x.id === skill.value);
+        const rSel = h('select', { id: 'np-g-route' }, h('option', { value: '' }, '— escolha uma rota —'),
+          ...meta.routes.map((r) => h('option', { value: r.id, title: r.description ?? '' }, withIcon(routeIcon(r), `${r.name}${k2?.routeId === r.id ? '  (sugerida pela skill)' : ''}`)))) as HTMLSelectElement;
+        rSel.value = route.value;
+        rSel.addEventListener('change', () => { route.value = rSel.value; route.dispatchEvent(new Event('change', { bubbles: true })); paint(); });
+        const rCur = meta.routes.find((x) => x.id === route.value);
+        if (!provMark.parentNode && provBox.parentNode) provBox.before(provMark);
+        if (!fbMark.parentNode && npFallbackBox.parentNode) npFallbackBox.before(fbMark);
         body.replaceChildren(
-          h('h3', {}, '03 · Elenco e voz'), h('p', { class: 'muted' }, 'Quem aparece e com que voz. Pode usar o padrão da skill.'),
+          h('h3', {}, '03 · Rota e provedores'), h('p', { class: 'muted' }, 'Quem executa cada parte do vídeo. A skill já sugere a rota; troque os provedores por um perfil ou parte por parte.'),
+          h('label', {}, 'Rota', rSel),
+          rCur?.description ? h('div', { class: 'muted small' }, rCur.description) : h('span', {}),
+          provBox,
+          usaBox,
+          h('div', { class: 'card' }, h('div', { class: 'muted small' }, '🛟 Reservas se o provedor falhar (e "sem reserva")'), npFallbackBox));
+        paintUsability();
+      } else if (step === 3) {
+        body.replaceChildren(
+          h('h3', {}, '04 · Elenco e voz'), h('p', { class: 'muted' }, 'Quem aparece e com que voz. Pode usar o padrão da skill.'),
           h('div', { class: 'muted small' }, 'Personagens da Biblioteca (opcional)'),
           charRows.length ? h('div', { class: 'np-gcards' }, ...charRows.slice(0, 12).map((ch) => {
             const img = charImage(forge as never, ch);
@@ -1919,9 +1943,9 @@ async function renderNew() {
           h('p', { class: 'muted small' }, '“Usar o padrão” limpa o elenco fixo e volta à voz da skill.'));
         /* o seletor real de vozes (arquivos da pasta voices + vozes de API) entra aqui, o mesmo da gaveta */
         body.append(h('div', { class: 'muted small' }, 'Voz da narração'), voiceBox);
-      } else if (step === 3) {
+      } else if (step === 4) {
         body.replaceChildren(
-          h('h3', {}, '04 · Áudio e estilo'), h('p', { class: 'muted' }, 'Trilha, efeitos e legendas. Tudo com padrão.'),
+          h('h3', {}, '05 · Áudio e estilo'), h('p', { class: 'muted' }, 'Trilha, efeitos e legendas. Tudo com padrão.'),
           h('div', { class: 'muted small' }, 'Trilha'),
           h('div', { class: 'np-gcards' },
             audioCard('Da rota', 'a trilha que a skill/rota já define', () => !codeMusicCb.checked, () => { codeMusicCb.checked = false; }),
@@ -1936,22 +1960,48 @@ async function renderNew() {
             h('label', { title: 'Estilo da legenda (vazio usa o do canal/skill)' }, 'Estilo', mirrorSelect(subsKind, [['', 'estilo do canal/skill'], ...SUB_KINDS as Array<[string, string]>]))),
           h('div', { class: 'muted small' }, `paleta: ${palOn.checked ? 'fixa' : 'automática'} · estilo de imagem: ${styleRef ? 'com referência' : 'sem referência'} (muda na gaveta Estilo e imagem)`));
       } else {
-        body.replaceChildren(h('h3', {}, '05 · Revisão'), h('p', { class: 'muted' }, 'O que vai ser gerado, o custo e o botão de criar.'), review.cloneNode(true) as HTMLElement);
+        body.replaceChildren(h('h3', {}, '06 · Revisão'), h('p', { class: 'muted' }, 'O que vai ser gerado, o custo e o botão de criar.'), review.cloneNode(true) as HTMLElement,
+          h('div', { class: 'muted small' }, `🎛 Provedores: ${providers?.label ?? 'como a rota define'}`), usaBox);
+        paintUsability();
       }
     };
-    const goStep = (d: number) => { step = Math.max(0, Math.min(4, step + d)); paint(); };
+    const goStep = (d: number) => { step = Math.max(0, Math.min(5, step + d)); paint(); };
+    /* quem vai rodar de fato: o 1º provedor utilizável de cada etapa; avisa os pulados (sem chave, não instalado) */
+    const usaBox = h('div', { class: 'card np-usability', id: 'np-g-usability' });
+    let usaSeq = 0;
+    const paintUsability = async () => {
+      const seq = ++usaSeq;
+      const r = effectiveRoute();
+      if (!r) { usaBox.replaceChildren(h('span', { class: 'muted small' }, 'Escolha uma rota.')); return; }
+      usaBox.replaceChildren(h('span', { class: 'muted small' }, 'Conferindo os provedores…'));
+      const steps = r.steps.filter((st) => st.enabled && st.bindings.length).map((st) => ({ id: st.id, label: st.label, bindings: st.bindings }));
+      const res = (await guard(() => (forge as unknown as Record<string, (x: unknown) => Promise<unknown>>)['routeUsability']!(steps))) as Array<{ id: string; label: string; use?: string; skipped: Array<{ label: string; reason: string }> }> | undefined;
+      if (seq !== usaSeq || !res) return;
+      const bad = res.filter((x) => !x.use), warn = res.filter((x) => x.use && x.skipped.length);
+      usaBox.replaceChildren(
+        h('strong', {}, bad.length ? '✗ Há etapa sem provedor que possa rodar' : warn.length ? '⚠ Alguns provedores serão pulados' : '✓ Todos os provedores podem rodar'),
+        ...bad.map((x) => h('div', { class: 'np-usa bad' }, `✗ ${x.label}: ${x.skipped.map((s) => `${s.label} (${s.reason})`).join(' · ')} — escolha outro em "Escolher provedores…"`)),
+        ...warn.map((x) => h('div', { class: 'np-usa warn' }, `⚠ ${x.label}: pula ${x.skipped.map((s) => `${s.label} (${s.reason})`).join(', ')} → usa ${x.use}`)),
+        ...(!bad.length && !warn.length ? [h('div', { class: 'muted small' }, `${res.length} etapa(s) conferidas: o primeiro provedor de cada uma pode rodar.`)] : []));
+    };
+    onProvidersChanged = () => { if (guided && step === 2) void paintUsability(); };
+    const restoreProv = () => {
+      if (provMark.parentNode) { provMark.after(provBox); provMark.remove(); }
+      if (fbMark.parentNode) { fbMark.after(npFallbackBox); fbMark.remove(); }
+    };
     let bg: HTMLElement | undefined;
-    const close = () => { voiceHome?.append(voiceBox); bg?.remove(); guided = null; };
+    const close = () => { voiceHome?.append(voiceBox); restoreProv(); onProvidersChanged = () => {}; bg?.remove(); guided = null; };
     next.addEventListener('click', () => void guard(async () => {
-      if (step < 4) { goStep(1); return; }
+      if (step < 5) { goStep(1); return; }
       const p = await make();
       close();
       current = p; selected = []; go('editor');
     }));
     back.addEventListener('click', () => goStep(-1));
     def.addEventListener('click', () => {
-      if (step === 2) { pickedChars.clear(); repaintChars(); voiceBox.reset?.(); paintVoice(); }
-      else if (step === 3) { codeMusicCb.checked = false; subsSel.value = cfg?.defaults?.subtitles ?? 'off'; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true; }
+      if (step === 2) { providers = undefined; const kk = skills.find((x) => x.id === skill.value); if (kk?.routeId) { route.value = kk.routeId; route.dispatchEvent(new Event('change', { bubbles: true })); } paintRoutePlan(); }
+      else if (step === 3) { pickedChars.clear(); repaintChars(); voiceBox.reset?.(); paintVoice(); }
+      else if (step === 4) { codeMusicCb.checked = false; subsSel.value = cfg?.defaults?.subtitles ?? 'off'; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true; }
       for (const p of sums) p(); paint();
     });
     bg = h('div', { class: 'modal-bg', id: 'np-guided', onclick: (e) => { if (e.target === bg) close(); } },

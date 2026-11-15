@@ -1297,3 +1297,9 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .np-star.on { opacity: 1; }
 .np-gcard { position: relative; }
 .np-gcard > .np-star { position: absolute; top: 12px; right: 12px; z-index: 1; background: rgba(0,0,0,.55); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }
+
+/* Novo projeto guiado: quem roda de fato em cada etapa */
+.np-usability { display: flex; flex-direction: column; gap: 4px; }
+.np-usa { font-size: 12.5px; line-height: 1.4; }
+.np-usa.warn { color: var(--warn); }
+.np-usa.bad { color: var(--bad); }

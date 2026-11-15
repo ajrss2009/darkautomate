@@ -59,6 +59,7 @@ import { ROUTES, VIDEO_TYPES } from './presets';
 import { CATEGORY_OF, allProfiles, downstreamSteps, profileSkips } from '../shared/profiles';
 import * as auto from './automations';
 import { youtubeBrandChannel, youtubeCreateChannel } from './youtube-upload';
+import { routeUsability } from './usability';
 import { autoMapWorkflow, guessWorkflowKind, importComfyWorkflow, removeUserWorkflow, type WorkflowKind } from './workflow-import';
 import { generateSkillFromVideos, type SkillGenInput } from './skillgen';
 import { closeBrowser, flowCredits, flowDiagnose, flowGenerate } from './flow';
@@ -836,6 +837,8 @@ function registerIpc() {
     sfxLibrary: sfx.SFX_LIBRARY.map(({ id, label, icon, tags, dur }) => ({ id, label, icon, tags, dur })),
     profiles: allProfiles(settings.executorProfiles) }));
   h('catalog:get', () => buildCatalog(settings, workflowsDir()));
+  /* quem vai rodar de fato em cada etapa (o 1º provedor utilizável) e quem será pulado — Novo projeto guiado */
+  h('route:usability', (steps: Parameters<typeof routeUsability>[1]) => routeUsability(settings, steps));
   /* workflows do ComfyUI importados (formato API): escolher o arquivo → tipo provável → importar com nome e tipo */
   h('workflows:pick', async () => {
     const r = await dialog.showOpenDialog(win!, { title: 'Workflow do ComfyUI (formato API)', properties: ['openFile'], filters: [{ name: 'Workflow (JSON, formato API)', extensions: ['json'] }] });
