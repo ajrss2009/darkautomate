@@ -520,9 +520,29 @@ export async function youtubeBrandChannel(job: { port: number; channelId: string
       const ok = await st.setText('ytcp-social-suggestions-textbox#description-textbox #textbox, #description-textbox #textbox, #description-container #textbox', job.description.slice(0, 1000));
       res.description = ok; job.log(`YouTube: descrição ${ok ? 'escrita' : 'NÃO escrita (campo não encontrado)'}`);
     }
-    await st.click('#publish-button');
-    const saved = await until(() => st.ev<boolean>(`(() => { ${DEEP} const b = deep('#publish-button'); return !!b && (b.hasAttribute('disabled') || b.getAttribute('aria-disabled') === 'true'); })()`), 60_000, 1500);
+    const PUB_OFF = `(() => { ${DEEP} const b = deep('#publish-button'); return !b || b.hasAttribute('disabled') || b.getAttribute('aria-disabled') === 'true'; })()`;
+    /* o Publicar só libera depois que as imagens terminam de subir; desabilitado ANTES do clique = nada pendente */
+    const enabled = await until(async () => !(await st.ev<boolean>(PUB_OFF)), 90_000, 1500);
+    if (!enabled) {
+      if (res.banner || res.avatar || res.description) await st.fail('publicar personalização', 'as mudanças não liberaram o botão Publicar (as imagens não subiram)');
+      job.log('YouTube: nada para publicar'); return res;
+    }
+    await st.mouseClick('#publish-button');
+    await wait(5000);
+    if (process.env.FF_DEBUG_BRAND) await st.dbg('depois de publicar');
+    const saved = await until(() => st.ev<boolean>(PUB_OFF), 60_000, 1500);
     if (!saved) await st.fail('publicar personalização', 'cliquei em Publicar mas o Studio não confirmou');
+    /* confere de verdade: recarrega e vê se a foto/banner deixaram de ser os padrões (letra / ilustração) */
+    await wait(4000);
+    await cdp.send('Page.reload', {}, st.session);
+    await wait(8000);
+    const after = await st.ev<{ avatarDefault: boolean; bannerEmpty: boolean }>(`(() => { ${DEEP}
+      const imgs = deepAll('img').filter(vis).map((i) => ({ src: i.src || '', w: i.getBoundingClientRect().width }));
+      const big = imgs.filter((i) => i.w >= 100 && /ggpht|googleusercontent/.test(i.src));
+      return { avatarDefault: !big.some((i) => !/\\/ytc\\//.test(i.src)), bannerEmpty: !deepAll('#banner-image, img').filter(vis).some((i) => /ggpht|googleusercontent/.test(i.src || '') && i.getBoundingClientRect().width >= 250) };
+    })()`).catch(() => ({ avatarDefault: true, bannerEmpty: true }));
+    if (res.avatar && after.avatarDefault) { res.avatar = false; job.log('⚠ YouTube: a foto do canal ainda é a padrão depois de publicar (pode levar alguns minutos para processar)'); }
+    if (res.banner && after.bannerEmpty) { res.banner = false; job.log('⚠ YouTube: o banner ainda não aparece depois de publicar (pode levar alguns minutos para processar)'); }
     job.log('YouTube: personalização publicada');
     return res;
   } finally { await st.close(); }
