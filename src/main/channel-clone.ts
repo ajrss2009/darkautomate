@@ -457,6 +457,7 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
 ${qText}
 ${SHOT_COUNT_RULE}
 ${SOURCE_COUNT_RULE}
+ANTES de escrever a receita do formato, ABRA a 1ª folha de cada vídeo e descreva LITERALMENTE o que vê (fundo, o que há na tela, onde, cores) — o "formatRecipe" sai dessa descrição e do LAYOUT medido, nunca do tema da dobra.
 Use ESTES números na skill.md (ritmo, música, efeitos, descrição, arte, luz e câmera) — não invente outros.`).replace(/canal do YouTube "/, `canal do ${plat.label} "`)
     .replace('pronta para colar no YouTube', `pronta para colar no ${plat.label}`);
   const http = isHttpHarness(cfg);
