@@ -428,18 +428,19 @@ main.ed .ed-top .preview { position:static; display:flex; flex-direction:column;
 main.ed .ed-top .preview .stage, main.ed .stage.a9x16, main.ed .stage.a4x5, main.ed .stage.a16x9, main.ed .stage.a1x1 {
   flex:1 1 auto; min-height:120px; height:auto; max-height:none; width:100%; aspect-ratio:auto; margin:0 0 8px; background:#000; border-radius:12px; }
 main.ed .ed-top .inspector { overflow:auto; min-height:0; padding-right:4px; }
-.transport { flex:none; display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:14px; }
-.tgroup { display:inline-flex; align-items:center; gap:4px; padding:2px; border-radius:99px; background:var(--panel2); }
-.tbtn { display:inline-flex; align-items:center; justify-content:center; gap:5px; height:34px; min-width:34px; padding:0 8px; border-radius:99px; border:1px solid transparent; background:transparent; color:var(--txt); }
+/* barra fina (uma linha): sobra mais altura para a prévia do vídeo */
+.transport { flex:none; display:flex; align-items:center; gap:4px; flex-wrap:wrap; row-gap:3px; margin:0; padding:3px 6px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+.tgroup { display:inline-flex; align-items:center; gap:1px; padding:1px; border-radius:99px; background:var(--panel2); }
+.tbtn { display:inline-flex; align-items:center; justify-content:center; gap:4px; height:24px; min-width:24px; padding:0 6px; border-radius:99px; border:1px solid transparent; background:transparent; color:var(--txt); }
 .tbtn:hover { background:var(--hover); border-color:var(--line2); }
-.tbtn svg { width:16px; height:16px; }
-.tbtn.play { width:46px; height:46px; background:var(--acc); color:#fff; box-shadow:0 4px 14px color-mix(in srgb, var(--acc) 45%, transparent); }
-.tbtn.play svg { width:20px; height:20px; }
+.tbtn svg { width:13px; height:13px; }
+.tbtn.play { width:28px; height:28px; background:var(--acc); color:#fff; box-shadow:0 2px 8px color-mix(in srgb, var(--acc) 40%, transparent); }
+.tbtn.play svg { width:15px; height:15px; }
 .tbtn.play:hover { filter:brightness(1.12); background:var(--acc); }
-.tbtn.pill { border-color:var(--line); background:var(--panel2); font-size:12px; padding:0 12px; }
+.tbtn.pill { border-color:var(--line); background:var(--panel2); font-size:11px; padding:0 8px; }
 .tbtn.pill.on { border-color:var(--acc); color:var(--acc); }
 .tbtn.regen { border-color:var(--warn); color:var(--warn); }
-.tc { font:600 13px ui-monospace, monospace; color:var(--txt); padding:4px 10px; border-radius:8px; background:var(--deep); }
+.tc { font:600 11px ui-monospace, monospace; color:var(--txt); padding:2px 6px; border-radius:6px; background:var(--deep); }
 /* trechos de efeito arrastáveis */
 .bar.fx { padding:0 14px; cursor:grab; user-select:none; }
 .bar.fx:active { cursor:grabbing; }
@@ -454,7 +455,7 @@ main.ed .ed-top .inspector { overflow:auto; min-height:0; padding-right:4px; }
 .tadd { padding:0 6px; height:16px; line-height:14px; font-size:12px; border-radius:6px; margin-left:4px; }
 .regenbox { width:min(620px, 94vw); }
 .regensteps { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
-#pv-play.tbtn.play { min-width:46px; width:46px; padding:0; border-color:transparent; }
+#pv-play.tbtn.play { min-width:28px; width:28px; padding:0; border-color:transparent; }
 
 /* movimentos de câmera na prévia (espelham o zoompan do ffmpeg) */
 .kb-pan_left, .kb-pan_right, .kb-pan_up, .kb-pan_down, .kb-in_left, .kb-in_right { animation-timing-function:linear; animation-fill-mode:forwards; }
