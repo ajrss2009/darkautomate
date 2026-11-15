@@ -325,7 +325,10 @@ export function effectFilters(e: SceneEffects | undefined, seconds: number, w: n
   if (!e) return f;
   const frames = Math.max(1, Math.round(seconds * 30));
   const mv = moveExpr(e.zoom, frames);
-  if (mv) f.push(`zoompan=z='${mv.z}':x='${mv.x}':y='${mv.y}':d=1:s=${w}x${h}:fps=30`);
+  /* o zoompan arredonda x/y para pixels INTEIROS da entrada: com zoom + deslocamento (diagonal, deriva) a imagem
+     anda em degraus e treme. Ampliando a entrada 4× antes, o degrau vira 1/4 de pixel na saída (movimento liso). */
+  const up = Math.max(1, Math.min(4, Math.floor(7680 / Math.max(w, h))));
+  if (mv) f.push(...(up > 1 ? [`scale=${w * up}:${h * up}:flags=bicubic`] : []), `zoompan=z='${mv.z}':x='${mv.x}':y='${mv.y}':d=1:s=${w}x${h}:fps=30`);
   f.push(...colorFilter(e.filter), ...vignetteFilter(e.vignette), ...textureFilters(e.texture));
   if (e.fadeIn) f.push('fade=t=in:st=0:d=0.4');
   if (e.fadeOut && seconds > 0.8) f.push(`fade=t=out:st=${(seconds - 0.4).toFixed(2)}:d=0.4`);

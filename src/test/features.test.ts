@@ -321,7 +321,8 @@ async function main() {
   // 9. efeitos e legendas
   assert.deepEqual(effectFilters(undefined, 4, 1920, 1080), []);
   const fx = effectFilters({ filter: 'bw', zoom: 'in', fadeIn: true, fadeOut: true }, 4, 1920, 1080);
-  assert.ok(fx[0]!.startsWith('zoompan=') && fx.includes('hue=s=0') && fx.includes('fade=t=in:st=0:d=0.4') && fx.includes('fade=t=out:st=3.60:d=0.4'));
+  assert.equal(fx[0], 'scale=7680:4320:flags=bicubic','zoom: entrada ampliada antes do zoompan (sem tremor)');
+  assert.ok(fx[1]!.startsWith('zoompan=') && fx.includes('hue=s=0') && fx.includes('fade=t=in:st=0:d=0.4') && fx.includes('fade=t=out:st=3.60:d=0.4'));
   assert.equal(filterPath('C:\\Users\\a b\\x.srt'), 'C\\:/Users/a b/x.srt');
   assert.match(subtitleForceStyle({ burn: true, position: 'top', size: 54, color: '#ff8800', box: false }), /Fontsize=14,PrimaryColour=&H000088FF,Alignment=8/);
   const pe = createProject(s, { name: 'Fx', idea: 'x', videoType: 'custom', routeId: 'shorts-autopilot' });

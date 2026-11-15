@@ -97,7 +97,7 @@ const PLAY_VIDEO = String.raw`(async (i) => {
  */
 async function recordRealtime(wc: Electron.WebContents, shot: () => Promise<Electron.NativeImage>, ffmpeg: string,
   o: { fps: number; w: number; h: number; out: string; seconds: number; signal?: AbortSignal }): Promise<void> {
-  const enc = frameEncoder(ffmpeg, { fps: o.fps, w: o.w, h: o.h, out: o.out, crf: 18 });
+  const enc = frameEncoder(ffmpeg, { fps: o.fps, w: o.w, h: o.h, out: o.out, crf: 18, gop: Math.max(1, Math.round(o.fps / 2)) });
   const total = Math.round(o.seconds * o.fps), t0 = Date.now();
   /* trava de segurança: a gravação é em tempo real, então nunca deve passar de poucas vezes o trecho pedido */
   const limit = t0 + Math.max(20_000, Math.round(o.seconds * 4000));
@@ -244,7 +244,7 @@ export async function captureWebPage(o: { url: string; dir: string; ffmpeg: stri
           /* recorte do retângulo do vídeo (na tela); fora da tela é cortado */
           const X = Math.max(0, st.x), Y = Math.max(0, st.y), W = Math.min(1 - X, st.w - (X - st.x)), H = Math.min(1 - Y, st.h - (Y - st.y));
           if (W < 0.1 || H < 0.1) { fs.rmSync(raw, { force: true }); continue; }
-          await run(o.ffmpeg, ['-y', '-i', raw, '-vf', `crop=iw*${W.toFixed(4)}:ih*${H.toFixed(4)}:iw*${X.toFixed(4)}:ih*${Y.toFixed(4)},scale=trunc(iw/2)*2:trunc(ih/2)*2`, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', file], o.signal);
+          await run(o.ffmpeg, ['-y', '-i', raw, '-vf', `crop=iw*${W.toFixed(4)}:ih*${H.toFixed(4)}:iw*${X.toFixed(4)}:ih*${Y.toFixed(4)},scale=trunc(iw/2)*2:trunc(ih/2)*2`, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-g', '15', '-keyint_min', '15', file], o.signal);
           fs.rmSync(raw, { force: true });
           clips.push({ file: `${pre}/video-${n}.mp4`, seconds: o.clipSec ?? 10, near: v.near || undefined, label: v.label || undefined });
           o.log?.(`trecho de vídeo gravado: ${pre}/video-${n}.mp4 (${o.clipSec ?? 10} s)`);
@@ -267,7 +267,7 @@ export async function captureWebPage(o: { url: string; dir: string; ffmpeg: stri
     const plan = scrollPlan({ maxY: info.maxY, viewH: info.viewH, sections: info.sections, fps, maxSec: o.maxSec ?? 40 });
     o.log?.(`gravando a página rolando: ${plan.seconds} s, ${plan.marks.length} parada(s) nas seções…`);
     const video = path.join(o.dir, 'pagina.mp4');
-    const enc = frameEncoder(o.ffmpeg, { fps, w, h, out: video, crf: 18, lanczos: true });
+    const enc = frameEncoder(o.ffmpeg, { fps, w, h, out: video, crf: 18, lanczos: true, gop: Math.max(1, Math.round(fps / 2)) });
     try {
       let last = -1;
       for (const y of plan.ys) {

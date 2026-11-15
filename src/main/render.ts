@@ -66,7 +66,8 @@ function serveKit(m: KitMount, pathname: string): Response {
  * enquanto a captura continua. Sem PNG (codificar + gravar + o ffmpeg reler cada quadro) —
  * era a maior parte do tempo de uma cena por código.
  */
-export function frameEncoder(ffmpeg: string, o: { fps: number; w: number; h: number; out: string; crf: number; lanczos?: boolean }) {
+/** `gop`: quadros entre quadros-chave (vídeos que as cenas por código "navegam" com currentTime precisam de GOP curto: pular para um instante decodifica só até 0,5 s, não 8 s) */
+export function frameEncoder(ffmpeg: string, o: { fps: number; w: number; h: number; out: string; crf: number; lanczos?: boolean; gop?: number }) {
   let size: { width: number; height: number } | undefined;
   let proc: ChildProcess | undefined;
   let last: Buffer | undefined;
@@ -77,7 +78,7 @@ export function frameEncoder(ffmpeg: string, o: { fps: number; w: number; h: num
     size = sz;
     /* "ffmpeg" sem caminho (padrão das configurações) não está no PATH do Windows: resolve como o resto do app */
     proc = spawn(resolveBin(ffmpeg), ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', `${sz.width}x${sz.height}`, '-framerate', String(o.fps), '-i', 'pipe:0',
-      '-vf', `scale=${o.w}:${o.h}${o.lanczos ? ':flags=lanczos' : ''},format=yuv420p`, '-r', String(o.fps), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(o.crf), o.out],
+      '-vf', `scale=${o.w}:${o.h}${o.lanczos ? ':flags=lanczos' : ''},format=yuv420p`, '-r', String(o.fps), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(o.crf), ...(o.gop ? ['-g', String(o.gop), '-keyint_min', String(o.gop)] : []), o.out],
     { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true });
     proc.stderr!.on('data', (d) => { stderr = (stderr + String(d)).slice(-2000); });
     proc.stdin!.on('error', (e) => { failed = failed ?? e; });
@@ -210,12 +211,16 @@ const SEEK_GUARDS_SETUP = `try {
   HTMLCanvasElement.prototype.getContext = function (type, ...a) { const c = gc.call(this, type, ...a); if (type === '2d') keep(c); return c; };
   /* restore() a mais com a pilha vazia não faz nada: desfaz os save() sem par e depois repõe a base */
   window.__forgeBefore = () => { for (const c of ctxs) { const b = base.get(c); if (!b) continue; try { for (let i = 0; i < 32; i++) c.restore(); c.setTransform(b.m); c.globalAlpha = b.a; c.globalCompositeOperation = b.o; c.shadowBlur = 0; c.shadowColor = 'transparent'; c.filter = 'none'; } catch {} } };
+  /* quadro de vídeo desenhado no canvas (drawImage) chega ao compositor depois: a captura pegava a área do vídeo
+     ainda vazia (flash escuro). Ler 1 pixel de cada canvas 2D obriga o desenho pendente a terminar antes da foto. */
+  window.__forgeFlush = () => { for (const c of ctxs) { try { c.getImageData(0, 0, 1, 1); } catch {} } };
   const vids = new Set(); document.querySelectorAll('video').forEach((v) => vids.add(v));
   const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
   if (d && d.set) Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', { configurable: true, get() { return d.get.call(this); }, set(v) { if (this instanceof HTMLVideoElement) vids.add(this); d.set.call(this, v); } });
   window.__forgeAfter = async (t) => {
     let waited = false;
-    for (let i = 0; i < 80; i++) {
+    /* até 10 s: vídeo com quadro-chave a cada 8 s leva segundos para pular; antes desistia em 2 s e a cena desenhava o fundo provisório (flash) */
+    for (let i = 0; i < 400; i++) {
       const busy = [...vids].filter((v) => v.seeking || (v.readyState < 2 && v.networkState !== 3 && !v.error));
       if (!busy.length) break;
       waited = true; await new Promise((r) => setTimeout(r, 25));
@@ -362,7 +367,8 @@ export const renderHtml: RenderHtml = async (htmlFile, out, { w, h, ffmpeg, dura
     /* URLs forge-scene:// (caminho absoluto inteiro) comiam os 600 caracteres: a linha da página que chamou a biblioteca sumia */
     const seekJs = (t: number) => `Promise.resolve().then(() => { try { window.__forgeBefore && window.__forgeBefore(); } catch {} return window.__forge.seek(${t.toFixed(5)}); })
       .then(() => (window.__forgeAfter ? window.__forgeAfter(${t.toFixed(5)}) : null))
-      .then(() => null, (e) => String((e && (e.stack || e.message)) || e).replace(/forge-scene:\\/\\/scene\\/[^\\s)]*\\//g, '').slice(0, 600))`;
+      .then(() => { try { window.__forgeFlush && window.__forgeFlush(); } catch {} })
+      .then(() => null,(e) => String((e && (e.stack || e.message)) || e).replace(/forge-scene:\\/\\/scene\\/[^\\s)]*\\//g, '').slice(0, 600))`;
     /* checagem rápida ANTES de capturar: seek em ~2 pontos por segundo + o último quadro, sem capturar.
        Um erro no meio da cena aparece em ~1 s (e vai para a IA corrigir) em vez de depois de capturar metade dela. */
     const probes = [...new Set([...Array.from({ length: Math.ceil(total * 2) }, (_, k) => Math.min(frames - 1, Math.round((k / 2) * fps))), frames - 1])];
