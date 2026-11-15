@@ -1675,6 +1675,16 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
   }
 
   interface PreparedVisual { visual: string; isImage: boolean; loopPeriod: number; exactLoop: boolean }
+  /* Fecha o loop por fusão: usa o trecho [F, D] e, nos últimos F s, faz fade para o trecho [0, F] — o vídeo termina
+     no quadro em que começa e a repetição não tem pulo. Período = D − F. */
+  async function fuseLoop(src: string, out: string, F: number): Promise<{ file: string; period: number } | undefined> {
+    const D = await ff.duration(c.settings.ffprobe, src);
+    if (!(D > 2 * F + 0.5) || F <= 0) return undefined;
+    await ff.run(ffmpeg, ['-y', '-i', src, '-filter_complex',
+      `[0:v]split[s1][s2];[s1]trim=start=${F}:end=${D},setpts=PTS-STARTPTS[a];[s2]trim=start=0:end=${F},setpts=PTS-STARTPTS[b];[a][b]xfade=transition=fade:duration=${F}:offset=${(D - 2 * F).toFixed(3)},format=yuv420p[v]`,
+      '-map', '[v]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', out], c.signal);
+    return { file: out, period: (await ff.duration(c.settings.ffprobe, out)) || D - F };
+  }
   const visualCache = new Map<string, Promise<PreparedVisual>>();
   async function prepareVisual(scene: Scene): Promise<PreparedVisual> {
     const cached = visualCache.get(scene.id);
@@ -1707,27 +1717,28 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
             loopPeriod = d > 0 ? d : (meta.frames - 1) / meta.fps;
             exactLoop = true;
             c.log(`loop perfeito: ${meta.frames - 1} quadros a ${meta.fps} fps = ${loopPeriod.toFixed(3)}s`);
+            /* Wan2GP: o último quadro é uma âncora "suave" (parecido, não idêntico): fusão curta esconde o resto */
+            let softEnd = false;
+            try { softEnd = !!(JSON.parse(fs.readFileSync(loopMarker, 'utf8')) as { template?: string }).template; } catch { /* marca antiga */ }
+            if (softEnd) {
+              const fused = await fuseLoop(visual, path.join(outDir, `visual-perfect-fused-${scene.id}.mp4`), 0.5);
+              if (fused) { visual = fused.file; loopPeriod = fused.period; c.log(`loop do Wan2GP: fusão de 0,5 s na emenda (período ${loopPeriod.toFixed(2)} s)`); }
+            }
           }
         }
         if (!exactLoop) {
-          /* clipe sem último quadro igual ao primeiro (Snapgen, Flow, I2V comum): o fim FUNDE no começo.
-             Usa o trecho [F, D] e, nos últimos F s, faz fade para o trecho [0, F]: o vídeo termina no quadro em que
-             começa e a repetição não tem pulo. Período = D − F. */
-          const loopFile = path.join(outDir, `visual-loop-${scene.id}.mp4`);
+          /* clipe sem último quadro igual ao primeiro (Snapgen, Flow, I2V comum): o fim FUNDE no começo */
           const D = await ff.duration(c.settings.ffprobe, visual);
-          const F = D >= 3 ? Math.min(1.2, Math.round((D / 4) * 100) / 100) : 0;
-          if (F > 0) {
-            await ff.run(ffmpeg, ['-y', '-i', visual, '-filter_complex',
-              `[0:v]split[s1][s2];[s1]trim=start=${F}:end=${D},setpts=PTS-STARTPTS[a];[s2]trim=start=0:end=${F},setpts=PTS-STARTPTS[b];[a][b]xfade=transition=fade:duration=${F}:offset=${(D - 2 * F).toFixed(3)},format=yuv420p[v]`,
-              '-map', '[v]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', loopFile], c.signal);
-            loopPeriod = (await ff.duration(c.settings.ffprobe, loopFile)) || D - F;
-            exactLoop = true;
-            c.log(`loop com fusão: clipe de ${D.toFixed(1)} s sem quadro final igual ao inicial — fim funde no começo (${F.toFixed(2)} s), período ${loopPeriod.toFixed(2)} s`);
+          const fused = D >= 3 ? await fuseLoop(visual, path.join(outDir, `visual-loop-${scene.id}.mp4`), Math.min(1.2, Math.round((D / 4) * 100) / 100)) : undefined;
+          if (fused) {
+            visual = fused.file; loopPeriod = fused.period; exactLoop = true;
+            c.log(`loop com fusão: clipe de ${D.toFixed(1)} s sem quadro final igual ao inicial — fim funde no começo, período ${loopPeriod.toFixed(2)} s`);
           } else {
+            const loopFile = path.join(outDir, `visual-loop-${scene.id}.mp4`);
             await ff.run(ffmpeg, ['-y', '-stream_loop', '-1', '-i', visual, '-t', String(loopPeriod), '-an',
               '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', loopFile], c.signal);
+            visual = loopFile;
           }
-          visual = loopFile;
         }
       }
       return { visual, isImage: !isVideo, loopPeriod, exactLoop };
