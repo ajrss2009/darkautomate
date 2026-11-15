@@ -12,7 +12,7 @@ import { bigPreview, clampEdLayout } from '../shared/ed-layout';
 import { PRESETS, paletteBox, type Pal } from './palette-editor';
 import { renderVideosPage, type VideosCtx } from './videos-page';
 import { renderChannelsPage, type ChannelsCtx } from './channels-page';
-import { renderCharactersPage, charImage, KIND_LABEL, type CharactersCtx, type CharRow } from './characters-page';
+import { renderCharactersPage, charImage, missingImagesBar, KIND_LABEL, type CharactersCtx, type CharRow } from './characters-page';
 import { voicePicker, type NarrationVoice } from './voice-picker';
 import { AGENT_TYPES, agentType } from './agents-ui';
 import type { PluginStyle } from '../shared/types';
@@ -1140,6 +1140,8 @@ async function renderNew() {
     let term = '';
     const grid = h('div', { class: 'np-lib-grid' });
     const count = h('span', { class: 'muted small' });
+    const missSlot = h('div', {});
+    const paintMiss = () => missSlot.replaceChildren(...[missingImagesBar({ forge: forge as unknown as CharactersCtx['forge'], guard, toast }, charRows, () => void loadChars().then(() => { paintMiss(); paintPanel(); }))].filter((x): x is HTMLElement => !!x));
     const paintPanel = () => {
       count.textContent = `${pickedChars.size} escolhido(s)`;
       const list = charRows.filter((c) => (filter === 'all' || (c.entity ?? 'character') === filter) && (mode === 'all' || (mode === 'code' ? isCode(c) : !isCode(c)))
@@ -1164,15 +1166,17 @@ async function renderNew() {
     bg = h('div', { class: 'modal-bg', id: 'np-char-panel-modal', onclick: (e) => { if (e.target === bg) close(); } },
       h('div', { class: 'modal np-lib-modal' },
         h('div', { class: 'row' }, h('h3', { class: 'grow' }, '📚 Escolher da Biblioteca'),
-          h('button', { class: 'small', id: 'np-lib-create', title: 'Abre a Biblioteca por cima (criar ou editar personagens, cenários, objetos, rigs); ao concluir, volta aqui', onclick: () => openLibraryModal(paintPanel) }, '＋ Criar na Biblioteca'),
+          h('button', { class: 'small', id: 'np-lib-create', title: 'Abre a Biblioteca por cima (criar ou editar personagens, cenários, objetos, rigs); ao concluir, volta aqui', onclick: () => openLibraryModal(() => { paintMiss(); paintPanel(); }) }, '＋ Criar na Biblioteca'),
           h('button', { onclick: close }, '✕')),
         h('p', { class: 'muted small' }, 'Clique para escolher. Os escolhidos entram no projeto com folha/aparência fixa, voz, rig articulado e modelos 3D — e economizam tokens porque o app reutiliza o que já existe.'),
+        missSlot,
         h('div', { class: 'lib-tabs' }, ...tabBtns), h('div', { class: 'row wrap' }, ...modeBtns, h('label', { class: 'np-only-picked' }, pickedOnly, 'só os escolhidos')), q,
         grid,
         h('div', { class: 'row actions' }, count, h('span', { class: 'sp' }),
           h('button', { class: 'small', onclick: () => { pickedChars.clear(); paintPanel(); } }, 'Limpar'),
           h('button', { class: 'primary', onclick: close }, 'Concluir'))));
     document.body.append(bg);
+    paintMiss();
     paintPanel();
     q.focus();
   };

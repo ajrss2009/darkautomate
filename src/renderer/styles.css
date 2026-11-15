@@ -1259,3 +1259,5 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .chr-rig-refs .chr-ref-thumb { width:64px; height:64px; object-fit:cover; border-radius:8px; }
 .np-only-picked { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--mut); margin:0 0 0 6px; }
 .np-only-picked input { width:auto; margin:0; }
+.lib-missing { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px; margin:6px 0 10px; border:1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius:10px; background:color-mix(in srgb, var(--warn) 8%, var(--panel)); }
+.lib-missing select { width:auto; max-width:320px; }

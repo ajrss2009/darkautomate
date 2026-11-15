@@ -29,13 +29,63 @@ export interface Variant { id: string; label: string; look: string; episodes?: n
 export interface CharRow {
   id: string; name: string; kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro'; description?: string; look: string; gender?: string; age?: string;
   voice?: { refAudio?: string; apiVoice?: string; description?: string }; code?: string; sheet?: string; portrait?: string; images?: string[]; tags?: string[]; dir: string;
-  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string; rig?: string; prefer3d?: boolean;
+  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string; rig?: string; prefer3d?: boolean; thumb?: string;
 }
 export const KIND_LABEL: Record<CharRow['kind'], string> = { pessoa: '🧑 Pessoa (realista)', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Animal / criatura', outro: '✨ Outro' };
 const STYLE_LABEL: Record<CharRow['kind'], string> = { pessoa: '📷 Realista', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Criatura', outro: '✨ Outro' };
-export const charImage = (forge: Api, c: CharRow) => (c.sheet || c.portrait
+/** Imagem da folha/retrato/referência (a do editor de folha). */
+export const charSheetImage = (forge: Api, c: CharRow) => (c.sheet || c.portrait
   ? forge.mediaUrl(`${c.dir}/${c.sheet ?? c.portrait}`)
   : c.images?.[0] ? forge.mediaUrl(`${c.dir}/${c.images[0]}`) : undefined);
+/** Imagem para mostrar o item em listas e cartões: a folha/retrato ou, sem ela, a miniatura automática (rig/modelo 3D). */
+export const charImage = (forge: Api, c: CharRow) => charSheetImage(forge, c) ?? (c.thumb ? forge.mediaUrl(`${c.dir}/${c.thumb}`) : undefined);
+export const hasImage = (c: CharRow) => !!(c.sheet || c.portrait || c.images?.length || c.thumb);
+
+/** Executores de imagem do catálogo (para gerar folhas/imagens). */
+export async function imageExecOptions(forge: Api, guard: CharactersCtx['guard']): Promise<Array<[string, unknown]>> {
+  const cat = ((await guard(() => forge['catalog']())) ?? { workflows: [], wan2gpTemplates: [], apis: [] }) as { workflows: Array<{ file: string; label: string; capability: string }>; wan2gpTemplates: Array<{ file: string; label: string; capability: string }>; apis: Array<{ provider: string; categories: string[]; models: string[] }> };
+  return [
+    ['🌊 Google Flow (Nano Banana)', { type: 'flow' }],
+    ...cat.workflows.filter((w) => w.capability === 'image').map((w): [string, unknown] => [`🖥️ ComfyUI · ${w.label}`, { type: 'comfyui', server: 'local', workflow: w.file }]),
+    ...cat.wan2gpTemplates.filter((w) => w.capability === 'image').map((w): [string, unknown] => [`🌀 Wan2GP · ${w.label}`, { type: 'wan2gp', template: w.file }]),
+    ...cat.apis.filter((a) => a.categories.includes('image')).map((a): [string, unknown] => [`☁️ API ${a.provider}`, { type: 'api', provider: a.provider, model: a.models.find((m) => /image|imagen|banana|dall/i.test(m)) ?? a.models[0] }]),
+  ];
+}
+
+/**
+ * Barra "N sem imagem → Gerar imagens que faltam": gera a folha de cada item sem imagem com o executor escolhido,
+ * um por vez, com progresso ao vivo. Itens com rig/modelo 3D ganham antes uma miniatura local (sem IA).
+ */
+let thumbsTried = false;
+export function missingImagesBar(c: Pick<CharactersCtx, 'forge' | 'guard' | 'toast'>, rows: CharRow[], onDone: () => void, ids?: string[]): HTMLElement | null {
+  const { forge, guard, toast } = c;
+  const missing = rows.filter((x) => !hasImage(x) && (!ids || ids.includes(x.id)));
+  const bar = h('div', { class: 'lib-missing', id: 'lib-missing' });
+  if (!missing.length) return null;
+  /* rig/modelo 3D: miniatura local, sem IA (uma vez por sessão) */
+  if (!thumbsTried && missing.some((x) => x.rig || x.models?.length)) { thumbsTried = true; void guard(async () => { const n = (await forge['charactersMakeThumbs']()) as number; if (n) onDone(); }); }
+  const sel = h('select', { title: 'Executor de imagem usado em cada item' }) as HTMLSelectElement;
+  let opts: Array<[string, unknown]> = [];
+  void imageExecOptions(forge, guard).then((o) => { opts = o; sel.replaceChildren(...o.map(([l], i) => h('option', { value: String(i) }, l))); });
+  const status = h('span', { class: 'muted small' });
+  const go = h('button', { class: 'small primary', id: 'lib-missing-go' }, `✨ Gerar imagens que faltam (${missing.length})`) as HTMLButtonElement;
+  const stop = h('button', { class: 'small' }, '■ Parar') as HTMLButtonElement;
+  stop.addEventListener('click', () => void forge['charactersGenerateMissingCancel']());
+  go.addEventListener('click', () => void guard(async () => {
+    const b = opts[Number(sel.value)]?.[1];
+    if (!b) { toast('Nenhum executor de imagem configurado (Provedores / ComfyUI / Wan2GP / Flow)', true); return; }
+    go.disabled = true; sel.disabled = true; go.after(stop);
+    const off = (forge as unknown as { onEvent: (cb: (e: { t: string; done?: number; total?: number; name?: string }) => void) => () => void }).onEvent((e) => {
+      if (e.t === 'library.progress') status.textContent = e.name ? `⏳ ${(e.done ?? 0) + 1}/${e.total} — ${e.name}` : '';
+    });
+    try {
+      const r = (await forge['charactersGenerateMissing'](b, missing.map((x) => x.id))) as { ok: number; total: number; errors: string[] };
+      toast(`Imagens geradas: ${r.ok} de ${r.total}${r.errors.length ? ` — falhas: ${r.errors.slice(0, 3).join(' · ')}` : ''}`, r.errors.length > 0 && !r.ok);
+    } finally { off(); go.disabled = false; sel.disabled = false; stop.remove(); status.textContent = ''; onDone(); }
+  }));
+  bar.append(h('span', { class: 'ch-badge warn' }, `${missing.length} sem imagem`), h('span', { class: 'muted small' }, 'sem imagem você não vê o que está usando — gere a folha de cada um:'), sel, go, status);
+  return bar;
+}
 
 const TABS: Array<[Entity | 'stories', string, string]> = [['character', '👥 Personagens', 'personagem'], ['location', '🏞 Cenários', 'cenário'], ['prop', '📦 Objetos', 'objeto'], ['stories', '📖 Histórias', 'história']];
 let tab: Entity | 'stories' = 'character';
@@ -75,13 +125,15 @@ export async function renderCharactersPage(c: CharactersCtx): Promise<void> {
     return h('div', { class: `chr-card${x.id === selected ? ' on' : ''}`, 'data-char': x.id, onclick: () => { selected = x.id; again(); } },
       img ? h('img', { src: img, alt: '' }) : h('div', { class: 'chr-ph' }, x.name.slice(0, 1).toUpperCase()),
       h('b', {}, x.name), h('span', { class: 'muted small' }, tab === 'character' ? KIND_LABEL[x.kind] ?? x.kind : STYLE_LABEL[x.kind] ?? ''),
-      h('span', { class: 'chr-badges' }, x.sheet ? h('span', { class: 'ch-badge ok' }, 'folha ✓') : x.portrait ? h('span', { class: 'ch-badge ok' }, 'retrato ✓') : h('span', { class: 'ch-badge warn' }, 'sem imagem'),
+      h('span', { class: 'chr-badges' }, x.sheet ? h('span', { class: 'ch-badge ok' }, 'folha ✓') : x.portrait ? h('span', { class: 'ch-badge ok' }, 'retrato ✓') : x.thumb || x.images?.length ? h('span', { class: 'ch-badge' }, 'miniatura') : h('span', { class: 'ch-badge warn' }, 'sem imagem'),
+        x.rig ? h('span', { class: 'ch-badge ok' }, '🦴 rig') : null,
         x.voice?.refAudio || x.voice?.apiVoice ? h('span', { class: 'ch-badge ok' }, 'voz ✓') : null,
         x.variants?.length ? h('span', { class: 'ch-badge' }, `${x.variants.length} variação(ões)`) : null,
         x.models?.length ? h('span', { class: 'ch-badge ok' }, '3D ✓') : null,
         x.storyId ? h('span', { class: 'ch-badge' }, '📖') : null));
   }));
-  main.replaceChildren(head, tabsEl, subTabs, intro, h('div', { class: 'chr-cols' }, filtered.length || selected === 'new' ? cards : h('div', { class: 'card muted' }, `Nada ainda. Clique em "＋ Novo ${noun}" ou importe uma história na aba 📖 Histórias.`),
+  const missBar = missingImagesBar(c, list, again);
+  main.replaceChildren(head, tabsEl, subTabs, intro, ...(missBar ? [missBar] : []), h('div', { class: 'chr-cols' }, filtered.length || selected === 'new' ? cards : h('div', { class: 'card muted' }, `Nada ainda. Clique em "＋ Novo ${noun}" ou importe uma história na aba 📖 Histórias.`),
     selected === 'new' || cur ? await editor(c, cur, again, tab) : h('div', {})));
 }
 
@@ -218,7 +270,7 @@ async function editor(c: CharactersCtx, ch: CharRow | undefined, again: () => vo
     return r;
   };
   /* folha: gerar (executor de imagem) ou enviar a sua */
-  const img = ch ? charImage(forge, ch) : undefined;
+  const img = ch ? charSheetImage(forge, ch) : undefined;
   const cat = ((await guard(() => forge['catalog']())) ?? { workflows: [], wan2gpTemplates: [], apis: [], flowAccounts: [] }) as { workflows: Array<{ file: string; label: string; capability: string }>; wan2gpTemplates: Array<{ file: string; label: string; capability: string }>; apis: Array<{ provider: string; categories: string[]; models: string[]; voices?: string[] }>; flowAccounts?: Array<{ id: string; label: string }> };
   const opts: Array<[string, unknown]> = [
     ...cat.workflows.filter((w) => w.capability === 'image').map((w): [string, unknown] => [`🖥️ ComfyUI · ${w.label}`, { type: 'comfyui', server: 'local', workflow: w.file }]),

@@ -105,7 +105,7 @@ export function saveCharacter(s: Settings, raw: Partial<LibraryCharacter>): Libr
   if (!id) { const base = slugChar(n.name); id = base; for (let k = 2; fs.existsSync(path.join(charactersRoot(s), id)); k++) id = `${base}-${k}`; }
   const c: LibraryCharacter = { ...prev, ...n, id, createdAt: prev?.createdAt ?? new Date().toISOString(), updatedAt: prev ? new Date().toISOString() : undefined,
     /* arquivos só mudam por addCharacterImage (a interface não manda caminhos arbitrários) */
-    sheet: prev?.sheet, portrait: prev?.portrait, images: prev?.images, models: prev?.models, rig: prev?.rig,
+    sheet: prev?.sheet, portrait: prev?.portrait, images: prev?.images, models: prev?.models, rig: prev?.rig, thumb: prev?.thumb,
     prefer3d: raw.prefer3d === undefined ? prev?.prefer3d : raw.prefer3d === true || undefined,
     variants: raw.variants === undefined ? prev?.variants : normalizeVariants(raw.variants, prev?.variants),
     storyId: n.storyId ?? prev?.storyId };
@@ -260,6 +260,18 @@ export function setCharacterRig(s: Settings, id: string, rig: Rig | null): Libra
   fs.writeFileSync(path.join(charDir(s, id), 'character.json'), JSON.stringify(c, null, 2));
   return c;
 }
+
+/** Grava a miniatura automática do item (thumb.png). */
+export function setCharacterThumb(s: Settings, id: string, png: string): LibraryCharacter {
+  const c = getCharacter(s, id);
+  fs.copyFileSync(png, path.join(charDir(s, id), 'thumb.png'));
+  c.thumb = 'thumb.png';
+  fs.writeFileSync(path.join(charDir(s, id), 'character.json'), JSON.stringify(c, null, 2));
+  return c;
+}
+
+/** O item tem alguma imagem para mostrar (folha, retrato, referência ou miniatura)? */
+export const hasPicture = (s: Settings, c: LibraryCharacter) => !!(charFile(s, c, c.sheet) || charFile(s, c, c.portrait) || (c.images ?? []).some((f) => charFile(s, c, f)) || charFile(s, c, c.thumb));
 
 /** Rig do item (ou undefined). */
 export function readCharacterRig(s: Settings, c: Pick<LibraryCharacter, 'id' | 'rig' | 'name'>): Rig | undefined {

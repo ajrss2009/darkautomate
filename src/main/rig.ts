@@ -254,6 +254,15 @@ window.__forge = { duration: 2, fps: 30, seek: function (t) { inst.forEach(funct
 </script></body></html>`;
 }
 
+/** Página da miniatura: o rig parado, inteiro e centrado num quadro 480x480. */
+export function rigThumbHtml(rig: Rig): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#eef1f5}#s{position:relative;width:480px;height:480px}</style></head>
+<body><div id="s"></div><script>${RIG_RUNTIME}
+var b = ForgeRig.mount(document.getElementById('s'), ${JSON.stringify(rig)}, { x: 240, y: 466, height: 450, pose: 'idle', t: 0.4, blink: false });
+window.__forge = { duration: 1, fps: 30, seek: function () {}, pause: function () {} };
+</script></body></html>`;
+}
+
 /** Grava o rig do item (rig.json) e devolve o nome do arquivo. */
 export function saveRigFile(dir: string, rig: Rig): string {
   fs.mkdirSync(dir, { recursive: true });

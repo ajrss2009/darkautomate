@@ -12,7 +12,7 @@ import { characterPhoto } from '../main/attachments';
 import { buildStoryboard } from '../main/project-storyboard';
 import type { Project, Scene } from '../shared/types';
 import { RIG_RUNTIME, normalizeRig, rigSceneText, sanitizeSvg, stageRig } from '../main/rig';
-import { setCharacterRig, readCharacterRig, toProjectCharacter } from '../main/characters';
+import { setCharacterRig, readCharacterRig, toProjectCharacter, setCharacterThumb, hasPicture } from '../main/characters';
 import { sceneRigText, ensureThreeImport } from '../main/prompts';
 import * as vm from 'node:vm';
 
@@ -212,6 +212,12 @@ async function main() {
     setCharacterRig(s, beto.id, rig);
     const back = readCharacterRig(s, getCharacter(s, beto.id));
     assert.equal(back?.parts.length, 13, 'rig salvo e lido da biblioteca');
+    assert.equal(hasPicture(s, getCharacter(s, beto.id)), false, 'sem folha nem miniatura');
+    setCharacterThumb(s, beto.id, img);
+    assert.equal(getCharacter(s, beto.id).thumb, 'thumb.png');
+    assert.ok(hasPicture(s, getCharacter(s, beto.id)), 'miniatura conta como imagem');
+    saveCharacter(s, { ...getCharacter(s, beto.id), look: 'jaqueta vermelha, boné vermelho' });
+    assert.equal(getCharacter(s, beto.id).thumb, 'thumb.png', 'salvar o item mantém a miniatura');
     const pdir = path.join(ws, 'projects', 'rigp'); fs.mkdirSync(pdir, { recursive: true });
     const pr = createProject(s, { name: 'Rig', idea: 'x', videoType: 'custom', routeId: 'stickman-explainer' });
     applyCharacters(s, pr, pdir, [beto.id]);

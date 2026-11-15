@@ -48,7 +48,7 @@ import { generateSkillFromDoc, type SkillDocInput } from './skilldoc';
 import { TOOL_SPECS } from './tools';
 import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginFile, installPluginFolder, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
 import { normalizeRig, rigPreviewHtml } from './rig';
-import { generateRig, type RigGenInput } from './rig-gen';
+import { generateRig, makeThumb, makeMissingThumbs, type RigGenInput } from './rig-gen';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
 import { DEFAULT_HARNESSES } from './harness';
 import { isHttpHarness, resolveHarnessCommand } from './harness';
@@ -1995,7 +1995,9 @@ function registerIpc() {
   h('characters:add-model', async (id: string) => {
     const r = await dialog.showOpenDialog(win!, { title: 'Modelo 3D (GLB, GLTF, OBJ ou FBX)', properties: ['openFile'], filters: [{ name: 'Modelos 3D', extensions: ['glb', 'gltf', 'obj', 'fbx'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
-    return characters.addCharacterModel(settings, id, r.filePaths[0]);
+    const c = characters.addCharacterModel(settings, id, r.filePaths[0]);
+    if (!characters.hasPicture(settings, c)) await makeThumb(settings, id).catch(() => false);
+    return characters.getCharacter(settings, id);
   });
   h('characters:remove-model', (id: string, name: string) => characters.removeCharacterModel(settings, id, name));
   /* ── histórias: importar romance/texto longo, série em episódios e episódio → projeto ── */
@@ -2078,6 +2080,7 @@ function registerIpc() {
     if (r.canceled || !r.filePaths.length) return null;
     let c: unknown;
     for (const f of r.filePaths.slice(0, 24)) c = characters.addCharacterFile(settings, id, f);
+    if (!characters.hasPicture(settings, characters.getCharacter(settings, id))) { await makeThumb(settings, id).catch(() => false); c = characters.getCharacter(settings, id); }
     return c ?? characters.getCharacter(settings, id);
   });
   /** Importa uma pasta (recursivo): imagens viram referências e modelos 3D vão para o item. */
@@ -2130,7 +2133,35 @@ function registerIpc() {
    * Devolve o rig validado e uma prévia PNG com 4 poses — nada é gravado até "characters:save-rig".
    */
   h('characters:generate-rig', (input: RigGenInput) => generateRig(settings, input));
-  h('characters:save-rig', (id: string, rig: unknown) => characters.setCharacterRig(settings, String(id), rig ? normalizeRig(rig) : null));
+  h('characters:save-rig', async (id: string, rig: unknown) => {
+    const c = characters.setCharacterRig(settings, String(id), rig ? normalizeRig(rig) : null);
+    /* miniatura: o rig novo vira a imagem do item quando ele não tem folha/retrato */
+    if (rig && !characters.hasPicture(settings, { ...c, thumb: undefined })) await makeThumb(settings, c.id, true).catch(() => false);
+    return characters.getCharacter(settings, c.id);
+  });
+  /** Miniaturas locais (rig/modelo 3D) dos itens que estão sem imagem. */
+  h('characters:make-thumbs', () => makeMissingThumbs(settings));
+  /**
+   * Gera em LOTE a imagem (folha) dos itens sem imagem, com o executor escolhido; um por vez, com progresso no log.
+   * Devolve quantos deram certo e os erros.
+   */
+  let missingAbort: AbortController | undefined;
+  h('characters:generate-missing', async (binding: Binding, ids?: string[]) => {
+    missingAbort?.abort(); const ac = new AbortController(); missingAbort = ac;
+    const execs = createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } });
+    const todo = characters.listCharacters(settings).filter((c) => (!ids?.length || ids.includes(c.id)) && !characters.hasPicture(settings, c));
+    const errors: string[] = []; let ok = 0;
+    for (const [i, c] of todo.entries()) {
+      if (ac.signal.aborted) break;
+      send({ t: 'log', line: `biblioteca: imagem ${i + 1}/${todo.length} — ${c.name}` } as EngineEvent);
+      send({ t: 'library.progress', done: i, total: todo.length, name: c.name } as never);
+      try { await characters.generateCharacterSheet(settings, execs, c.id, binding, (line) => send({ t: 'log', line: `biblioteca: ${line}` } as EngineEvent)); ok++; }
+      catch (e) { errors.push(`${c.name}: ${(e as Error).message.slice(0, 160)}`); }
+    }
+    send({ t: 'library.progress', done: todo.length, total: todo.length } as never);
+    return { ok, total: todo.length, errors };
+  });
+  h('characters:generate-missing-cancel', () => { missingAbort?.abort(); return true; });
   h('characters:rig-preview', async (id: string) => {
     const ch = characters.getCharacter(settings, String(id));
     const rig = characters.readCharacterRig(settings, ch);

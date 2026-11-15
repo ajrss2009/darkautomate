@@ -840,6 +840,8 @@ export interface LibraryCharacter {
   models?: string[];
   /** rig articulado em camadas (rig.json na pasta do item) para cenas por código — animado pelo ForgeRig */
   rig?: string;
+  /** miniatura automática (thumb.png: rig parado ou vista do modelo 3D) — só para o item não aparecer sem imagem */
+  thumb?: string;
   /** nas cenas por código, usar o modelo 3D como o personagem (em vez do desenho 2D) */
   prefer3d?: boolean;
   /** pessoa (foto-realista), cartoon/animação, desenho por código, animal/criatura, outro */
