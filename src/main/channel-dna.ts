@@ -497,7 +497,8 @@ const put = (cur: string | undefined, text: string) => {
 /** Grava o DNA (medido + descrito) nas diretrizes e nas etapas da skill, substituindo o bloco anterior. */
 /** O princípio do clone: só a ESTRUTURA do formato de referência, aplicada à identidade e ao tema do usuário. */
 export const STRUCTURE_PRINCIPLE = 'PRINCÍPIO: deste formato de referência aplique SÓ as métricas de ESTRUTURA (ritmo de fala, gancho, atos e porcentagens, densidade de informação, duração dos takes, movimentos de câmera, densidade de SFX, dinâmica da trilha). ' +
-  'A IDENTIDADE (nome, marca, paleta, tipografia, personagens, bordões, frases e assuntos) é a do canal e do tema do usuário — nunca copie o conteúdo, as frases ou a marca da referência.';
+  'O FORMATO VISUAL dos vídeos é o da referência: fundo, layout/composição, tipo de imagem (render 3D, desenho, foto…), elementos gráficos (cartões, setas, rótulos, réguas), movimento de câmera, tipografia dos rótulos e paleta dos vídeos — o vídeo novo tem de PARECER um vídeo daquele formato. ' +
+  'A IDENTIDADE (nome do canal, logo, bordões, frases, personagens específicos e assuntos) é a do canal e do tema do usuário — nunca copie o conteúdo, as frases ou a marca da referência.';
 
 export function applyDnaToSkill(k: Skill, dna: ChannelDna, m: Partial<VideoMetrics>, titles?: TitleStructure, sourceName = 'canal de origem', phrases: string[] = []): Skill {
   const sk: Skill = { ...k, steps: { ...(k.steps ?? {}) } };

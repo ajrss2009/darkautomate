@@ -76,6 +76,8 @@ export interface ChannelCloneResult {
   brand: ChannelBrand;
   thumbnail?: { name?: string; prompt?: string; layout?: ThumbnailTemplate['layout']; rules?: string };
   demoIdea?: string;
+  /** receita do FORMATO VISUAL dos vídeos (layout, fundo, imagens, elementos, câmera, texto e como produzir) */
+  formatRecipe?: Record<string, unknown>;
   /** pauta: 20 vídeos prontos para produzir (título, sinopse, gancho dos 15 s) na dobra escolhida */
   pauta?: PautaItem[];
   /** origem das imagens em % do tempo (filmado, tela, IA de difusão, código, render 3D, banco) */
@@ -280,10 +282,11 @@ ${input.note?.trim() ? `\n## Pedido do usuário\n${input.note.trim()}\n` : ''}
     "keywords": ["..."], "colors": ["#hex primária", "#hex secundária", "#hex destaque", "#hex fundo"], "fonts": "...", "logoIdea": "...", "bannerPrompt": "prompt para gerar o banner 2560×1440 por IA de imagem", "avatarPrompt": "...", "tone": "..." },
   "thumbnail": { "name": "nome curto do estilo", "prompt": "prompt de imagem que reproduz o ESTILO das thumbnails do canal (sem marcas/rostos reais)", "layout": "impacto|explicativo|documentario|minimal|split", "rules": "regras de texto, cor e composição" },
   "demoIdea": "ideia do vídeo de 10 s que mostra o estilo do canal novo",
+  "formatRecipe": { "layout": "como a tela é montada, do jeito que aparece nas folhas (ex.: fundo branco, cartões retangulares com o personagem lado a lado, rótulo numerado embaixo de cada um, setas amarelas entre eles)", "background": "fundo/cor dominante medida", "imageStyle": "tipo de imagem dentro do layout (ex.: render 3D estilo animação, mesmo personagem em todos os cartões)", "elements": ["cada elemento gráfico recorrente com cor e posição"], "camera": "movimento de câmera sobre o layout (ex.: pan horizontal lento passando pelos cartões)", "text": "texto na tela: o quê, onde, fonte/caixa", "production": "COMO produzir no app: quais imagens gerar (mesmo personagem/objeto, quantas, enquadramento) e como montar a cena por código (cartões, setas, rótulos, câmera) — ou vídeo IA, se for o caso" },
   "pauta": [ 20 itens { "title": "título NOVO na estrutura medida dos títulos", "synopsis": "2–4 frases seguindo os atos medidos", "hook": "gancho dos primeiros 15 s na MESMA anatomia do gancho analisado", "angle": "ângulo", "durationSec": <duração pela mediana medida> } — vídeos da dobra escolhida, sem repetir tema, do mais promissor para o menos ]
 }
 Tudo baseado no que você VIU (folhas a 1 quadro por segundo, quadros e thumbnails) e no que foi MEDIDO — seja específico (hex, segundos, % de planos, palavras por frase, LUFS, BPM, SFX por minuto, % de cada ato).
-PRINCÍPIO: do canal de origem extraia a ESTRUTURA (ritmo, gancho, atos, densidade, takes, câmera, SFX, dinâmica da trilha); a identidade do canal novo (nome, marca, paleta, fontes, bordões, assuntos) é PRÓPRIA — nunca copie frases, marca ou conteúdo. As dobras precisam ser SUBNICHOS diferentes entre si e diferentes do canal de origem; nada de copiar nome, marca, personagens ou assuntos específicos.
+PRINCÍPIO: do canal de origem extraia a ESTRUTURA (ritmo, gancho, atos, densidade, takes, câmera, SFX, dinâmica da trilha) E O FORMATO VISUAL DOS VÍDEOS (fundo, layout, tipo de render, elementos gráficos, rótulos, câmera, paleta dos vídeos): os vídeos do canal novo têm de PARECER vídeos do canal de origem. Só a identidade do canal (nome, logo, banner, bordões, assuntos, personagens específicos) é PRÓPRIA — nunca copie frases, marca ou conteúdo. A paleta da MARCA pode ser própria; a paleta dos VÍDEOS segue a medida nas folhas. As dobras precisam ser SUBNICHOS diferentes entre si e diferentes do canal de origem; nada de copiar nome, marca, personagens ou assuntos específicos.
 
 ## Como analisar (obrigatório)
 1) **TEXTO NA TELA (1 quadro/segundo)**: percorra as folhas em ordem e descreva o estilo do texto — tipografia, caixa, contorno, posição, legendas (palavra a palavra ou frase), palavras de destaque, quanto tempo cada texto fica e a cada quantos segundos entra um novo. Isso entra em dna.text e na skill (etapas code_scene/motion_graphics/subtitles).
@@ -569,7 +572,11 @@ Use ESTES números na skill.md (ritmo, música, efeitos, descrição, arte, luz 
   let sources: SourceMix | undefined;
   try { sources = normalizeSources(JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf8'))); } catch { /* a IA não gravou */ }
   if (sources) { log(sourcesText(sources)); fs.writeFileSync(path.join(dir, 'quant.json'), JSON.stringify({ ...quant, sources }, null, 1)); } else warnings.push('a IA não gravou sources.json (origem das imagens)');
-  skill = saveSkill(s, { ...skill, global: `${skill.global ?? ''}\n\n${qText}${sources ? `\n- ${sourcesText(sources)}` : ''}`.trim() });
+  /* receita do formato visual: garantida nas diretrizes (o vídeo novo tem de parecer um vídeo do canal de origem) */
+  const recipe = ch['formatRecipe'] && typeof ch['formatRecipe'] === 'object' ? ch['formatRecipe'] as Record<string, unknown> : undefined;
+  const recipeText = recipe ? `FORMATO VISUAL OBRIGATÓRIO (igual ao canal de origem):\n${Object.entries(recipe).map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join('; ') : String(v)}`).join('\n')}` : '';
+  if (!recipe) warnings.push('a IA não gravou formatRecipe (receita do formato visual)');
+  skill = saveSkill(s, { ...skill, global: `${skill.global ?? ''}\n\n${recipeText}\n\n${qText}${sources ? `\n- ${sourcesText(sources)}` : ''}`.trim() });
   if (skill.routeId !== route.id || thumbnailTemplate) skill = saveSkill(s, { ...skill, routeId: route.id, thumbnailTemplate: thumbnailTemplate?.id ?? skill.thumbnailTemplate });
   if (files.demo && !skill.previewMedia?.endsWith('.mp4')) {
     const dest = path.join(s.workspace, 'library', 'skill-media', `${skill.id}.mp4`);
@@ -584,7 +591,7 @@ Use ESTES números na skill.md (ritmo, música, efeitos, descrição, arte, luz 
     analysis: (ch['analysis'] ?? {}) as Record<string, unknown>, bends, chosenBend, foldIds, channelKey, language, brand, thumbnail, demoIdea: typeof ch['demoIdea'] === 'string' ? ch['demoIdea'] : undefined, pauta,
     skill, route, thumbnailTemplate, files, warnings,
     videos: analyzed.map((a) => ({ ...a, sheet: a.sheet && path.join(dir, a.sheet), frames: a.frames?.map((f) => path.join(dir, f)) })),
-    measured, titleStructure: titleStr, quant, sources, dna, languages,
+    measured, titleStructure: titleStr, quant, sources, formatRecipe: recipe, dna, languages,
   };
   /* gravado pelo armazenamento: esquema versionado, caminhos relativos (portátil) e estado de sincronização */
   const saved = cloneStore(s, o.appVersion).save(result);
