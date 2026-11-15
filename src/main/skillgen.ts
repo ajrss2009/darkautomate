@@ -17,6 +17,7 @@ import { frameSheets, measureVideo, normalizeLanguages, type LanguagePick, type 
 
 /** ranking de idiomas pedido à IA (arquivo separado do skill.md) */
 const LANG_RULE = 'Grave também languages.json: [5 itens, do melhor para o pior, idiomas com MAIS chance de sucesso para este formato] cada um { "code": "en|pt-BR|es|hi|…", "score": 0-10, "why": "tamanho do público, concorrência nesse idioma, CPM", "audience": "público estimado", "competition": "baixa|média|alta", "cpm": "baixo|médio|alto" }.';
+import { normalizeSources, SOURCE_COUNT_RULE, sourcesText, type SourceMix } from './clone-metrics';
 import { artQuant, audioQuant, descQuant, motionQuant, normalizePauta, PAUTA_RULE, pautaMarkdown, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type PautaItem, type AudioQuant, type DescQuant, type MotionQuant } from './clone-metrics';
 
 /*
@@ -36,7 +37,7 @@ export interface SkillGenInput {
   name?: string; language?: string; framesPerVideo?: number;
 }
 export type VideoRef = { idx: number; frames: string[]; transcript?: string; info: Record<string, unknown>; url?: string };
-export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string; /** números medidos (mediana dos vídeos) */ quant?: import('./clone-metrics').CloneQuant; /** idiomas com mais chance de sucesso (nota 0–10) */ languages?: LanguagePick[]; /** 20 vídeos para produzir (título, sinopse, gancho) */ pauta?: PautaItem[] }
+export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string; /** números medidos (mediana dos vídeos) */ quant?: import('./clone-metrics').CloneQuant; /** idiomas com mais chance de sucesso (nota 0–10) */ languages?: LanguagePick[]; /** 20 vídeos para produzir (título, sinopse, gancho) */ pauta?: PautaItem[]; /** origem das imagens em % do tempo */ sources?: SourceMix }
 
 function run(cmd: string, args: string[], signal?: AbortSignal): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
@@ -284,6 +285,7 @@ export async function generateSkillFromVideos(s: Settings, input: SkillGenInput,
 ${qText}
 FOLHAS A 1 QUADRO POR SEGUNDO (12 s cada, em ordem; leia a arte, o texto na tela e o ritmo): ${sheetRel.slice(0, 25).join(', ')}
 ${SHOT_COUNT_RULE}
+${SOURCE_COUNT_RULE}
 ${LANG_RULE}
 Grave também pauta.json — ${PAUTA_RULE}
 Use ESTES números na skill.md — não invente outros.`, model, effort: input.effort, signal: signal ?? new AbortController().signal, onLine: (l) => log(l.slice(0, 300)), timeoutSec: 1800,
@@ -299,7 +301,10 @@ Use ESTES números na skill.md — não invente outros.`, model, effort: input.e
   const fin = finalizeSkillMd(s, md, { name: input.name, language: input.language, sourceNote, preview: firstFrame ? path.join(workdir, firstFrame) : undefined });
   const { route, warnings } = fin;
   /* os números medidos ficam GARANTIDOS nas diretrizes da skill */
-  const saved = saveSkill(s, { ...fin.skill, global: `${fin.skill.global ?? ''}
+  let srcMix: SourceMix | undefined;
+  try { srcMix = normalizeSources(JSON.parse(fs.readFileSync(path.join(workdir, 'sources.json'), 'utf8'))); } catch { /* a IA não gravou */ }
+  if (srcMix) { log(sourcesText(srcMix)); fs.writeFileSync(path.join(workdir, 'quant.json'), JSON.stringify({ ...quant, sources: srcMix }, null, 1)); } else warnings.push('a IA não gravou sources.json (origem das imagens)');
+  const saved = saveSkill(s, { ...fin.skill, global: `${fin.skill.global ?? ''}${srcMix ? `\n- ${sourcesText(srcMix)}` : ''}
 
 ${qText}`.trim() });
   const routeReason = /^routeReason:\s*"?(.+?)"?\s*$/m.exec(md)?.[1] ?? '';
@@ -315,6 +320,6 @@ ${qText}`.trim() });
   if (pauta.length < 20) warnings.push(`a IA entregou ${pauta.length} vídeos na pauta (pedido: 20)`);
   if (pauta.length) { try { const n = getDb()?.upsertPauta({ kind: 'video', id: path.basename(workdir), skillId: saved.id, language: input.language }, pauta); if (n) log(`pauta: ${n} vídeos gravados no banco de dados`); } catch (e) { log(`pauta não gravada no banco: ${(e as Error).message}`); } }
   ok = true;
-  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir, quant, languages, pauta };
+  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir, quant, languages, pauta, sources: srcMix };
   } finally { cleanup(workdir, ok, log); }
 }

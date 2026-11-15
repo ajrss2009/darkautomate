@@ -12,7 +12,7 @@ import { fitSceneSfx } from '../main/editor';
 import * as ff from '../main/ffmpeg';
 import type { Route } from '../shared/types';
 import { drawFrame, hexColor, spectrumAt, visualizerBox, VISUALIZER_STYLES } from '../main/visualizer';
-import { artClass, artOfPixels, audioQuantFromSamples, descQuant, median, motionFromFrames, quantText, summarizeQuant } from '../main/clone-metrics';
+import { artClass, artOfPixels, audioQuantFromSamples, descQuant, median, motionFromFrames, normalizeSources, quantText, sourceSignals, sourcesText, summarizeQuant } from '../main/clone-metrics';
 
 /** Coletâneas de N a M minutos (YuE 2 instrumental, sem silêncio) e efeitos sincronizados com o visual pela IA. */
 async function main() {
@@ -165,6 +165,21 @@ async function main() {
     assert.ok(zin.zoomInShare >= 0.6, 'zoom in detectado ' + JSON.stringify(zin));
     assert.ok(zout.zoomOutShare >= 0.6, 'zoom out detectado ' + JSON.stringify(zout));
     assert.equal(still.staticShare, 1, 'parado');
+  }
+  /* origem da imagem: grão (câmera), texto/interface (tela), liso (código/IA) */
+  {
+    const W = 320, H = 180;
+    const flat = new Uint8Array(W * H).fill(120);
+    const grainy = flat.map((v, i) => Math.max(0, Math.min(255, v + ((Math.imul(i + 7, 2654435761) >>> 27) - 16) / 4)));
+    const ui = new Uint8Array(W * H).fill(245);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (y % 16 < 8 && x % 4 < 2 && (Math.floor(x / 40) % 2 === 0)) ui[y * W + x] = 20;
+    const a = sourceSignals(flat, W, H), b = sourceSignals(grainy, W, H), c = sourceSignals(ui, W, H);
+    assert.ok(a.grain < 0.2 && b.grain > 1, 'grão: liso ' + a.grain + ' × câmera ' + b.grain);
+    assert.ok(c.textLike > 0.1 && a.textLike === 0, 'texto/interface ' + c.textLike);
+    const m = normalizeSources({ codigo: 45, ia_difusao: 30, tela: 15, filmado: 10, evidencias: ['0–12 s: régua animada'] })!;
+    assert.equal(m.codigo + m.ia_difusao + m.tela + m.filmado + m.render3d + m.banco, 100);
+    assert.match(sourcesText(m), /código\/motion 45%/);
+    assert.equal(normalizeSources({}), undefined);
   }
   console.log('compilation tests: OK');
 }

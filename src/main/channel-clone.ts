@@ -19,6 +19,7 @@ import { applyDnaToSkill, audioSummary, averageMetrics, catchphrases, channelTit
 import type { TitleStructure } from './youtube-rules';
 import { LocalCloneStore } from './clone-store';
 import { getDb } from './db';
+import { normalizeSources, SOURCE_COUNT_RULE, sourcesText, type SourceMix } from './clone-metrics';
 import { artQuant, audioQuant, descQuant, motionQuant, normalizePauta, pautaMarkdown, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type PautaItem, type AudioQuant, type CloneQuant, type DescQuant, type MotionQuant } from './clone-metrics';
 
 /*
@@ -77,6 +78,8 @@ export interface ChannelCloneResult {
   demoIdea?: string;
   /** pauta: 20 vídeos prontos para produzir (título, sinopse, gancho dos 15 s) na dobra escolhida */
   pauta?: PautaItem[];
+  /** origem das imagens em % do tempo (filmado, tela, IA de difusão, código, render 3D, banco) */
+  sources?: SourceMix;
   skill: Skill; route: Route; thumbnailTemplate?: ThumbnailTemplate;
   files: { banner?: string; thumb?: string; demo?: string };
   warnings: string[];
@@ -450,6 +453,7 @@ export async function cloneChannel(s: Settings, input: ChannelCloneInput, o: { t
 
 ${qText}
 ${SHOT_COUNT_RULE}
+${SOURCE_COUNT_RULE}
 Use ESTES números na skill.md (ritmo, música, efeitos, descrição, arte, luz e câmera) — não invente outros.`).replace(/canal do YouTube "/, `canal do ${plat.label} "`)
     .replace('pronta para colar no YouTube', `pronta para colar no ${plat.label}`);
   const http = isHttpHarness(cfg);
@@ -561,9 +565,11 @@ Use ESTES números na skill.md (ritmo, música, efeitos, descrição, arte, luz 
   } : undefined;
   /* o DNA (medido + descrito) entra garantido nas diretrizes e nas etapas da skill */
   let skill = applyDnaToSkill(fin.skill, dna, measured, titleStr, srcName, phrases);
-  skill = saveSkill(s, { ...skill, global: `${skill.global ?? ''}
-
-${qText}`.trim() });
+  /* origem das imagens (a IA classificou cada segundo): vira regra da skill e fica no quant.json */
+  let sources: SourceMix | undefined;
+  try { sources = normalizeSources(JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf8'))); } catch { /* a IA não gravou */ }
+  if (sources) { log(sourcesText(sources)); fs.writeFileSync(path.join(dir, 'quant.json'), JSON.stringify({ ...quant, sources }, null, 1)); } else warnings.push('a IA não gravou sources.json (origem das imagens)');
+  skill = saveSkill(s, { ...skill, global: `${skill.global ?? ''}\n\n${qText}${sources ? `\n- ${sourcesText(sources)}` : ''}`.trim() });
   if (skill.routeId !== route.id || thumbnailTemplate) skill = saveSkill(s, { ...skill, routeId: route.id, thumbnailTemplate: thumbnailTemplate?.id ?? skill.thumbnailTemplate });
   if (files.demo && !skill.previewMedia?.endsWith('.mp4')) {
     const dest = path.join(s.workspace, 'library', 'skill-media', `${skill.id}.mp4`);
@@ -578,7 +584,7 @@ ${qText}`.trim() });
     analysis: (ch['analysis'] ?? {}) as Record<string, unknown>, bends, chosenBend, foldIds, channelKey, language, brand, thumbnail, demoIdea: typeof ch['demoIdea'] === 'string' ? ch['demoIdea'] : undefined, pauta,
     skill, route, thumbnailTemplate, files, warnings,
     videos: analyzed.map((a) => ({ ...a, sheet: a.sheet && path.join(dir, a.sheet), frames: a.frames?.map((f) => path.join(dir, f)) })),
-    measured, titleStructure: titleStr, quant, dna, languages,
+    measured, titleStructure: titleStr, quant, sources, dna, languages,
   };
   /* gravado pelo armazenamento: esquema versionado, caminhos relativos (portátil) e estado de sincronização */
   const saved = cloneStore(s, o.appVersion).save(result);

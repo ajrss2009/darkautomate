@@ -51,6 +51,11 @@ export interface ArtQuant {
   brightnessVar?: number;
   /** clave: baixa (sombras), média, alta (claro) */
   lightKey?: string;
+  /* SINAIS DE ORIGEM */
+  /** grão nas áreas lisas (câmera real > ~1,2; código/IA/tela < ~0,6) */
+  grain?: number;
+  /** fração de blocos com cara de texto/interface sobre fundo claro/escuro (gravação de tela > ~0,08) */
+  textLike?: number;
 }
 /** movimento de câmera medido entre quadros (2 por segundo): frações do tempo e intensidade */
 export interface MotionQuant {
@@ -223,7 +228,7 @@ export function artClass(a: Pick<ArtQuant, 'brightness' | 'saturation' | 'edgeDe
 /** Mede até `max` quadros (JPG/PNG) e devolve as médias + paleta dominante somada. */
 export async function artQuant(ffmpeg: string, frames: string[], max = 24, signal?: AbortSignal): Promise<ArtQuant | undefined> {
   const pick = frames.length <= max ? frames : Array.from({ length: max }, (_, i) => frames[Math.floor((i * frames.length) / max)]!);
-  const W = 160, H = 90, acc = { brightness: 0, saturation: 0, contrast: 0, edgeDensity: 0, flatness: 0, darkShare: 0, brightShare: 0, warmth: 0 }, all = new Map<number, number>(), bs: number[] = [];
+  const W = 160, H = 90, acc = { brightness: 0, saturation: 0, contrast: 0, edgeDensity: 0, flatness: 0, darkShare: 0, brightShare: 0, warmth: 0 }, all = new Map<number, number>(), bs: number[] = [], grains: number[] = [], texts: number[] = [];
   let n = 0;
   for (const f of pick) {
     try {
@@ -232,6 +237,7 @@ export async function artQuant(ffmpeg: string, frames: string[], max = 24, signa
       const a = artOfPixels(px, W, H);
       for (const k of Object.keys(acc) as Array<keyof typeof acc>) acc[k] += a[k];
       bs.push(a.brightness);
+      try { const g = await rawGray(ffmpeg, f, 640, 360, signal); if (g.length >= 640 * 360) { const ss = sourceSignals(new Uint8Array(g.buffer, g.byteOffset, 640 * 360), 640, 360); grains.push(ss.grain); texts.push(ss.textLike); } } catch { /* sem sinais de origem */ }
       for (const [k, v] of a.hist) all.set(k, (all.get(k) ?? 0) + v);
       n++;
     } catch { /* quadro ilegível */ }
@@ -242,7 +248,7 @@ export async function artQuant(ffmpeg: string, frames: string[], max = 24, signa
     .filter((c, i, arr) => arr.indexOf(c) === i).slice(0, 6);
   const bm = bs.reduce((x, y) => x + y, 0) / bs.length, bvar = r2(Math.sqrt(bs.reduce((x, y) => x + (y - bm) ** 2, 0) / bs.length));
   const lightKey = avg.darkShare >= 0.4 || avg.brightness < 0.3 ? 'baixa' : avg.brightShare >= 0.3 || avg.brightness > 0.65 ? 'alta' : 'média';
-  return { ...avg, palette, artClass: artClass(avg), frames: n, brightnessVar: bvar, lightKey };
+  return { ...avg, palette, artClass: artClass(avg), frames: n, brightnessVar: bvar, lightKey, grain: r2(median(grains) ?? 0), textLike: r2(median(texts) ?? 0) };
 }
 
 /* ───────── movimento de câmera ───────── */
@@ -316,6 +322,64 @@ export async function motionQuant(ffmpeg: string, file: string, maxSec = 300, si
 /** O que não dá para medir só pelos pixels: a IA CONTA nas folhas de 1 quadro/s e escreve as porcentagens. */
 export const SHOT_COUNT_RULE = 'CONTE nas folhas a 1 quadro por segundo (cada quadro = 1 s) e escreva na skill.md, na Etapa scene_plan, as PORCENTAGENS do tempo de: enquadramento (plano geral/aberto, médio, close, detalhe/macro), ângulo (altura dos olhos, plongée/de cima, contra-plongée/de baixo, zenital/top-down, holandês), tipo de imagem (render 3D, foto, ilustração 2D, gráfico/infográfico, texto na tela) e luz (natural, estúdio, neon/brilho, dramática/contraluz). Some 100% em cada grupo. Use os números medidos de luz e câmera acima como verdade.';
 
+
+/* ───────── origem da imagem (câmera, tela, IA de difusão, código) ───────── */
+
+/**
+ * Sinais de ORIGEM num quadro em cinza (função pura, de preferência ≥ 640 px de largura):
+ *  - grain: ruído fino nas áreas lisas (câmera de verdade tem grão; código/IA/tela quase não);
+ *  - textLike: fração de blocos 8×8 com muitos contornos finos sobre fundo quase branco/preto (texto/UI de tela).
+ */
+export function sourceSignals(g: Uint8Array, w: number, h: number): { grain: number; textLike: number } {
+  let gs = 0, gn = 0;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, c = g[i]!;
+    const gx = g[i + 1]! - g[i - 1]!, gy = g[i + w]! - g[i - w]!;
+    if (Math.abs(gx) + Math.abs(gy) > 10) continue;                       // só áreas lisas
+    gs += Math.abs(4 * c - g[i - 1]! - g[i + 1]! - g[i - w]! - g[i + w]!) / 4; gn++;
+  }
+  let text = 0, blocks = 0;
+  for (let by = 0; by + 8 <= h; by += 8) for (let bx = 0; bx + 8 <= w; bx += 8) {
+    let edges = 0, light = 0, dark = 0;
+    for (let y = by; y < by + 8; y++) for (let x = bx; x < bx + 8; x++) {
+      const v = g[y * w + x]!;
+      if (v > 215) light++; else if (v < 40) dark++;
+      if (x > bx && Math.abs(v - g[y * w + x - 1]!) > 70) edges++;
+    }
+    blocks++;
+    if (edges >= 6 && light + dark >= 52) text++;     // quase só extremos (fundo + letra) e muitas bordas finas
+  }
+  return { grain: r2(gn ? gs / gn : 0), textLike: r2(blocks ? text / blocks : 0) };
+}
+
+function rawGray(ffmpeg: string, file: string, w: number, h: number, signal?: AbortSignal): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(resolveBin(ffmpeg), ['-v', 'error', '-i', file, '-frames:v', '1', '-vf', `scale=${w}:${h}:flags=bicubic,format=gray`, '-f', 'rawvideo', 'pipe:1'], { windowsHide: true });
+    const ch: Buffer[] = [];
+    p.stdout.on('data', (d: Buffer) => ch.push(d));
+    signal?.addEventListener('abort', () => p.kill(), { once: true });
+    p.on('error', reject);
+    p.on('close', (c) => (c === 0 ? resolve(Buffer.concat(ch)) : reject(new Error('ffmpeg ' + c))));
+  });
+}
+
+/** O que a IA deve contar: a ORIGEM de cada segundo (o app converte em tipos de cena). */
+export const SOURCE_COUNT_RULE = 'ORIGEM DAS IMAGENS: olhe cada quadro das folhas (1 quadro = 1 s) e classifique como foi PRODUZIDO: "filmado" (câmera real: grão, profundidade de campo, movimento de mão), "tela" (gravação de tela: interface, cursor, texto de site/app), "ia_difusao" (gerado por IA de difusão: texturas lisas, detalhes que derretem/mudam entre quadros, mãos/texto deformados), "codigo" (desenhado por código/motion graphics: formas geométricas perfeitas, cores chapadas, texto tipográfico animado), "render3d" (3D renderizado tradicional), "banco" (foto/vídeo de banco de imagens). Grave sources.json: { "filmado": %, "tela": %, "ia_difusao": %, "codigo": %, "render3d": %, "banco": %, "evidencias": ["o que você viu, com segundos"] } somando 100; e use esse mix na skill.md (Etapa scene_plan): codigo → cenas code/motion, ia_difusao → image/video IA, tela → captura de tela/userMedia, filmado e banco → stock.';
+
+export interface SourceMix { filmado: number; tela: number; ia_difusao: number; codigo: number; render3d: number; banco: number; evidencias?: string[] }
+export function normalizeSources(raw: unknown): SourceMix | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>, keys = ['filmado', 'tela', 'ia_difusao', 'codigo', 'render3d', 'banco'] as const;
+  const v = keys.map((k) => Math.max(0, Number(o[k]) || 0)), sum = v.reduce((a, b) => a + b, 0);
+  if (!sum) return undefined;
+  const pct = v.map((x) => Math.round((x / sum) * 100));
+  pct[pct.indexOf(Math.max(...pct))]! += 100 - pct.reduce((a, b) => a + b, 0);
+  const out = Object.fromEntries(keys.map((k, i) => [k, pct[i]!])) as unknown as SourceMix;
+  if (Array.isArray(o['evidencias'])) out.evidencias = (o['evidencias'] as unknown[]).map((x) => String(x).slice(0, 200)).slice(0, 8);
+  return out;
+}
+export const sourcesText = (m: SourceMix) => 'origem das imagens: ' + (['codigo', 'ia_difusao', 'tela', 'filmado', 'render3d', 'banco'] as const).filter((k) => m[k] > 0).map((k) => ({ codigo: 'código/motion', ia_difusao: 'IA de difusão', tela: 'gravação de tela', filmado: 'filmado', render3d: 'render 3D', banco: 'banco de imagens' }[k] + ' ' + m[k] + '%')).join(' · ');
+
 /* ───────── resumo de vários vídeos ───────── */
 
 export interface CloneQuant {
@@ -361,6 +425,7 @@ export function quantText(q: CloneQuant, label = 'vídeos de referência'): stri
   add(q.sfxPerMin, `efeitos sonoros: mediana de ${q.sfxPerMin}/min${q.sfxMedianGapSec ? ` (1 a cada ${q.sfxMedianGapSec} s)` : ''}`);
   if (q.desc) add(q.desc.chars, `descrição: ~${q.desc.chars} caracteres, ${q.desc.lines} linhas, ${q.desc.paragraphs} parágrafos, 1ª linha ${q.desc.firstLineChars} car., ${q.desc.hashtags} hashtags, ${q.desc.links} links, ${q.desc.chapters} capítulos, ${q.desc.emojis} emojis, ${q.desc.ctas} chamadas para ação`);
   if (q.art) add(q.art.artClass, `arte: ${q.art.artClass} · paleta ${q.art.palette.join(' ')} · brilho ${q.art.brightness} · saturação ${q.art.saturation} · contraste ${q.art.contrast} · contornos ${q.art.edgeDensity} · cores chapadas ${q.art.flatness} (0–1)`);
+  if (q.art?.grain !== undefined) add(1, 'sinais de origem (medidos): grão ' + q.art.grain + ' (câmera real > 1,2) · texto/interface ' + q.art.textLike + ' (tela > 0,08) · cores chapadas ' + q.art.flatness + ' (código > 0,55)');
   if (q.art?.lightKey) add(1, 'luz: clave ' + q.art.lightKey + ' · ' + Math.round((q.art.darkShare ?? 0) * 100) + '% da imagem em sombra, ' + Math.round((q.art.brightShare ?? 0) * 100) + '% em alta luz · temperatura ' + ((q.art.warmth ?? 0) > 0.05 ? 'quente' : (q.art.warmth ?? 0) < -0.05 ? 'fria' : 'neutra') + ' (' + q.art.warmth + ') · variação de luz entre cenas ' + q.art.brightnessVar);
   if (q.motion) { const p = (x?: number) => Math.round((x ?? 0) * 100) + '%'; add(1, 'câmera: estática ' + p(q.motion.staticShare) + ' · pan ' + p(q.motion.panShare) + ' · tilt ' + p(q.motion.tiltShare) + ' · zoom in ' + p(q.motion.zoomInShare) + ' · zoom out ' + p(q.motion.zoomOutShare) + ' · na mão ' + p(q.motion.handheldShare) + ' do tempo · velocidade ' + q.motion.speedPctPerSec + '% da largura/s'); }
   return L.join('\n');
