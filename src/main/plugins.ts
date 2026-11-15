@@ -438,7 +438,8 @@ function withManifest(dir: string, homepage?: string): Partial<PluginInfo> {
 export function listPlugins(s: Settings): PluginInfo[] {
   const dir = pluginsRoot(s);
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).flatMap((e) => {
+  /* só pastas com id de plugin: _deps (dependências dos plugins) e pastas internas não são plugins nem podem ser removidas */
+  return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && SAFE.test(e.name)).flatMap((e) => {
     try {
       const info = describe(path.join(dir, e.name));
       info.id = e.name;                          // id = nome da pasta (estável)
@@ -698,7 +699,8 @@ export function removePlugin(s: Settings, id: string): void {
   if (!SAFE.test(id)) throw new Error('id inválido');
   const dir = path.join(pluginsRoot(s), id);
   if (!fs.existsSync(dir)) throw new Error('plugin não encontrado');
-  fs.rmSync(dir, { recursive: true, force: true });
+  /* Windows: arquivo aberto (antivírus, indexador, servidor do plugin) dá EBUSY/EPERM momentâneo */
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 const readText = (f: string): string => {

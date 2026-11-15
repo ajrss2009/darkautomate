@@ -233,7 +233,10 @@ async function main() {
   assert.deepEqual(inst.commands, ['revisar']);
   assert.deepEqual(inst.mcp, ['busca']);
   assert.equal(listPlugins(s).length, 1);
-  const pp = pluginPrompt(s, [inst.id]);
+  /* _deps (dependências dos plugins) não é plugin: não aparece na lista (antes aparecia e "Remover" dava "id inválido") */
+  fs.mkdirSync(path.join(path.dirname(inst.dir), '_deps', 'node_modules', 'x'), { recursive: true });
+  assert.deepEqual(listPlugins(s).map((x) => x.id), [inst.id], '_deps fora da lista de plugins');
+  const pp =pluginPrompt(s, [inst.id]);
   assert.match(pp, /use \[Meu Plugin\]/);
   assert.match(pp, /paleta neon/);
   assert.match(pp, /Revise o roteiro/);
