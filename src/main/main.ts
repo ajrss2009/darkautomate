@@ -1061,6 +1061,9 @@ function registerIpc() {
     return c;
   });
   h('channel:delete', (id: string) => { cloneStore(settings).remove(id); return true; });
+  /* pauta de vídeos (ideias da clonagem) no banco: listar e mudar o status (ideia → produzindo → publicado) */
+  h('pauta:list', (f?: { channelKey?: string; sourceId?: string; status?: string }) => getDb()?.listPauta(f ?? {}) ?? []);
+  h('pauta:status', (id: string, status: 'ideia' | 'produzindo' | 'publicado' | 'descartado', projectId?: string) => { getDb()?.setPautaStatus(id, status, projectId); return true; });
   h('channel:list', () => listChannelClones(settings));
   /** uso dos harnesses: Claude (sessão/semana), Codex, OpenCode e Antigravity por conta */
   h('usage:report', () => usageReport(settings));

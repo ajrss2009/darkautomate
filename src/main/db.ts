@@ -143,6 +143,13 @@ export class ForgeDb {
       );
       CREATE INDEX IF NOT EXISTS idx_change_entity ON change_log (entity, entity_id);
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS video_idea (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT NOT NULL, channel_key TEXT, skill_id TEXT, language TEXT,
+        idx INTEGER, title TEXT NOT NULL, synopsis TEXT, hook TEXT, angle TEXT, duration_sec REAL, status TEXT NOT NULL DEFAULT 'ideia', project_id TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_idea_channel ON video_idea (org_id, channel_key, status);
+      CREATE INDEX IF NOT EXISTS idx_idea_source ON video_idea (source_id, idx);
     `);
     const v = Number(scalar(this.db, 'PRAGMA user_version') ?? 0);
     if (v < SCHEMA_VERSION) {
@@ -268,6 +275,50 @@ export class ForgeDb {
   }
 
   /** Lista os projetos sem abrir um JSON sequer (o índice responde). */
+
+  /* ───────── pauta de vídeos (ideias da clonagem: título, sinopse, gancho) ───────── */
+
+  /**
+   * Grava a pauta de uma origem (clone de canal ou clonagem por vídeo). Regravar a mesma origem atualiza os
+   * itens pelo título e mantém o status/projeto dos que já entraram em produção.
+   */
+  upsertPauta(source: { kind: 'channel' | 'video'; id: string; channelKey?: string; skillId?: string; language?: string }, items: Array<{ title: string; synopsis: string; hook: string; angle?: string; durationSec?: number }>): number {
+    const now = nowIso();
+    let n = 0;
+    items.forEach((it, i) => {
+      const id = `${source.kind}:${source.id}:${it.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 80)}`;
+      const prev = scalar(this.db, `SELECT id FROM video_idea WHERE id = ?`, [id]);
+      if (prev) this.db.run(`UPDATE video_idea SET idx = ?, synopsis = ?, hook = ?, angle = ?, duration_sec = ?, skill_id = COALESCE(?, skill_id), updated_at = ?, deleted_at = NULL WHERE id = ?`,
+        [i + 1, it.synopsis, it.hook, it.angle ?? null, it.durationSec ?? null, source.skillId ?? null, now, id]);
+      else this.db.run(`INSERT INTO video_idea (id, org_id, source_kind, source_id, channel_key, skill_id, language, idx, title, synopsis, hook, angle, duration_sec, status, project_id, created_at, updated_at, deleted_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ideia',NULL,?,?,NULL)`,
+        [id, this.orgId, source.kind, source.id, source.channelKey ?? null, source.skillId ?? null, source.language ?? null, i + 1, it.title, it.synopsis, it.hook, it.angle ?? null, it.durationSec ?? null, now, now]);
+      this.log('video_idea', id, prev ? 'update' : 'create', { title: it.title, source: source.id });
+      n++;
+    });
+    this.dirty = true;
+    return n;
+  }
+
+  /** Pauta (filtros opcionais por canal, origem ou status), na ordem da sugestão. */
+  listPauta(f: { channelKey?: string; sourceId?: string; status?: string } = {}) {
+    const where = ['org_id = ?', 'deleted_at IS NULL'], params: unknown[] = [this.orgId];
+    if (f.channelKey) { where.push('channel_key = ?'); params.push(f.channelKey); }
+    if (f.sourceId) { where.push('source_id = ?'); params.push(f.sourceId); }
+    if (f.status) { where.push('status = ?'); params.push(f.status); }
+    return this.all<Record<string, unknown>>(`SELECT * FROM video_idea WHERE ${where.join(' AND ')} ORDER BY source_id, idx`, params).map((r) => ({
+      id: String(r['id']), source: { kind: String(r['source_kind']), id: String(r['source_id']) }, channelKey: (r['channel_key'] as string) || undefined, skillId: (r['skill_id'] as string) || undefined,
+      language: (r['language'] as string) || undefined, idx: Number(r['idx']), title: String(r['title']), synopsis: String(r['synopsis'] ?? ''), hook: String(r['hook'] ?? ''),
+      angle: (r['angle'] as string) || undefined, durationSec: r['duration_sec'] === null ? undefined : Number(r['duration_sec']), status: String(r['status']), projectId: (r['project_id'] as string) || undefined,
+    }));
+  }
+
+  /** Marca um item da pauta (ideia → produzindo → publicado) e liga ao projeto criado a partir dele. */
+  setPautaStatus(id: string, status: 'ideia' | 'produzindo' | 'publicado' | 'descartado', projectId?: string): void {
+    this.db.run(`UPDATE video_idea SET status = ?, project_id = COALESCE(?, project_id), updated_at = ? WHERE id = ?`, [status, projectId ?? null, nowIso(), id]);
+    this.log('video_idea', id, 'update', { status, projectId });
+  }
+
   listProjects(): Array<{ id: string; name: string; videoType?: string; createdAt: string; foldId?: string; channelId?: string }> {
     return this.all<{ id: string; name: string; video_type: string; created_at: string; fold_id: string; channel_id: string }>(
       `SELECT id, name, video_type, created_at, fold_id, channel_id FROM project WHERE deleted_at IS NULL ORDER BY created_at DESC`)

@@ -18,7 +18,8 @@ import { applyDnaToSkill, audioSummary, averageMetrics, catchphrases, channelTit
   type AudioProfile, type ChannelDna, type LanguagePick, type PickedVideo, type VideoMetrics } from './channel-dna';
 import type { TitleStructure } from './youtube-rules';
 import { LocalCloneStore } from './clone-store';
-import { artQuant, audioQuant, descQuant, motionQuant, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type AudioQuant, type CloneQuant, type DescQuant, type MotionQuant } from './clone-metrics';
+import { getDb } from './db';
+import { artQuant, audioQuant, descQuant, motionQuant, normalizePauta, pautaMarkdown, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type PautaItem, type AudioQuant, type CloneQuant, type DescQuant, type MotionQuant } from './clone-metrics';
 
 /*
  * CLONAR CANAL (Obter vídeos → Canais):
@@ -74,6 +75,8 @@ export interface ChannelCloneResult {
   brand: ChannelBrand;
   thumbnail?: { name?: string; prompt?: string; layout?: ThumbnailTemplate['layout']; rules?: string };
   demoIdea?: string;
+  /** pauta: 20 vídeos prontos para produzir (título, sinopse, gancho dos 15 s) na dobra escolhida */
+  pauta?: PautaItem[];
   skill: Skill; route: Route; thumbnailTemplate?: ThumbnailTemplate;
   files: { banner?: string; thumb?: string; demo?: string };
   warnings: string[];
@@ -273,7 +276,8 @@ ${input.note?.trim() ? `\n## Pedido do usuário\n${input.note.trim()}\n` : ''}
   "brand": { "names": ["5 nomes de canal originais"], "handle": "@...", "tagline": "...", "description": "descrição do canal pronta para colar no YouTube (no idioma do canal, 600–1000 caracteres, com palavras-chave)",
     "keywords": ["..."], "colors": ["#hex primária", "#hex secundária", "#hex destaque", "#hex fundo"], "fonts": "...", "logoIdea": "...", "bannerPrompt": "prompt para gerar o banner 2560×1440 por IA de imagem", "avatarPrompt": "...", "tone": "..." },
   "thumbnail": { "name": "nome curto do estilo", "prompt": "prompt de imagem que reproduz o ESTILO das thumbnails do canal (sem marcas/rostos reais)", "layout": "impacto|explicativo|documentario|minimal|split", "rules": "regras de texto, cor e composição" },
-  "demoIdea": "ideia do vídeo de 10 s que mostra o estilo do canal novo"
+  "demoIdea": "ideia do vídeo de 10 s que mostra o estilo do canal novo",
+  "pauta": [ 20 itens { "title": "título NOVO na estrutura medida dos títulos", "synopsis": "2–4 frases seguindo os atos medidos", "hook": "gancho dos primeiros 15 s na MESMA anatomia do gancho analisado", "angle": "ângulo", "durationSec": <duração pela mediana medida> } — vídeos da dobra escolhida, sem repetir tema, do mais promissor para o menos ]
 }
 Tudo baseado no que você VIU (folhas a 1 quadro por segundo, quadros e thumbnails) e no que foi MEDIDO — seja específico (hex, segundos, % de planos, palavras por frase, LUFS, BPM, SFX por minuto, % de cada ato).
 PRINCÍPIO: do canal de origem extraia a ESTRUTURA (ritmo, gancho, atos, densidade, takes, câmera, SFX, dinâmica da trilha); a identidade do canal novo (nome, marca, paleta, fontes, bordões, assuntos) é PRÓPRIA — nunca copie frases, marca ou conteúdo. As dobras precisam ser SUBNICHOS diferentes entre si e diferentes do canal de origem; nada de copiar nome, marca, personagens ou assuntos específicos.
@@ -496,6 +500,10 @@ Use ESTES números na skill.md (ritmo, música, efeitos, descrição, arte, luz 
   const dna = normalizeDna(ch['dna']);
   const warnings: string[] = [];
   if (bends.length < 10) warnings.push(`a IA sugeriu ${bends.length} dobras de nicho (pedido: 10)`);
+  /* pauta de produção: 20 vídeos com título, sinopse e gancho (também em pauta.md, para ler/editar) */
+  const pauta = normalizePauta(ch['pauta'], 20);
+  if (pauta.length < 20) warnings.push(`a IA entregou ${pauta.length} vídeos na pauta (pedido: 20)`);
+  if (pauta.length) fs.writeFileSync(path.join(dir, 'pauta.md'), pautaMarkdown(pauta, `Pauta — ${String((ch['brand'] as ChannelBrand | undefined)?.names?.[0] ?? srcName)}`), 'utf8');
   if (!ch['dna']) warnings.push('a IA não devolveu o DNA detalhado (visual/câmera/roteiro); a skill usa só as métricas medidas');
   step('save', 82, 'criando skill, rota, dobras e template de thumbnail');
   const brandName = brand.names?.[0]?.trim() || `${srcName} (dobra)`;
@@ -567,13 +575,15 @@ ${qText}`.trim() });
     id, dir, createdAt: new Date().toISOString(),
     source: { url: input.channelUrl, name: srcName, subs: list.channel_follower_count, description: list.description?.slice(0, 1500), avatar: refs.avatar && path.join(dir, refs.avatar), banner: refs.banner && path.join(dir, refs.banner) },
     metrics, recent: entries.slice(0, 12).map((e, i) => ({ id: e.id!, title: e.title ?? '', views: e.view_count ?? undefined, durationSec: e.duration ?? undefined, thumb: thumbs[i] && path.join(dir, thumbs[i]!) })),
-    analysis: (ch['analysis'] ?? {}) as Record<string, unknown>, bends, chosenBend, foldIds, channelKey, language, brand, thumbnail, demoIdea: typeof ch['demoIdea'] === 'string' ? ch['demoIdea'] : undefined,
+    analysis: (ch['analysis'] ?? {}) as Record<string, unknown>, bends, chosenBend, foldIds, channelKey, language, brand, thumbnail, demoIdea: typeof ch['demoIdea'] === 'string' ? ch['demoIdea'] : undefined, pauta,
     skill, route, thumbnailTemplate, files, warnings,
     videos: analyzed.map((a) => ({ ...a, sheet: a.sheet && path.join(dir, a.sheet), frames: a.frames?.map((f) => path.join(dir, f)) })),
     measured, titleStructure: titleStr, quant, dna, languages,
   };
   /* gravado pelo armazenamento: esquema versionado, caminhos relativos (portátil) e estado de sincronização */
   const saved = cloneStore(s, o.appVersion).save(result);
+  /* a pauta vai para o banco de dados (aba de ideias: ideia → produzindo → publicado) */
+  if (pauta.length) { try { const n = getDb()?.upsertPauta({ kind: 'channel', id, channelKey, skillId: skill.id, language: input.language || language?.code }, pauta); if (n) log(`pauta: ${n} vídeos gravados no banco de dados`); } catch (e) { log(`pauta não gravada no banco: ${(e as Error).message}`); } }
   step('done', 100, `canal clonado: ${brandName}`);
   log(`canal clonado: skill "${skill.name}", rota "${route.name}"`);
   return saved;

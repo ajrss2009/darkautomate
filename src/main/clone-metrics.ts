@@ -365,3 +365,33 @@ export function quantText(q: CloneQuant, label = 'vídeos de referência'): stri
   if (q.motion) { const p = (x?: number) => Math.round((x ?? 0) * 100) + '%'; add(1, 'câmera: estática ' + p(q.motion.staticShare) + ' · pan ' + p(q.motion.panShare) + ' · tilt ' + p(q.motion.tiltShare) + ' · zoom in ' + p(q.motion.zoomInShare) + ' · zoom out ' + p(q.motion.zoomOutShare) + ' · na mão ' + p(q.motion.handheldShare) + ' do tempo · velocidade ' + q.motion.speedPctPerSec + '% da largura/s'); }
   return L.join('\n');
 }
+
+/* ───────── pauta de produção ───────── */
+
+/** Um vídeo da pauta: título na estrutura medida, sinopse, gancho dos primeiros 15 s no formato analisado. */
+export interface PautaItem { title: string; synopsis: string; hook: string; angle?: string; durationSec?: number }
+
+/** Pauta pedida à IA (o mesmo texto vai para a clonagem de canal e por vídeo). */
+export const PAUTA_RULE = 'PAUTA: 20 vídeos NOVOS prontos para produzir no formato clonado (e na dobra escolhida, se houver), cada um { "title": "título na ESTRUTURA medida dos títulos (tamanho, números, palavras-chave)", "synopsis": "sinopse de 2–4 frases: o que acontece do começo ao fim, seguindo os atos medidos", "hook": "o gancho dos primeiros 15 s, no MESMO formato/anatomia do gancho analisado", "angle": "ângulo/abordagem", "durationSec": <duração-alvo pela mediana medida> }. Sem repetir tema; do mais promissor para o menos.';
+
+export function normalizePauta(raw: unknown, max = 20): PautaItem[] {
+  if (!Array.isArray(raw)) return [];
+  const str = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
+  const seen = new Set<string>();
+  const out: PautaItem[] = [];
+  for (const x of raw as Array<Record<string, unknown>>) {
+    if (!x || typeof x !== 'object') continue;
+    const title = str(x['title'], 120), synopsis = str(x['synopsis'] ?? x['sinopse'], 900), hook = str(x['hook'] ?? x['gancho'], 500);
+    const key = title.toLowerCase();
+    if (!title || !synopsis || seen.has(key)) continue;
+    seen.add(key);
+    const d = Number(x['durationSec']);
+    out.push({ title, synopsis, hook, ...(str(x['angle'], 200) ? { angle: str(x['angle'], 200) } : {}), ...(Number.isFinite(d) && d > 0 ? { durationSec: Math.round(d) } : {}) });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+export function pautaMarkdown(items: PautaItem[], header: string): string {
+  return [`# ${header}`, '', ...items.map((p, i) => `## ${i + 1}. ${p.title}${p.durationSec ? ` (${Math.round(p.durationSec / 60 * 10) / 10} min)` : ''}\n\n**Gancho (0–15 s):** ${p.hook}\n\n**Sinopse:** ${p.synopsis}${p.angle ? `\n\n**Ângulo:** ${p.angle}` : ''}\n`)].join('\n');
+}

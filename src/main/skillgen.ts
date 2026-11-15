@@ -12,11 +12,12 @@ import { listRoutes, listSkills, getSkill, parseSkillMarkdown, saveSkill, slugif
 import { VIDEO_TYPES } from './presets';
 import { ALL_ANGLES } from '../shared/angles';
 import { checkSkillRoute } from '../shared/compat';
+import { getDb } from './db';
 import { frameSheets, measureVideo, normalizeLanguages, type LanguagePick, type VideoMetrics } from './channel-dna';
 
 /** ranking de idiomas pedido à IA (arquivo separado do skill.md) */
 const LANG_RULE = 'Grave também languages.json: [5 itens, do melhor para o pior, idiomas com MAIS chance de sucesso para este formato] cada um { "code": "en|pt-BR|es|hi|…", "score": 0-10, "why": "tamanho do público, concorrência nesse idioma, CPM", "audience": "público estimado", "competition": "baixa|média|alta", "cpm": "baixo|médio|alto" }.';
-import { artQuant, audioQuant, descQuant, motionQuant, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type AudioQuant, type DescQuant, type MotionQuant } from './clone-metrics';
+import { artQuant, audioQuant, descQuant, motionQuant, normalizePauta, PAUTA_RULE, pautaMarkdown, quantText, readWords, SHOT_COUNT_RULE, summarizeQuant, type PautaItem, type AudioQuant, type DescQuant, type MotionQuant } from './clone-metrics';
 
 /*
  * Nova SKILL a partir de vídeos de referência:
@@ -35,7 +36,7 @@ export interface SkillGenInput {
   name?: string; language?: string; framesPerVideo?: number;
 }
 export type VideoRef = { idx: number; frames: string[]; transcript?: string; info: Record<string, unknown>; url?: string };
-export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string; /** números medidos (mediana dos vídeos) */ quant?: import('./clone-metrics').CloneQuant; /** idiomas com mais chance de sucesso (nota 0–10) */ languages?: LanguagePick[] }
+export interface SkillGenResult { skill: Skill; routeId: string; routeName: string; routeReason: string; warnings: string[]; workdir: string; /** números medidos (mediana dos vídeos) */ quant?: import('./clone-metrics').CloneQuant; /** idiomas com mais chance de sucesso (nota 0–10) */ languages?: LanguagePick[]; /** 20 vídeos para produzir (título, sinopse, gancho) */ pauta?: PautaItem[] }
 
 function run(cmd: string, args: string[], signal?: AbortSignal): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
@@ -284,6 +285,7 @@ ${qText}
 FOLHAS A 1 QUADRO POR SEGUNDO (12 s cada, em ordem; leia a arte, o texto na tela e o ritmo): ${sheetRel.slice(0, 25).join(', ')}
 ${SHOT_COUNT_RULE}
 ${LANG_RULE}
+Grave também pauta.json — ${PAUTA_RULE}
 Use ESTES números na skill.md — não invente outros.`, model, effort: input.effort, signal: signal ?? new AbortController().signal, onLine: (l) => log(l.slice(0, 300)), timeoutSec: 1800,
       env: id === 'antigravity' ? activeAgyEnv(s) : undefined, tools: { roots: [workdir], allowShell: false },
       images: isHttpHarness(cfg) ? [...sheets.slice(0, 6), ...videos.flatMap((v) => v.frames.filter((_, i) => i % 2 === 0)).slice(0, 6).map((f) => path.join(workdir, f))] : undefined });
@@ -307,7 +309,12 @@ ${qText}`.trim() });
   try { languages = normalizeLanguages(JSON.parse(fs.readFileSync(path.join(workdir, 'languages.json'), 'utf8')), 5); } catch { /* a IA não gravou */ }
   if (languages.length) log(`idiomas recomendados: ${languages.map((l) => `${l.code} ${l.score}/10`).join(' · ')}`);
   else warnings.push('a IA não gravou languages.json (ranking de idiomas)');
+  let pauta: PautaItem[] = [];
+  try { pauta = normalizePauta(JSON.parse(fs.readFileSync(path.join(workdir, 'pauta.json'), 'utf8')), 20); } catch { /* a IA não gravou */ }
+  if (pauta.length) { fs.writeFileSync(path.join(workdir, 'pauta.md'), pautaMarkdown(pauta, `Pauta — ${saved.name}`), 'utf8'); log(`pauta: ${pauta.length} vídeos (título, sinopse e gancho) em pauta.md`); }
+  if (pauta.length < 20) warnings.push(`a IA entregou ${pauta.length} vídeos na pauta (pedido: 20)`);
+  if (pauta.length) { try { const n = getDb()?.upsertPauta({ kind: 'video', id: path.basename(workdir), skillId: saved.id, language: input.language }, pauta); if (n) log(`pauta: ${n} vídeos gravados no banco de dados`); } catch (e) { log(`pauta não gravada no banco: ${(e as Error).message}`); } }
   ok = true;
-  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir, quant, languages };
+  return { skill: saved, routeId: route.id, routeName: route.name, routeReason, warnings, workdir, quant, languages, pauta };
   } finally { cleanup(workdir, ok, log); }
 }

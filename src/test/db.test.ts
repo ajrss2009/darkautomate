@@ -117,6 +117,23 @@ async function main() {
   assert.ok(fs.readdirSync(root).some((f) => f.startsWith('filmforge.db.corrupt-')), 'guarda o arquivo corrompido');
   db3.close();
 
+  /* pauta de vídeos: grava, regrava sem duplicar e mantém o status de quem entrou em produção */
+  {
+    const dbp = await ForgeDb.open({ root, workspace: ws });
+    const items = [{ title: 'Baleia Hadal: Estágios Explicados', synopsis: 'Do ovo ao leviatã.', hook: 'Baleias são enormes. Esta não é comum.', durationSec: 595 },
+      { title: 'Kraken Abissal: Estágios', synopsis: 'Do embrião ao titã.', hook: 'Polvos são inteligentes.' }];
+    assert.equal(dbp.upsertPauta({ kind: 'channel', id: 'clone-1', channelKey: 'hadal', skillId: 'sk' }, items), 2);
+    const l1 = dbp.listPauta({ channelKey: 'hadal' });
+    assert.deepEqual(l1.map((x) => [x.idx, x.title, x.status]), [[1, items[0]!.title, 'ideia'], [2, items[1]!.title, 'ideia']]);
+    dbp.setPautaStatus(l1[0]!.id, 'produzindo', 'proj-1');
+    dbp.upsertPauta({ kind: 'channel', id: 'clone-1', channelKey: 'hadal' }, [{ ...items[0]!, synopsis: 'Nova sinopse.' }]);
+    const l2 = dbp.listPauta({ sourceId: 'clone-1' });
+    assert.equal(l2.length, 2, 'regravar não duplica');
+    assert.equal(l2[0]!.synopsis, 'Nova sinopse.'); assert.equal(l2[0]!.status, 'produzindo'); assert.equal(l2[0]!.projectId, 'proj-1');
+    assert.equal(dbp.listPauta({ status: 'ideia' }).length, 1);
+    dbp.close();
+  }
+
   /* sem banco aberto (CLI/testes), a lista cai na varredura de sempre */
   const fallback = [{ id: 'x', name: 'X', createdAt: '' }] as never;
   assert.deepEqual(listProjectsIndexed(s, () => fallback), fallback);
