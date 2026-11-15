@@ -2319,7 +2319,9 @@ async function viggleRemake(c: ExecContext, o: ExecutorOptions): Promise<ExecRes
   /* resolução na proporção do vídeo de origem (~0,6 MP, múltiplo de 32) */
   const dims = await ff.run(c.settings.ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', src.video], c.signal).then((r) => r.stdout.trim().split(',').map(Number)).catch(() => [1280, 720]);
   const size = fitArea(dims[0] || 1280, dims[1] || 720, 0.6, 32);
-  const base = VIGGLE_MODEL[mode];
+  const chosen = mode === 'swap' ? cfg.special?.swap : cfg.special?.swapEdit;
+  const base = chosen && /^viggle_(remake|animate)/.test(chosen) ? chosen : VIGGLE_MODEL[mode];
+  if (chosen && chosen !== base) c.log(`modelo de troca escolhido (${chosen}) usa outro formato de entrada — usando ${base}`);
   const settings: Record<string, unknown> = { prompt, video_guide: src.video, image_refs: [edited], video_prompt_type: 'IVU', video_length: `${Math.max(1, Math.round(src.seconds))}s`,
     resolution: `${size.width}x${size.height}`, seed: parseInt(crypto.createHash('md5').update(c.project.id).digest('hex').slice(0, 8), 16) % 2147483647 };
   const fam = h3Family(base);

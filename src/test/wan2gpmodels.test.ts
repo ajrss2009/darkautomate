@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { refPrompt, speechSeconds, wan2gpKind, wan2gpLanguage } from '../main/wan2gp';
 import { applyH3Choice, classifyH3Lora, h3Family, h3Options } from '../main/h3accel';
+import { classifySpecial } from '../main/wan2gp-special';
 import { frameEditPrompt, VIGGLE_SECTIONS, viggleInputs, viggleMode, viggleprompt } from '../main/viggle';
 import { cleanWan2gpPost } from '../main/ops';
 import { placeholders } from '../main/comfyui';
@@ -140,6 +141,14 @@ function main() {
     assert.ok(fromScript.startsWith('subject_definitions:'), 'usa o prompt do roteiro');
     assert.match(frameEditPrompt('troque por um robô', 'swap', ['imagem 2 — robô']), /Keep EVERYTHING else/);
   }
+  /* modelos especiais: troca de personagem/objeto e 2D → 3D */
+  assert.equal(classifySpecial('viggle_remake', {}), 'swap'); assert.equal(classifySpecial('viggle_remake_edit', {}), 'swapEdit'); assert.equal(classifySpecial('viggle_animate', {}), 'swap');
+  assert.equal(classifySpecial('qwen_image_21_viggle_image_swap_7B', {}), 'swapImage'); assert.equal(classifySpecial('animate2', { architecture: 'animate2' }), 'swap');
+  assert.equal(classifySpecial('hunyuan3d_21_shape', { description: 'one picture of an object to a 3D mesh (GLB)' }), 'shape3d');
+  assert.equal(classifySpecial('trellis2_texture', { description: 'PBR textures for a supplied mesh' }), 'texture3d');
+  assert.equal(classifySpecial('hi3d', { name: 'Hi3D Mesh Refiner', description: 'coarse 3D mesh' }), 'refine3d');
+  assert.equal(classifySpecial('animate_any_mesh', {}), 'animate3d'); assert.equal(classifySpecial('geosam2', { description: '3D Part Segmentation' }), 'parts3d');
+  assert.equal(classifySpecial('hunyuan_1_5_i2v', { description: 'video' }), undefined);
   console.log('wan2gp models tests: OK');
 }
 main();

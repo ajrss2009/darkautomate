@@ -61,7 +61,9 @@ export interface Wan2gpConfig { root: string; python: string; cliArgs: string[];
   /** versão do diretor do Showrunner gravada no wgp_config.json (qwen38_9b, qwen38_27b…); vazio = a do Wan2GP */ director?: string;
   /** perfil de memória (--profile) do servidor que o app abre para o Showrunner; padrão '5' (à prova de falhas); '' = o do Wan2GP */ serverProfile?: string;
   /** MiniMax H3: modelo + LoRA de aceleração (2/3/4/8 passos) por família — fl2va = imagem→vídeo/loop; ref2va = elenco/UGC */
-  h3?: Partial<Record<'fl2va' | 'ref2va' | 'ltx23' | 'ltx25' | 'viggle_swap' | 'viggle_edit', { model?: string; lora?: string; steps?: number }>> }
+  h3?: Partial<Record<'fl2va' | 'ref2va' | 'ltx23' | 'ltx25' | 'viggle_swap' | 'viggle_edit', { model?: string; lora?: string; steps?: number }>>;
+  /** modelos especiais escolhidos: troca de personagem/objeto (Viggle e semelhantes) e 2D → 3D (sólidos de imagens) */
+  special?: Partial<Record<'swap' | 'swapImage' | 'swapEdit' | 'shape3d' | 'texture3d' | 'refine3d' | 'animate3d' | 'parts3d', string>> }
 /** Perfis de memória do Wan2GP para o servidor do Showrunner (o 4.5 padrão mantém ~19 GB de modelos na RAM e falta memória com o diretor). */
 export const WAN2GP_PROFILES: Array<[string, string]> = [['5', 'Perfil 5 — à prova de falhas (recomendado com o diretor)'], ['0', 'Perfil 0 — pouca RAM fixa'], ['', 'o configurado no Wan2GP'], ['4', 'Perfil 4 — modelos principais na RAM']];
 /** Pós-processamento do Wan2GP no vídeo final (valores do próprio Wan2GP; vazio = desligado). */

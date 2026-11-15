@@ -1346,6 +1346,39 @@ export async function renderSettings(c: Ctx, reload = true) {
           }) }, '🔎 Detectar modelos instalados'),
           mt, h('button', { onclick: () => void guard(async () => { wout.textContent = JSON.stringify(await forge['wan2gpDefaults'](mt.value.trim()), null, 1).slice(0, 4000); }) }, 'Ver padrões do modelo')),
         wout,
+        /* modelos especiais: troca de personagem/objeto (Viggle e semelhantes) e 2D → 3D (sólidos de imagens) */
+        (() => {
+          w.special = w.special ?? {};
+          type Cat = 'swap' | 'swapImage' | 'swapEdit' | 'shape3d' | 'texture3d' | 'refine3d' | 'animate3d' | 'parts3d';
+          const CATS: Array<[Cat, string]> = [['swap', 'Troca de personagem (vídeo)'], ['swapImage', 'Troca de personagem (imagem / quadro)'], ['swapEdit', 'Troca de objeto, cenário ou luz (vídeo)'],
+            ['shape3d', '2D → 3D: sólido (malha GLB) de uma imagem'], ['texture3d', '3D: textura (PBR) na malha'], ['refine3d', '3D: refinar malha'], ['animate3d', '3D: animar malha por texto'], ['parts3d', '3D: separar a malha em partes']];
+          type M = { model_type: string; name: string; description: string; category: Cat; status: string };
+          const tag = (st: string) => (st === 'available' ? '✅' : st === 'partial' ? '🟡' : '⬇');
+          const info = h('div', { class: 'muted', style: 'font-size:12px;white-space:pre-wrap' });
+          const sels = CATS.map(([cat, label]) => {
+            const cur = w.special![cat];
+            const el = h('select', { 'data-field': 'wan-special-' + cat }, h('option', { value: '' }, '(nenhum)'), ...(cur ? [h('option', { value: cur, selected: true }, cur)] : [])) as HTMLSelectElement;
+            el.addEventListener('change', () => { if (el.value) w.special![cat] = el.value; else delete w.special![cat]; const m = all.find((x) => x.model_type === el.value); info.textContent = m ? `${m.name}: ${m.description}` : ''; });
+            return { cat, label, el };
+          });
+          let all: M[] = [];
+          const load = () => void guard(async () => {
+            await forge['setSettings'](s);
+            const r = await forge['wan2gpSpecialModels']() as { models: M[] };
+            all = r.models;
+            for (const x of sels) {
+              const keep = x.el.value;
+              x.el.replaceChildren(h('option', { value: '' }, '(nenhum)'), ...all.filter((m) => m.category === x.cat).map((m) => h('option', { value: m.model_type, title: m.description }, `${tag(m.status)} ${m.name}`)));
+              x.el.value = keep && all.some((m) => m.model_type === keep) ? keep : '';
+            }
+            info.textContent = `${all.length} modelo(s) especial(is): ✅ instalado · 🟡 parcial (baixa o resto no 1º uso) · ⬇ baixa no 1º uso`;
+            toast(`${all.length} modelo(s) de troca e 3D no Wan2GP — escolha e salve as Configurações`);
+          });
+          return h('div', { class: 'card' }, h('strong', {}, 'Wan2GP — troca de personagens/objetos e 2D → 3D'),
+            h('p', { class: 'muted' }, 'Troca: refaz um vídeo curto trocando pessoas/personagens ou objetos, mantendo movimento, câmera e som (skill "Remake de vídeo curto"). 2D → 3D: gera um sólido 3D (malha GLB) a partir de uma imagem, com textura, refino, animação e partes.'),
+            h('div', { class: 'row', style: 'flex-wrap:wrap' }, ...sels.map((x) => h('label', { class: 'grow' }, x.label, x.el)), h('button', { 'data-act': 'wan-special', onclick: load }, '🔎 Ler modelos de troca e 3D')),
+            info);
+        })(),
         /* MiniMax H3 com LoRA de aceleração: lê os modelos instalados e as LoRAs (2/3/4/8 passos) e escolhe por família */
         (() => {
           w.h3 = w.h3 ?? {};

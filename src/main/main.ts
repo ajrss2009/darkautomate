@@ -75,6 +75,7 @@ import { findOutliers, type FinderQuery } from './finder';
 import { analyzeGaps, cachedCollection, collectFrontier, depthPlan, gapToProjectInput, listFrontiers, loadGaps, makeFrontier, researchRoot, saveCachedCollection, saveResearch, type Frontier, type Gap } from './research';
 import { closeDb, getDb, listProjectsIndexed, openDb, setProjectCostProvider } from './db';
 import { h3Options, scanH3Loras } from './h3accel';
+import { scanSpecialModels } from './wan2gp-special';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
@@ -1848,6 +1849,8 @@ function registerIpc() {
   h('wan2gp:showrunner-status', async () => { const base = wanServer(settings.wan2gp ?? { root: '', python: '', cliArgs: [] }); return { up: await showrunnerUp(base), url: `${base}/showrunner/` }; });
   h('wan2gp:defaults', (modelType: string) => wan().defaults(modelType));
   /* MiniMax H3: modelos instalados × LoRAs de aceleração (2/3/4/8 passos) da pasta loras/minimax_h3 */
+  /* modelos especiais do Wan2GP: troca de personagem/objeto e 2D → 3D (instalados ou para baixar no 1º uso) */
+  h('wan2gp:special-models', async () => { let av: Array<{ model_type: string; status: string }> = []; try { av = await wan().availability(); } catch { /* sem ponte: só as definições */ } return { models: scanSpecialModels(settings.wan2gp?.root ?? '', av), current: settings.wan2gp?.special ?? {} }; });
   h('wan2gp:h3-options', async () => { const loras = scanH3Loras(settings.wan2gp?.root ?? ''); const av = await wan().availability(); return { loras, options: h3Options(av, loras), current: settings.wan2gp?.h3 ?? {} }; });
 
   // sistema de memória do FilmForge
