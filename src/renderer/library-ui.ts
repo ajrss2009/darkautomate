@@ -1346,6 +1346,36 @@ export async function renderSettings(c: Ctx, reload = true) {
           }) }, '🔎 Detectar modelos instalados'),
           mt, h('button', { onclick: () => void guard(async () => { wout.textContent = JSON.stringify(await forge['wan2gpDefaults'](mt.value.trim()), null, 1).slice(0, 4000); }) }, 'Ver padrões do modelo')),
         wout,
+        /* MiniMax H3 com LoRA de aceleração: lê os modelos instalados e as LoRAs (2/3/4/8 passos) e escolhe por família */
+        (() => {
+          w.h3 = w.h3 ?? {};
+          type Opt = { id: string; family: 'fl2va' | 'ref2va'; model: string; lora?: string; steps?: number; label: string };
+          const mk = (fam: 'fl2va' | 'ref2va') => {
+            const cur = w.h3![fam];
+            const s1 = h('select', { 'data-field': 'wan-h3-' + fam }, h('option', { value: '' }, '(o do template)'),
+              ...(cur?.model ? [h('option', { value: cur.model + (cur.lora ? '|' + cur.lora : ''), selected: true }, cur.model + (cur.lora ? ' + ' + cur.lora + ' (' + (cur.steps ?? '?') + ' passos)' : ''))] : [])) as HTMLSelectElement;
+            s1.addEventListener('change', () => { const v = s1.value; if (!v) { delete w.h3![fam]; return; } const o = opts.find((x) => x.id === v); w.h3![fam] = o ? { model: o.model, lora: o.lora, steps: o.steps } : { model: v.split('|')[0], lora: v.split('|')[1] }; });
+            return s1;
+          };
+          let opts: Opt[] = [];
+          const fl = mk('fl2va'), rf = mk('ref2va');
+          const load = () => void guard(async () => {
+            await forge['setSettings'](s);
+            const r = await forge['wan2gpH3Options']() as { options: Opt[]; loras: Array<{ file: string; steps: number; family: string }> };
+            opts = r.options;
+            for (const [el, fam] of [[fl, 'fl2va'], [rf, 'ref2va']] as const) {
+              const keep = el.value;
+              el.replaceChildren(h('option', { value: '' }, '(o do template)'), ...opts.filter((o) => o.family === fam).map((o) => h('option', { value: o.id }, o.label + (o.steps ? '' : ''))));
+              el.value = keep && opts.some((o) => o.id === keep) ? keep : '';
+            }
+            wout.textContent = r.loras.length ? 'LoRAs de aceleração do MiniMax H3:\n' + r.loras.map((l) => `• ${l.steps} passos — ${l.file} (${l.family === 'any' ? 'FL2VA e Ref2VA' : l.family.toUpperCase()})`).join('\n') : 'nenhuma LoRA de aceleração em loras/minimax_h3';
+            toast(`${opts.length} combinação(ões) de modelo H3 + aceleração — escolha e salve as Configurações`);
+          });
+          return h('div', { class: 'card' }, h('strong', {}, 'MiniMax H3 — modelo e aceleração'),
+            h('p', { class: 'muted' }, 'Menos passos = muito mais rápido (2, 3, 4 ou 8 passos com a LoRA de aceleração). Vale para todos os templates H3 do app da mesma família.'),
+            h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Imagem → vídeo e loop (FL2VA)', fl), h('label', { class: 'grow' }, 'Elenco / UGC / lipsync (Ref2VA)', rf),
+              h('button', { 'data-act': 'wan-h3', onclick: load }, '🔎 Ler modelos H3 e acelerações')));
+        })(),
         h('div', {}, h('strong', {}, 'Modelos Wan2GP carregados'), h('span', { class: 'muted' }, ' — por modalidade; as rotas avisam quando um template usa um model_type fora desta lista'),
           ...wanLists.map((w) => h('div', { class: 'wanlist' }, h('span', { class: 'muted' }, w.l), w.ml.el)))));
   }

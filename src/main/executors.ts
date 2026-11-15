@@ -15,6 +15,7 @@ import * as prov from './providers';
 import * as ff from './ffmpeg';
 import { spawn } from 'node:child_process';
 import { decodeMono, hexColor, isAppVisualizer, visualizerBox, writeVisualizer } from './visualizer';
+import { applyH3Choice, h3Family } from './h3accel';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
 import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, primaryFileFor, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
@@ -1029,7 +1030,11 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   }
   const dest0 = primaryFile(c.step.kind, c);
   const client = Wan2gpClient.get(cfg, path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'wan2gp_bridge.py'));
-  const res = await client.generate(tpl.model_type, settings, c.signal, c.log);
+  /* MiniMax H3: modelo + LoRA de aceleração (2/3/4/8 passos) escolhidos em Provedores → Wan2GP */
+  const fam = h3Family(tpl.model_type);
+  const h3 = applyH3Choice(tpl.model_type, settings, fam ? cfg.h3?.[fam] : undefined);
+  if (h3.note) c.log(h3.note);
+  const res = await client.generate(h3.modelType, h3.settings, c.signal, c.log);
   if (res.unknownKeys.length) c.log(`Wan2GP: chaves desconhecidas para ${tpl.model_type} (confira com "Listar modelos"): ${res.unknownKeys.join(', ')}`);
   const wantExt = c.step.kind === 'image' || c.step.kind === 'thumbnail' ? /\.(png|jpe?g|webp)$/i : c.step.kind === 'video' ? /\.(mp4|mov|webm|mkv)$/i : /\.(mp3|wav|flac|ogg|m4a)$/i;
   const pick = res.files.find((f) => wantExt.test(f) && fs.existsSync(f));

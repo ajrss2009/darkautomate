@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('forge', {
   testWan2gp: () => call('wan2gp:test'),
   wan2gpModels: () => call('wan2gp:models'),
   wan2gpAvailability: () => call('wan2gp:availability'),
+  wan2gpH3Options: () => call('wan2gp:h3-options'),
   showrunnerOpen: () => call('wan2gp:showrunner-open'),
   showrunnerStatus: () => call('wan2gp:showrunner-status'),
   wan2gpDefaults: (m: string) => call('wan2gp:defaults', m),

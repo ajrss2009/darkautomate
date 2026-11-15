@@ -59,7 +59,9 @@ export interface ComfyBinding {
 export interface Wan2gpBinding { type: 'wan2gp'; template: string; refAudio?: string }
 export interface Wan2gpConfig { root: string; python: string; cliArgs: string[]; /** servidor web do Wan2GP (Showrunner); padrão http://127.0.0.1:7860 */ serverUrl?: string;
   /** versão do diretor do Showrunner gravada no wgp_config.json (qwen38_9b, qwen38_27b…); vazio = a do Wan2GP */ director?: string;
-  /** perfil de memória (--profile) do servidor que o app abre para o Showrunner; padrão '5' (à prova de falhas); '' = o do Wan2GP */ serverProfile?: string }
+  /** perfil de memória (--profile) do servidor que o app abre para o Showrunner; padrão '5' (à prova de falhas); '' = o do Wan2GP */ serverProfile?: string;
+  /** MiniMax H3: modelo + LoRA de aceleração (2/3/4/8 passos) por família — fl2va = imagem→vídeo/loop; ref2va = elenco/UGC */
+  h3?: { fl2va?: { model?: string; lora?: string; steps?: number }; ref2va?: { model?: string; lora?: string; steps?: number } } }
 /** Perfis de memória do Wan2GP para o servidor do Showrunner (o 4.5 padrão mantém ~19 GB de modelos na RAM e falta memória com o diretor). */
 export const WAN2GP_PROFILES: Array<[string, string]> = [['5', 'Perfil 5 — à prova de falhas (recomendado com o diretor)'], ['0', 'Perfil 0 — pouca RAM fixa'], ['', 'o configurado no Wan2GP'], ['4', 'Perfil 4 — modelos principais na RAM']];
 /** Pós-processamento do Wan2GP no vídeo final (valores do próprio Wan2GP; vazio = desligado). */

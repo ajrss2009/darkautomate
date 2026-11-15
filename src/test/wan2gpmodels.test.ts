@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { refPrompt, speechSeconds, wan2gpKind, wan2gpLanguage } from '../main/wan2gp';
+import { applyH3Choice, classifyH3Lora, h3Family, h3Options } from '../main/h3accel';
 import { cleanWan2gpPost } from '../main/ops';
 import { placeholders } from '../main/comfyui';
 import { pickShowrunnerTemplates, setWanDirector, showrunnerBrief, showrunnerKind, showrunnerShots } from '../main/showrunner';
@@ -87,6 +88,31 @@ function main() {
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(wroot, 'wgp_config.json'), 'utf8')), { llm_engines: { deepy: 'qwen38_9b', prompt_enhancer: 'same_as_deepy' }, other: 1 });
   assert.equal(JSON.parse(fs.readFileSync(path.join(wroot, 'wgp_config.json.filmforge-bak'), 'utf8')).llm_engines.deepy, 'qwen38_27b', 'backup do original');
   fs.rmSync(wroot, { recursive: true, force: true });
+  /* MiniMax H3 + LoRAs de aceleração (nomes reais da pasta loras/minimax_h3) */
+  {
+    const files = ['CinematicMH3-V01.safetensors', 'MiniMax-H3-FL2VA-Acc-8Step.safetensors', 'MiniMax-H3-Ref2VA-Acc-8Step.safetensors', 'minimax_h3_fl2va_pdd_8step_lora_bf16.safetensors',
+      'minimax_h3_lightx2v_fl2v_turbo_4step_alpha128_v1.1_768p_bf16.safetensors', 'minimax_h3_lightx2v_ref2v_turbo_4step_alpha8_v0.1_bf16.safetensors', 'minimax_h3_pdmd_2nfe_bf16.safetensors',
+      'minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors', 'minimax_h3_turbo_4step_ema_ckpt850.safetensors', 'handfeet-v2-minimax_h3-v3.e045.safetensors'];
+    const l = files.map(classifyH3Lora);
+    assert.equal(l[0], undefined, 'LoRA de estilo não é aceleração'); assert.equal(l[9], undefined);
+    assert.deepEqual([l[1]!.steps, l[1]!.family], [8, 'fl2va']); assert.deepEqual([l[2]!.steps, l[2]!.family], [8, 'ref2va']);
+    assert.deepEqual([l[4]!.steps, l[4]!.family], [4, 'fl2va']); assert.deepEqual([l[5]!.steps, l[5]!.family], [4, 'ref2va']);
+    assert.deepEqual([l[6]!.steps, l[6]!.family], [2, 'any']); assert.deepEqual([l[7]!.steps, l[7]!.family], [3, 'any']); assert.equal(l[8]!.steps, 4);
+    assert.equal(h3Family('minimax_h3_fl2va_pruned'), 'fl2va'); assert.equal(h3Family('minimax_h3_ref2va_pruned'), 'ref2va'); assert.equal(h3Family('minimax_h3_tts_ref2va_pruned'), undefined);
+    const ok = l.filter((x): x is NonNullable<typeof x> => !!x);
+    const opts = h3Options([{ model_type: 'minimax_h3_fl2va_pruned', name: 'H3 FL2VA Pruned', status: 'available' }, { model_type: 'minimax_h3_fl2va_pruned_pdd', status: 'available' }, { model_type: 'minimax_h3_ref2va_pruned', status: 'available' }], ok);
+    assert.ok(opts.some((o) => o.model === 'minimax_h3_fl2va_pruned' && o.steps === 3), 'FL2VA com 3 passos (genérica)');
+    assert.ok(!opts.some((o) => o.model === 'minimax_h3_fl2va_pruned' && /ref2v/.test(o.lora ?? '')), 'LoRA Ref2V não vai no FL2VA');
+    assert.equal(opts.filter((o) => o.model === 'minimax_h3_fl2va_pruned_pdd').length, 1, 'modelo já destilado só sozinho');
+    assert.ok(opts.some((o) => o.family === 'ref2va' && o.steps === 8));
+    /* aplicar: troca a LoRA de aceleração do template, mantém a de estilo, ajusta passos e guidance */
+    const r = applyH3Choice('minimax_h3_ref2va_pruned', { num_inference_steps: 4, activated_loras: ['minimax_h3_lightx2v_ref2v_turbo_4step_alpha8_v0.1_bf16.safetensors', 'CinematicMH3-V01.safetensors'], loras_multipliers: '1.0 0.6', guidance_scale: 1 },
+      { model: 'minimax_h3_ref2va_pruned', lora: 'minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors', steps: 3 });
+    assert.deepEqual(r.settings['activated_loras'], ['CinematicMH3-V01.safetensors', 'minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors']);
+    assert.equal(r.settings['loras_multipliers'], '0.6 1.0'); assert.equal(r.settings['num_inference_steps'], 3);
+    assert.equal(applyH3Choice('minimax_h3_fl2va_pruned', { a: 1 }, { model: 'minimax_h3_ref2va_pruned' }).modelType, 'minimax_h3_fl2va_pruned', 'não troca de família');
+    assert.equal(applyH3Choice('z_image', { a: 1 }, { lora: 'x' }).modelType, 'z_image', 'só H3');
+  }
   console.log('wan2gp models tests: OK');
 }
 main();
