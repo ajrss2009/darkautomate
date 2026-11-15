@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { ApiCategory, Settings, StockSource } from '../shared/types';
 
 export type Capability = 'image' | 'video' | 'voice' | 'music' | 'sfx';
-export interface CatalogItem { file: string; label: string; capability: Capability; backend: 'comfyui' | 'wan2gp'; modelType?: string }
+export interface CatalogItem { file: string; label: string; capability: Capability; backend: 'comfyui' | 'wan2gp'; modelType?: string; /** importado pelo usuário (workspace/workflows) */ user?: boolean }
 
 /** Catálogo para o editor de rotas: o que cada tipo de tarefa pode usar. */
 export interface Catalog {
@@ -23,18 +23,23 @@ const CAPS: Capability[] = ['image', 'video', 'voice', 'music', 'sfx'];
 
 export function buildCatalog(s: Settings, workflowsDir: string): Catalog {
   const workflows: CatalogItem[] = [], wan: CatalogItem[] = [];
-  if (fs.existsSync(workflowsDir)) {
-    for (const f of fs.readdirSync(workflowsDir).filter((x) => x.endsWith('.json') && !x.endsWith('.map.json')).sort()) {
+  /* de fábrica e os importados pelo usuário (workspace/workflows) — o importado vence o de mesmo nome */
+  const userDir = s.workspace ? path.join(s.workspace, 'workflows') : '';
+  for (const [dir, user] of [[workflowsDir, false], [userDir, true]] as const) {
+    if (!dir || !fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json') && !x.endsWith('.map.json')).sort()) {
       try {
-        const j = JSON.parse(fs.readFileSync(path.join(workflowsDir, f), 'utf8'));
+        const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
         if (f.startsWith('wan2gp-')) {
           wan.push({ file: f, label: j.label ?? f, capability: CAPS.includes(j.capability) ? j.capability : 'image', backend: 'wan2gp', modelType: j.model_type });
           continue;
         }
         if (Array.isArray(j.nodes)) continue;                 // formato de interface: inutilizável
-        const sidecar = path.join(workflowsDir, f.replace(/\.json$/, '.map.json'));
+        const sidecar = path.join(dir, f.replace(/\.json$/, '.map.json'));
         const m = fs.existsSync(sidecar) ? JSON.parse(fs.readFileSync(sidecar, 'utf8')) : {};
-        workflows.push({ file: f, label: m.label ?? f, capability: CAPS.includes(m.capability) ? m.capability : 'image', backend: 'comfyui' });
+        const item: CatalogItem = { file: f, label: m.label ?? f, capability: CAPS.includes(m.capability) ? m.capability : 'image', backend: 'comfyui', ...(user ? { user: true } : {}) };
+        const at = workflows.findIndex((w) => w.file === f);
+        if (at >= 0) workflows[at] = item; else workflows.push(item);
       } catch { /* ignora arquivo inválido */ }
     }
   }

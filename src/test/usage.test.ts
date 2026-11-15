@@ -123,6 +123,15 @@ async function main() {
     assert.deepEqual(used, [...expect], `sem reserva (Configurações=${nf}, projeto=${proj})`);
     assert.equal(res6.ok, expect.length === 3);
   }
+  /* sem reserva + 1º provedor INUTILIZÁVEL (API sem chave): pula sem contar e usa o primeiro utilizável (o caso da
+     narração com OpenAI TTS sem chave à frente do ComfyUI/Wan2GP) */
+  s.noFallback = true; used.length = 0;
+  const r7: Route = { ...route, id: 't7', steps: route.steps.map((st) => ({ ...st, bindings: [{ type: 'api', provider: 'sem-chave-x', model: 'm' }, { type: 'harness', harness: 'codex' }, { type: 'harness', harness: 'claude' }] as never })) };
+  const p7 = createProject(s, { name: 'SemReserva7', idea: 'x', videoType: 'custom', routeId: 'shorts-autopilot' });
+  const res7 = await runRoute({ project: p7, route: r7, projectDir: path.join(ws, 'projects', p7.id), deps: { settings: s, emit: () => {}, sleep: async () => {}, executors: executors as never }, signal: new AbortController().signal });
+  assert.deepEqual(used.slice(0, 1), ['codex'], 'provedor sem chave pulado; o 1º utilizável roda');
+  assert.ok(!used.includes('claude'), 'e nenhuma reserva depois dele');
+  void res7;
   delete s.noFallback;
   console.log('usage tests: OK');
 }

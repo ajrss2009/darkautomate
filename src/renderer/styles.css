@@ -1284,3 +1284,9 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .ch-nav { margin-bottom: 10px; gap: 8px; align-items: center; }
 .ch-add-tabs { gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 @media (max-width: 600px) { .ch-overview { grid-template-columns: 1fr; } }
+
+/* Configurações → Local: workflows importados do ComfyUI */
+#cfg-wf-import .wf-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+#cfg-wf-import .wf-list .row { gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); }
+#cfg-wf-import .warn { color: var(--warn); }
+#cfg-wf-import .card { margin-top: 8px; }

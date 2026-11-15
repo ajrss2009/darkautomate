@@ -4,6 +4,11 @@ import * as path from 'node:path';
 import { applyVariables, isUiFormat, placeholders } from '../main/comfyui';
 import { fitArea, fitExactAspect, fitSize } from '../main/executors';
 import { ROUTES } from '../main/presets';
+import * as os from 'node:os';
+import { autoMapWorkflow, guessWorkflowKind, importComfyWorkflow, removeUserWorkflow, resolveWorkflowPath } from '../main/workflow-import';
+import { buildCatalog } from '../main/catalog';
+import { defaultSettings } from '../main/settings';
+import type { Settings } from '../shared/types';
 
 const dir = path.resolve(__dirname, '../../workflows');
 type G = Record<string, { inputs: Record<string, unknown>; class_type: string }>;
@@ -85,4 +90,36 @@ for (const r of ROUTES) for (const s of r.steps) for (const b of s.bindings)
   { if (b.type === 'comfyui' && !fs.existsSync(path.join(dir, b.workflow))) missing.add(b.workflow);
     if (b.type === 'wan2gp' && !fs.existsSync(path.join(dir, b.template))) missing.add(b.template); }
 assert.deepEqual([...missing], []);
+
+/* importar workflow do ComfyUI (formato API): auto-mapeamento, tipo provável, pasta do usuário vence a de fábrica */
+const sdxl = { '3': { class_type: 'KSampler', inputs: { seed: 42, steps: 20, positive: ['6', 0], negative: ['7', 0], latent_image: ['5', 0] } },
+  '5': { class_type: 'EmptyLatentImage', inputs: { width: 1024, height: 1024, batch_size: 1 } },
+  '6': { class_type: 'CLIPTextEncode', inputs: { text: 'a cat', clip: ['4', 1] } }, '7': { class_type: 'CLIPTextEncode', inputs: { text: 'blurry', clip: ['4', 1] } },
+  '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'x', images: ['8', 0] } } };
+const am = autoMapWorkflow(sdxl, 'image');
+assert.equal((am.workflow['6']!.inputs as Record<string, unknown>)['text'], '{{prompt}}');
+assert.equal((am.workflow['7']!.inputs as Record<string, unknown>)['text'], '{{negative}}', 'negativo pela ligação do sampler');
+assert.equal((am.workflow['3']!.inputs as Record<string, unknown>)['seed'], '{{seed}}');
+assert.equal((am.workflow['5']!.inputs as Record<string, unknown>)['width'], '{{width}}');
+assert.equal(am.outputNode, '9'); assert.equal(guessWorkflowKind(sdxl), 'image');
+assert.deepEqual(am.workflow['3']!.inputs!['positive'], ['6', 0], 'ligações intactas');
+assert.throws(() => autoMapWorkflow({ nodes: [], links: [] }, 'image'), /formato de INTERFACE/);
+const tts = { '1': { class_type: 'LoadAudio', inputs: { audio: 'voz.wav' } }, '2': { class_type: 'F5TTS', inputs: { text: 'olá', seed: 1, audio: ['1', 0] } }, '3': { class_type: 'SaveAudio', inputs: { audio: ['2', 0] } } };
+assert.equal(guessWorkflowKind(tts), 'voice');
+const at = autoMapWorkflow(tts, 'voice');
+assert.equal((at.workflow['2']!.inputs as Record<string, unknown>)['text'], '{{text}}'); assert.equal((at.workflow['1']!.inputs as Record<string, unknown>)['audio'], '{{ref_audio}}');
+const vid = { '1': { class_type: 'LoadImage', inputs: { image: 'a.png' } }, '2': { class_type: 'CLIPTextEncode', inputs: { text: 'x' } }, '3': { class_type: 'WanImageToVideo', inputs: { length: 81, width: 832, height: 480 } }, '4': { class_type: 'VHS_VideoCombine', inputs: { frame_rate: 16 } } };
+const av = autoMapWorkflow(vid, guessWorkflowKind(vid));
+assert.equal(guessWorkflowKind(vid), 'video'); assert.equal(av.outputNode, '4');
+assert.deepEqual([...placeholders(av.workflow)].sort(), ['fps', 'frames', 'height', 'init_image', 'prompt', 'width']);
+const wsw = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-wf-'));
+const sw = { workspace: wsw } as Settings;
+const imp = importComfyWorkflow(sw, { json: sdxl, label: 'Meu SDXL Ótimo', kind: 'image' });
+assert.equal(imp.file, 'meu-sdxl-otimo.json');
+assert.equal(importComfyWorkflow(sw, { json: sdxl, label: 'Meu SDXL Ótimo', kind: 'image' }).file, 'meu-sdxl-otimo-2.json', 'não sobrescreve');
+const catw = buildCatalog(defaultSettings(wsw), dir).workflows.find((w) => w.file === 'meu-sdxl-otimo.json');
+assert.equal(catw?.capability, 'image'); assert.equal(catw?.label, 'Meu SDXL Ótimo'); assert.equal(catw?.user, true);
+assert.equal(resolveWorkflowPath(dir, sw, 'meu-sdxl-otimo.json'), path.join(wsw, 'workflows', 'meu-sdxl-otimo.json'));
+assert.equal(resolveWorkflowPath(dir, sw, 't2i-basic.json'), path.join(dir, 't2i-basic.json'), 'de fábrica');
+removeUserWorkflow(sw, 'meu-sdxl-otimo.json'); assert.ok(!fs.existsSync(imp.path));
 console.log('workflow tests: OK');

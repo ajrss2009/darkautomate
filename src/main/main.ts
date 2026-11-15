@@ -59,6 +59,7 @@ import { ROUTES, VIDEO_TYPES } from './presets';
 import { CATEGORY_OF, allProfiles, downstreamSteps, profileSkips } from '../shared/profiles';
 import * as auto from './automations';
 import { youtubeBrandChannel, youtubeCreateChannel } from './youtube-upload';
+import { autoMapWorkflow, guessWorkflowKind, importComfyWorkflow, removeUserWorkflow, type WorkflowKind } from './workflow-import';
 import { generateSkillFromVideos, type SkillGenInput } from './skillgen';
 import { closeBrowser, flowCredits, flowDiagnose, flowGenerate } from './flow';
 import { DEFAULT_FISH_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
@@ -835,6 +836,21 @@ function registerIpc() {
     sfxLibrary: sfx.SFX_LIBRARY.map(({ id, label, icon, tags, dur }) => ({ id, label, icon, tags, dur })),
     profiles: allProfiles(settings.executorProfiles) }));
   h('catalog:get', () => buildCatalog(settings, workflowsDir()));
+  /* workflows do ComfyUI importados (formato API): escolher o arquivo → tipo provável → importar com nome e tipo */
+  h('workflows:pick', async () => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Workflow do ComfyUI (formato API)', properties: ['openFile'], filters: [{ name: 'Workflow (JSON, formato API)', extensions: ['json'] }] });
+    const f = r.filePaths[0];
+    if (r.canceled || !f) return undefined;
+    let json: unknown;
+    try { json = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { throw new Error('o arquivo não é um JSON válido'); }
+    const probe = autoMapWorkflow(json, guessWorkflowKind(json)); /* valida já (formato de interface é recusado aqui) */
+    return { fileName: path.basename(f), json, kind: guessWorkflowKind(json), nodes: Object.keys(probe.workflow).length };
+  });
+  h('workflows:import', (o: { json: unknown; label: string; kind: WorkflowKind; fileName?: string }) => {
+    const r = importComfyWorkflow(settings, o);
+    return { file: r.file, mapped: r.mapped, warnings: r.warnings, outputNode: r.outputNode, catalog: buildCatalog(settings, workflowsDir()) };
+  });
+  h('workflows:remove', (file: string) => { removeUserWorkflow(settings, file); return buildCatalog(settings, workflowsDir()); });
 
   // biblioteca: rotas, skills, tipos de vídeo
   h('route:list', () => lib.listRoutes(settings));

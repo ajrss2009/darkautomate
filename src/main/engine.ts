@@ -725,7 +725,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
 
     let lastReason = 'sem tentativas';
     /* a cadeia cresce uma vez: esgotados os harnesses da etapa, entram as reservas indicadas pela rota */
-    const chain: Binding[] = noFallback ? bindings.slice(0, 1) : [...bindings];
+    /* "sem reserva" = o PRIMEIRO PROVEDOR UTILIZÁVEL: um provedor sem chave ou não instalado é pulado sem contar
+       (antes a cadeia era cortada no 1º — OpenAI TTS sem chave parava a narração com ComfyUI/Wan2GP logo atrás) */
+    const chain: Binding[] = [...bindings];
     const tried = new Set<string>();
     let extended = noFallback;
     for (let bi = 0; ; bi++) {
@@ -842,6 +844,11 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
         }
       }
       const next = chain[bi + 1];
+      /* sem reserva: este provedor foi de fato tentado e falhou — a falha aparece como está */
+      if (noFallback) {
+        if (next) emit({ t: 'log', stepId: step.id, sceneId, line: `🚫 sem reserva: ${label} falhou — ${bindingLabel(next)} e os demais não são tentados` });
+        break;
+      }
       if (next) emit({ t: 'step.fallback', stepId: step.id, sceneId, from: label, to: bindingLabel(next), reason: lastReason });
     }
     if (scene) scene.status[step.id] = 'failed';

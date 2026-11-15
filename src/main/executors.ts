@@ -35,6 +35,7 @@ import { flowGenerate } from './flow';
 import * as sfx from './sfx';
 import { moodFor, renderCodeMusic } from './codemusic';
 import { youtubeUpload, uploadMeta } from './youtube-upload';
+import { resolveWorkflowPath } from './workflow-import';
 import { appendPublish } from './channels';
 import { projectKit, type KitRenderer } from './kit';
 import { kitAssets, kitShot, pagesAssets, pagesScene } from './kit-exec';
@@ -791,7 +792,7 @@ async function ensurePortrait(c: ExecContext, o: ExecutorOptions, client: ComfyC
   }
   if (fs.existsSync(file)) return file;
   const wfName = c.settings.defaults?.imageWorkflow || 'krea2-turbo-t2i.json';
-  const wfPath = path.join(o.workflowsDir, wfName);
+  const wfPath = resolveWorkflowPath(o.workflowsDir, c.settings, wfName);
   if (!fs.existsSync(wfPath)) throw new Error(`workflow de imagem não encontrado: ${wfName}`);
   const side = fs.existsSync(wfPath.replace(/\.json$/, '.map.json')) ? JSON.parse(fs.readFileSync(wfPath.replace(/\.json$/, '.map.json'), 'utf8')) : {};
   const vt = getVideoType(c.project.videoType);
@@ -815,7 +816,7 @@ const comfyExec = (o: ExecutorOptions): Executor => async (c) => {
   const instrumentalWf = c.step.kind === 'music' && b.workflow === 'yue2-text2music.json' && c.project.musicMode !== 'song' && fs.existsSync(path.join(o.workflowsDir, 'yue2-instrumental.json'));
   const wfFile = instrumentalWf ? 'yue2-instrumental.json' : b.workflow;
   if (instrumentalWf) c.log('música instrumental: usando yue2-instrumental.json (sem voz)');
-  const wfPath = path.join(o.workflowsDir, wfFile);
+  const wfPath = resolveWorkflowPath(o.workflowsDir, c.settings, wfFile);
   if (!fs.existsSync(wfPath)) throw new Error(`workflow não encontrado: ${wfFile}`);
   const wf = JSON.parse(fs.readFileSync(wfPath, 'utf8'));
   if (isUiFormat(wf)) throw new Error(`${b.workflow} está no formato de interface; no ComfyUI use "Exportar (API)" / Save (API Format)`);
@@ -1648,7 +1649,7 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
      ele está ligado, senão ACE-Step no Wan2GP (params.wan2gpTemplate) — ComfyUI desligado não derruba mais a coletânea */
   const server = c.settings.comfyServers.find((x) => x.id === 'local');
   const wfName = instrumental ? 'yue2-instrumental.json' : 'yue2-text2music.json';
-  const wfPath = path.join(o.workflowsDir, wfName);
+  const wfPath = resolveWorkflowPath(o.workflowsDir, c.settings, wfName);
   const sidePath = wfPath.replace(/\.json$/, '.map.json');
   const side = fs.existsSync(sidePath) ? JSON.parse(fs.readFileSync(sidePath, 'utf8')) as { outputNode?: string; mapping?: Record<string, string>; vars?: Record<string, string | number> } : {};
   const wanTpl = String(clipParams.wan2gpTemplate ?? 'wan2gp-music-ace.json');
@@ -2419,7 +2420,7 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
   const server = c.settings.comfyServers.find((x) => x.id === 'local') ?? c.settings.comfyServers[0];
   if (!server) throw new Error('ComfyUI não configurado (a canção é gerada no Yue 2)');
   const wfName = String((c.step.params as Record<string, unknown>)['workflow'] ?? 'yue2-text2music.json');
-  const wfPath = path.join(o.workflowsDir, wfName);
+  const wfPath = resolveWorkflowPath(o.workflowsDir, c.settings, wfName);
   if (!fs.existsSync(wfPath)) throw new Error(`workflow ${wfName} não encontrado`);
   const sidePath = wfPath.replace(/\.json$/, '.map.json');
   const side = fs.existsSync(sidePath) ? JSON.parse(fs.readFileSync(sidePath, 'utf8')) as { outputNode?: string; mapping?: Record<string, string>; vars?: Record<string, string | number> } : {};

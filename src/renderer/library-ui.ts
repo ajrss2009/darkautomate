@@ -25,7 +25,7 @@ export interface Ctx {
   go: (tab: string) => void;
 }
 interface Catalog {
-  workflows: Array<{ file: string; label: string; capability: string }>;
+  workflows: Array<{ file: string; label: string; capability: string; user?: boolean }>;
   wan2gpTemplates: Array<{ file: string; label: string; capability: string; modelType?: string }>;
   apis: Array<{ provider: string; kind: string; categories: string[]; models: string[]; modelCategories?: Record<string, string>; defaultModels?: Partial<Record<string, string>>; voices: string[]; voiceLabels?: Record<string, string> }>;
   harnesses: Array<{ id: string; models: string[]; defaultModel?: string }>;
@@ -1025,6 +1025,12 @@ const CFG_TABS: Array<[string, string, string]> = [
 const apiResults = new Map<string, { ok: boolean; message: string }>();
 const res = (ok: boolean, msg: string, h: H) => h('span', { class: `tag ${ok ? 'done' : 'failed'}` }, msg);
 
+/** workflow escolhido para importar (nome do arquivo, conteúdo e tipo provável) e o resultado da última importação */
+let wfPending: { fileName: string; json: unknown; kind: string; nodes: number } | undefined;
+let wfLast: { file: string; mapped: string[]; warnings: string[]; outputNode?: string } | undefined;
+const WF_KINDS: Array<[string, string]> = [['image', '🖼 Imagem'], ['video', '🎬 Vídeo'], ['voice', '🎙 Voz (TTS)'], ['music', '🎵 Música'], ['sfx', '💥 Efeitos sonoros']];
+const wfKindLabel = (k: string) => WF_KINDS.find((x) => x[0] === k)?.[1] ?? k;
+
 export async function renderSettings(c: Ctx, reload = true) {
   const { h, main, forge, toast, guard } = c;
   if (reload || !S) S = (await forge['getSettings']()) as Settings;
@@ -1299,6 +1305,44 @@ export async function renderSettings(c: Ctx, reload = true) {
           h('button', { class: 'danger', onclick: () => { s.comfyServers.splice(i, 1); redraw(); } }, 'Remover'), out)));
     });
     body.append(h('div', { class: 'row' }, h('button', { 'data-act': 'comfy-add', onclick: () => { s.comfyServers.push({ id: `comfy${s.comfyServers.length + 1}`, url: 'http://127.0.0.1:8188' }); redraw(); } }, '+ Adicionar servidor ComfyUI')));
+
+    /* workflows importados: o JSON exportado do ComfyUI em formato API, com o tipo (imagem, vídeo, voz, música, efeitos) */
+    const mine = cat.workflows.filter((w) => w.user);
+    const wfCard = h('div', { class: 'card', id: 'cfg-wf-import' },
+      h('div', { class: 'row' }, h('strong', {}, '📥 Workflows importados'), h('span', { class: 'sp' }),
+        h('button', { class: 'primary', 'data-act': 'wf-pick', onclick: () => void guard(async () => {
+          const r = await forge['workflowsPick']() as typeof wfPending;
+          if (!r) return;
+          wfPending = r; wfLast = undefined; redraw();
+        }) }, '📥 Importar workflow (.json API)')),
+      h('p', { class: 'muted small' }, 'No ComfyUI: Workflow → Exportar (API) (ou "Save (API Format)"). O app liga sozinho o texto do pedido, o negativo, a semente, o tamanho, os quadros/fps, a duração do áudio, a imagem de entrada (vídeo) e o áudio de referência (voz), e acha o nó de saída. Depois ele aparece nas rotas, no tipo escolhido.'));
+    if (wfPending) {
+      const p = wfPending;
+      const nameIn = h('input', { value: p.fileName.replace(/\.json$/i, '').replace(/[_-]+/g, ' '), 'data-field': 'wf-name' }) as HTMLInputElement;
+      const kindSel = h('select', { 'data-field': 'wf-kind' }, ...WF_KINDS.map(([v, l]) => h('option', { value: v, ...(v === p.kind ? { selected: '' } : {}) }, l))) as HTMLSelectElement;
+      wfCard.append(h('div', { class: 'card' },
+        h('div', { class: 'muted small' }, `${p.fileName} · ${p.nodes} nós · tipo provável: ${wfKindLabel(p.kind)}`),
+        h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Nome', nameIn), h('label', {}, 'É um workflow de', kindSel),
+          h('button', { onclick: () => { wfPending = undefined; redraw(); } }, 'Cancelar'),
+          h('button', { class: 'primary', 'data-act': 'wf-import', onclick: () => void guard(async () => {
+            const r = await forge['workflowsImport']({ json: p.json, label: nameIn.value, kind: kindSel.value, fileName: p.fileName }) as NonNullable<typeof wfLast>;
+            wfPending = undefined; wfLast = r;
+            toast(`Workflow importado como ${wfKindLabel(kindSel.value)}`); redraw();
+          }) }, 'Importar'))));
+    }
+    if (wfLast) wfCard.append(h('div', { class: 'card' },
+      h('div', {}, h('b', {}, `✓ ${wfLast.file}`), h('span', { class: 'muted small' }, wfLast.outputNode ? ` · saída: nó ${wfLast.outputNode}` : '')),
+      wfLast.mapped.length ? h('div', { class: 'muted small' }, `Ligado às variáveis do app: ${wfLast.mapped.join(' · ')}`) : h('div', { class: 'muted small' }, 'Nenhum campo novo ligado (o workflow já tinha {{variáveis}} ou não tem campos reconhecidos).'),
+      ...wfLast.warnings.map((w) => h('div', { class: 'warn small' }, `⚠ ${w}`))));
+    wfCard.append(mine.length
+      ? h('div', { class: 'wf-list' }, ...mine.map((w) => h('div', { class: 'row', 'data-wf': w.file },
+          h('span', { class: 'ch-badge' }, wfKindLabel(w.capability)), h('b', {}, w.label), h('span', { class: 'muted small' }, w.file), h('span', { class: 'sp' }),
+          h('button', { class: 'danger small', onclick: () => void guard(async () => {
+            if (!await askConfirm(`Apagar o workflow importado "${w.label}"? Rotas que o usam passam a dar erro nessa etapa.`)) return;
+            await forge['workflowsRemove'](w.file); toast('Workflow apagado'); redraw();
+          }) }, 'Apagar'))))
+      : h('p', { class: 'muted small' }, 'Nenhum workflow importado ainda.'));
+    body.append(wfCard);
     s.defaults = s.defaults ?? {};
     body.append(h('h3', {}, 'Workflows padrão'), h('div', { class: 'row' },
       h('label', {}, 'Imagem', sel(c, [['', '(da rota)'], ...cat.workflows.filter((w) => w.capability === 'image').map((w) => [w.file, w.label] as [string, string])], s.defaults.imageWorkflow ?? '', (v) => { s.defaults!.imageWorkflow = v || undefined; })),

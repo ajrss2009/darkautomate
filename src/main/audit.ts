@@ -24,7 +24,7 @@ export function auditRoute(s: Settings, r: Route, workflowsDir: string): Array<O
   const byKind = (k: string) => on.filter((st) => st.kind === k);
   for (const st of on) {
     for (const b of st.bindings) {
-      if (b.type === 'comfyui' && b.workflow && !fs.existsSync(path.join(workflowsDir, b.workflow))) err(`etapa "${st.id}": workflow ${b.workflow} não existe`);
+      if (b.type === 'comfyui' && b.workflow && !fs.existsSync(path.join(workflowsDir, b.workflow)) && !(s.workspace && fs.existsSync(path.join(s.workspace, 'workflows', b.workflow)))) err(`etapa "${st.id}": workflow ${b.workflow} não existe`);
       if (b.type === 'comfyui' && !s.comfyServers.some((x) => x.id === b.server)) err(`etapa "${st.id}": servidor ComfyUI "${b.server}" não configurado`);
       if (b.type === 'wan2gp' && b.template && !fs.existsSync(path.join(workflowsDir, b.template))) err(`etapa "${st.id}": template ${b.template} não existe`);
       if ((b.type === 'comfyui' || b.type === 'wan2gp') && b.refAudio && !fs.existsSync(b.refAudio)) err(`etapa "${st.id}": voz de referência não encontrada (${path.basename(b.refAudio)})`);
