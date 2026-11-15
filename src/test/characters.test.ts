@@ -11,7 +11,7 @@ import { thumbnailPrompt, visualPrompt } from '../main/prompts';
 import { characterPhoto } from '../main/attachments';
 import { buildStoryboard } from '../main/project-storyboard';
 import type { Project, Scene } from '../shared/types';
-import { RIG_RUNTIME, normalizeRig, rigSceneText, sanitizeSvg, stageRig } from '../main/rig';
+import { RIG_RUNTIME, normalizeRig, rigSceneText, sanitizeSvg, stageRig, cartoonSpecOf, isCodeCharacter } from '../main/rig';
 import { setCharacterRig, readCharacterRig, toProjectCharacter, setCharacterThumb, hasPicture } from '../main/characters';
 import { sceneRigText, ensureThreeImport } from '../main/prompts';
 import * as vm from 'node:vm';
@@ -239,6 +239,11 @@ async function main() {
     assert.ok(fixed3.includes('from "three"') && fixed3.includes('from "three/addons/loaders/GLTFLoader.js"') && fixed3.includes('"three/addons/":"../p/addons/"'), 'addons locais no import map');
   }
 
+  { const sp = cartoonSpecOf('{ jacket:"#B91C1C", pants:"#334155", boots:"#18181B", hat:"cap", cap:"#991B1B", build:"stout" }, seed 202, expressão desafiadora');
+    assert.deepEqual(sp, { outfit: { jacket: '#B91C1C', pants: '#334155', boots: '#18181B', hat: 'cap', cap: '#991B1B', build: 'stout' }, seed: 202 });
+    assert.equal(cartoonSpecOf('homem de 28 anos, jaqueta azul'), undefined);
+    assert.ok(isCodeCharacter({ kind: 'pessoa', look: '{ jacket:"#1D4ED8", pants:"#1E293B" }, seed 101' }), 'especificação cartoon3d = personagem por código');
+    assert.ok(!isCodeCharacter({ kind: 'pessoa', look: 'mulher de 26 anos' })); }
   console.log('characters: ok');
 }
 

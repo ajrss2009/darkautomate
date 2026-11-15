@@ -29,7 +29,7 @@ export interface Variant { id: string; label: string; look: string; episodes?: n
 export interface CharRow {
   id: string; name: string; kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro'; description?: string; look: string; gender?: string; age?: string;
   voice?: { refAudio?: string; apiVoice?: string; description?: string }; code?: string; sheet?: string; portrait?: string; images?: string[]; tags?: string[]; dir: string;
-  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string; rig?: string; prefer3d?: boolean; thumb?: string;
+  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string; rig?: string; prefer3d?: boolean; thumb?: string; byCode?: boolean;
 }
 export const KIND_LABEL: Record<CharRow['kind'], string> = { pessoa: '🧑 Pessoa (realista)', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Animal / criatura', outro: '✨ Outro' };
 const STYLE_LABEL: Record<CharRow['kind'], string> = { pessoa: '📷 Realista', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Criatura', outro: '✨ Outro' };
@@ -38,7 +38,7 @@ export const charSheetImage = (forge: Api, c: CharRow) => (c.sheet || c.portrait
   ? forge.mediaUrl(`${c.dir}/${c.sheet ?? c.portrait}`)
   : c.images?.[0] ? forge.mediaUrl(`${c.dir}/${c.images[0]}`) : undefined);
 /** Imagem para mostrar o item em listas e cartões: a folha/retrato ou, sem ela, a miniatura automática (rig/modelo 3D). */
-export const charImage = (forge: Api, c: CharRow) => charSheetImage(forge, c) ?? (c.thumb ? forge.mediaUrl(`${c.dir}/${c.thumb}`) : undefined);
+export const charImage = (forge: Api, c: CharRow) => (c.byCode && c.thumb ? forge.mediaUrl(`${c.dir}/${c.thumb}`) : undefined) ?? charSheetImage(forge, c) ?? (c.thumb ? forge.mediaUrl(`${c.dir}/${c.thumb}`) : undefined);
 export const hasImage = (c: CharRow) => !!(c.sheet || c.portrait || c.images?.length || c.thumb);
 
 /** Executores de imagem do catálogo (para gerar folhas/imagens). */
@@ -91,7 +91,7 @@ const TABS: Array<[Entity | 'stories', string, string]> = [['character', '👥 P
 let tab: Entity | 'stories' = 'character';
 /** Aba interna: por imagem, por código ou tudo (vale para personagens, cenários e objetos). */
 let originFilter: 'all' | 'image' | 'code' = 'all';
-const isCodeItem = (x: CharRow) => x.kind === 'codigo' || !!x.code || !!x.models?.length || !!x.rig;
+const isCodeItem = (x: CharRow) => x.kind === 'codigo' || !!x.code || !!x.models?.length || !!x.rig || !!x.byCode;
 let selected: string | undefined;
 
 export async function renderCharactersPage(c: CharactersCtx): Promise<void> {
@@ -125,7 +125,7 @@ export async function renderCharactersPage(c: CharactersCtx): Promise<void> {
     return h('div', { class: `chr-card${x.id === selected ? ' on' : ''}`, 'data-char': x.id, onclick: () => { selected = x.id; again(); } },
       img ? h('img', { src: img, alt: '' }) : h('div', { class: 'chr-ph' }, x.name.slice(0, 1).toUpperCase()),
       h('b', {}, x.name), h('span', { class: 'muted small' }, tab === 'character' ? KIND_LABEL[x.kind] ?? x.kind : STYLE_LABEL[x.kind] ?? ''),
-      h('span', { class: 'chr-badges' }, x.sheet ? h('span', { class: 'ch-badge ok' }, 'folha ✓') : x.portrait ? h('span', { class: 'ch-badge ok' }, 'retrato ✓') : x.thumb || x.images?.length ? h('span', { class: 'ch-badge' }, 'miniatura') : h('span', { class: 'ch-badge warn' }, 'sem imagem'),
+      h('span', { class: 'chr-badges' }, x.sheet ? h('span', { class: 'ch-badge ok' }, 'folha ✓') : x.portrait ? h('span', { class: 'ch-badge ok' }, 'retrato ✓') : x.thumb || x.images?.length ? h('span', { class: 'ch-badge' }, x.byCode ? '💻 em código' : 'miniatura') : h('span', { class: 'ch-badge warn' }, 'sem imagem'),
         x.rig ? h('span', { class: 'ch-badge ok' }, '🦴 rig') : null,
         x.voice?.refAudio || x.voice?.apiVoice ? h('span', { class: 'ch-badge ok' }, 'voz ✓') : null,
         x.variants?.length ? h('span', { class: 'ch-badge' }, `${x.variants.length} variação(ões)`) : null,

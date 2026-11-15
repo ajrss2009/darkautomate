@@ -47,8 +47,8 @@ import { kitRerender } from './kit-exec';
 import { generateSkillFromDoc, type SkillDocInput } from './skilldoc';
 import { TOOL_SPECS } from './tools';
 import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginFile, installPluginFolder, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
-import { normalizeRig, rigPreviewHtml } from './rig';
-import { generateRig, makeThumb, makeMissingThumbs, type RigGenInput } from './rig-gen';
+import { isCodeCharacter, normalizeRig, rigPreviewHtml } from './rig';
+import { drawnByCode, generateRig, makeThumb, makeMissingThumbs, type RigGenInput } from './rig-gen';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
 import { DEFAULT_HARNESSES } from './harness';
 import { isHttpHarness, resolveHarnessCommand } from './harness';
@@ -1972,7 +1972,7 @@ function registerIpc() {
   });
   /** Ouvir a voz da narração no idioma do projeto (mesmo executor da etapa; resultado em cache). */
   /* ── biblioteca de personagens (folha de personagem, aparência fixa, voz, desenho por código) ── */
-  h('characters:list', (entity?: LibraryEntity) => characters.listCharacters(settings, entity).map((c) => ({ ...c, dir: characters.charDir(settings, c.id) })));
+  h('characters:list', (entity?: LibraryEntity) => characters.listCharacters(settings, entity).map((c) => ({ ...c, dir: characters.charDir(settings, c.id), byCode: isCodeCharacter(c) || undefined })));
   /** salva o teste de voz (prévia) numa pasta: padrão workspace/voices/testes; pick = o usuário escolhe a pasta */
   h('voice:save-test', async (file: string, label?: string, pick?: boolean) => {
     const src = path.resolve(String(file));
@@ -2155,7 +2155,11 @@ function registerIpc() {
       if (ac.signal.aborted) break;
       send({ t: 'log', line: `biblioteca: imagem ${i + 1}/${todo.length} — ${c.name}` } as EngineEvent);
       send({ t: 'library.progress', done: i, total: todo.length, name: c.name } as never);
-      try { await characters.generateCharacterSheet(settings, execs, c.id, binding, (line) => send({ t: 'log', line: `biblioteca: ${line}` } as EngineEvent)); ok++; }
+      try {
+        /* personagem por código: a miniatura é desenhada em código (cartoon3d/rig/3D), não por um gerador de imagem */
+        if (drawnByCode(c)) { if (await makeThumb(settings, c.id, true)) { ok++; continue; } }
+        await characters.generateCharacterSheet(settings, execs, c.id, binding, (line) => send({ t: 'log', line: `biblioteca: ${line}` } as EngineEvent)); ok++;
+      }
       catch (e) { errors.push(`${c.name}: ${(e as Error).message.slice(0, 160)}`); }
     }
     send({ t: 'library.progress', done: todo.length, total: todo.length } as never);

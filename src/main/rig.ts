@@ -296,3 +296,42 @@ export function rigSceneText(rigs: Array<{ name: string; script: string }>, runt
     `- Desloque x ao longo do tempo para andar/correr pela cena (a pose só mexe o corpo), troque de pose nos tempos da narração e mantenha a mesma altura do personagem entre as cenas.`,
   ].join('\n');
 }
+
+/**
+ * Personagem da biblioteca cartoon3d descrito pela ESPECIFICAÇÃO (aparência como { jacket:"#…", pants:"#…", hat:"cap", build:"stout" }, seed N):
+ * devolve o figurino e a semente para desenhar com C.createStage().actor(outfit, { seed }). Função pura.
+ */
+export function cartoonSpecOf(look: string | undefined): { outfit: Record<string, string>; seed: number } | undefined {
+  const m = /\{[^{}]*\}/.exec(String(look ?? ''));
+  if (!m) return undefined;
+  let obj: Record<string, unknown>;
+  try { obj = JSON.parse(m[0].replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":').replace(/'/g, '"').replace(/,\s*}/, '}')) as Record<string, unknown>; } catch { return undefined; }
+  if (typeof obj['jacket'] !== 'string' || typeof obj['pants'] !== 'string') return undefined;
+  const outfit: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) if (typeof v === 'string' && /^[a-z]\w{0,20}$/i.test(k) && v.length < 40) outfit[k] = v;
+  if (outfit['build'] && !['adult', 'stout', 'kid'].includes(outfit['build'])) delete outfit['build'];
+  const seed = Number(/seed\s*(\d+)/i.exec(String(look))?.[1] ?? 1);
+  return { outfit, seed: Number.isFinite(seed) ? seed : 1 };
+}
+
+/** O item é desenhado por CÓDIGO (tipo "desenho por código", desenho em código, rig ou especificação cartoon3d)? Função pura. */
+export function isCodeCharacter(c: { kind?: string; code?: string; rig?: string; look?: string }): boolean {
+  return c.kind === 'codigo' || !!c.code?.trim() || !!c.rig || !!cartoonSpecOf(c.look);
+}
+
+/** Página da miniatura de um personagem cartoon3d (o mesmo desenho das cenas por código), 480x480. */
+export function cartoonThumbHtml(spec: { outfit: Record<string, string>; seed: number }, importmap: Record<string, string>): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000;overflow:hidden}</style>
+<script type="importmap">${JSON.stringify({ imports: importmap })}</script></head><body><script type="module">
+import * as C from "cartoon3d";
+const st = C.createStage({ width: 480, height: 480, light: "day" });
+st.ground("grass");
+const a = st.actor(${JSON.stringify(spec.outfit)}, { name: "item", x: 0, z: 0, seed: ${spec.seed} });
+function seek() {
+  st.cam([0, 0.95, 3.4], [0, 0.85, 0], 34);
+  a.set({ mode: "stand", expr: "grin", blink: 0 });
+  st.render({ dof: 0 });
+}
+window.__forge = { duration: 1, fps: 30, seek, pause() {} };
+</script></body></html>`;
+}

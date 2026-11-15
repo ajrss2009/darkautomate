@@ -1108,14 +1108,14 @@ async function renderNew() {
   const charsBox = h('div', { class: 'card', id: 'np-characters' });
   let charRows: CharRow[] = [];
   let repaintChars: () => void = () => {};
-  const isCode = (c: CharRow) => c.kind === 'codigo' || !!c.code || !!c.models?.length || !!c.rig;
+  const isCode = (c: CharRow) => c.kind === 'codigo' || !!c.code || !!c.models?.length || !!c.rig || !!c.byCode;
   const entLabel = (c: CharRow) => c.entity === 'location' ? '🏞 cenário' : c.entity === 'prop' ? '📦 objeto' : KIND_LABEL[c.kind] ?? '';
   const badges = (c: CharRow) => [
     (c.sheet || c.portrait) && h('span', { class: 'ch-badge ok' }, 'folha ✓'),
     (c.voice?.refAudio || c.voice?.apiVoice) && h('span', { class: 'ch-badge ok' }, 'voz ✓'),
     c.rig && h('span', { class: 'ch-badge ok', title: 'Rig articulado em camadas: anda, fala e gesticula nas cenas por código' }, '🦴 rig'),
     c.models?.length && h('span', { class: 'ch-badge ok', title: 'Modelo 3D para cenas por código' }, '🧊 3D'),
-    c.code && !c.rig && h('span', { class: 'ch-badge' }, '💻 código'),
+    (c.byCode || c.code) && !c.rig && h('span', { class: 'ch-badge' }, '💻 código'),
   ].filter((x): x is HTMLSpanElement => !!x);
   const thumb = (c: CharRow) => { const img = charImage(forge as never, c); return img ? h('img', { src: img, alt: '' }) : h('span', { class: 'chr-ph' }, c.name.slice(0, 1)); };
   const loadChars = async () => { charRows = ((await guard(() => forge.charactersList())) ?? []) as CharRow[]; for (const id of [...pickedChars]) if (!charRows.some((c) => c.id === id)) pickedChars.delete(id); };
