@@ -2641,11 +2641,21 @@ async function visualThumb(c: ExecContext, o: ExecutorOptions, ex: Executor): Pr
   const design = projectThumbDesign(c.settings, c.project) ?? (fromFrame ? THUMB_DESIGN_TEMPLATES[0]!.design : undefined);
   if (!design || !o.snapHtml) {
     const res = await ex(c);
-    /* thumbnail com MODELO e sem layout por código: confere se o texto da LLM saiu na imagem; se não, escreve por código */
-    const img = res.files.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
+    /* thumbnail com MODELO e sem layout por código: o GERADOR escreve o texto da LLM. Confere; se faltou, pede de novo
+       com o texto reforçado (até 2 vezes) e só no fim escreve por código, para não ficar sem o texto */
+    let img = res.files.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
     if (img && o.snapHtml && thumbStyleImage(c.settings, c.project)) {
       const text = thumbTextOf(c.projectDir, c.project, undefined);
-      const has = await sceneReview.imageHasText(c.settings, img, text, c.signal, c.log).catch(() => undefined);
+      let has = await sceneReview.imageHasText(c.settings, img, text, c.signal, c.log).catch(() => undefined);
+      for (let retry = 1; has === false && retry <= 2; retry++) {
+        c.log(`o gerador não escreveu "${text}" — pedindo de novo com o texto reforçado (${retry}/2)`);
+        const r2 = await ex({ ...c, thumbTextRetry: retry }).catch((e: Error) => { c.log(`nova tentativa falhou: ${e.message.slice(0, 120)}`); return undefined; });
+        const img2 = r2?.files.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
+        if (!img2) break;
+        img = img2;
+        has = await sceneReview.imageHasText(c.settings, img, text, c.signal, c.log).catch(() => undefined);
+        if (has !== false) return r2!;
+      }
       if (has === false) {
         const out = primaryFile('thumbnail', c), tmp2 = out.replace(/(\.\w+)$/, '.text$1');
         const d2 = { ...THUMB_DESIGN_TEMPLATES[0]!.design, shade: 0.25 };

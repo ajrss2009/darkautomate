@@ -10,7 +10,7 @@ import { productCtaPrompt } from './clone-business';
 import { emotionInstruction, h3SpeechScene, isH3Video } from './speech-emotion';
 import { seriesBlock } from './story-import';
 import { styleBlock, styleVisual } from './style-ref';
-import { styleImagePrompt, thumbRefPrompt, thumbStyleImage } from './thumb-ref';
+import { headlineFirst, styleImagePrompt, thumbRefPrompt, thumbStyleImage } from './thumb-ref';
 import type { ExecContext } from './engine';
 import { pluginPrompt, pluginsRoot } from './plugins';
 import { smallModelBudget } from './contract';
@@ -386,7 +386,9 @@ export function thumbnailPrompt(c: ExecContext): string {
   /* capa vertical/quadrada: os templates foram escritos para 16:9 */
   /* thumbnail sempre 16:9 (padrão do YouTube), mesmo em vídeo vertical */
   const base = /16:9/.test(base0) ? base0 : `${base0}, 16:9 horizontal`;
-  return base.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => ({ title, thumb_text: thumbText, style: vt?.label ?? '', idea: p.idea, aspect: '16:9' })[k] ?? '') +
+  /* thumbnail com modelo: o GERADOR escreve o texto — a ordem vem primeiro (e mais forte numa nova tentativa) */
+  const textFirst = !visual && thumbStyleImage(c.settings, p) ? headlineFirst(thumbText, c.thumbTextRetry ?? 0) : '';
+  return textFirst + base.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => ({ title, thumb_text: thumbText, style: vt?.label ?? '', idea: p.idea, aspect: '16:9' })[k] ?? '') +
     (p.skill?.steps?.['thumbnail'] ? `. ${p.skill.steps['thumbnail']}` : '') + (p.videoStyle ? `. ${p.videoStyle}` : '') +
     /* paleta da thumbnail escolhida no Novo projeto (vence o template e o canal); sem ela, a da identidade do canal */
     (paletteEnglish(p.palette?.thumbnail ?? p.palette?.video) ? `. Color palette: ${paletteEnglish(p.palette?.thumbnail ?? p.palette?.video)}`
@@ -397,7 +399,7 @@ export function thumbnailPrompt(c: ExecContext): string {
     /* modelo com imagem (referência do projeto, modelo modelado de canal/vídeo/link): a imagem vai junto aos geradores que aceitam */
     (thumbStyleImage(c.settings, p) ? styleImagePrompt(thumbText, visual) : visual ? '' : `. Text on the thumbnail (exactly, no other words): "${thumbText}"`) +
     /* título × thumbnail: o texto da imagem COMPLETA o título, não repete */
-    `. The thumbnail must sell the title "${title}": the image shows the promise/curiosity, the overlay text complements the title instead of repeating it` +
+    `. The thumbnail must sell the title "${title}": the image shows the promise/curiosity, the headline text complements the title instead of repeating it` +
     (visual ? '. BACKGROUND ONLY: absolutely NO text, letters, numbers or logos in the image (the title is added later); one clear focal point, leave clean space for the title, 3-color high-contrast palette'
       : '. One clear focal point (40-60% of frame, rule of thirds), max 3 words of bold text with outline, 3-color high-contrast palette, legible at 168x94 px');
 }

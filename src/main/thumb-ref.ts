@@ -124,7 +124,13 @@ export function thumbStyleImage(s: Settings, p: Pick<Project, 'thumbRef' | 'thum
 
 /** Trecho do pedido quando a imagem do estilo vai junto (Gemini/Snapgen/Flow). Função pura. */
 export function styleImagePrompt(text: string, visualOverlay: boolean): string {
-  return `. USE THE ATTACHED REFERENCE THUMBNAIL AS THE STYLE MODEL: copy its composition, framing, focal point position, ${visualOverlay ? 'empty area where the title goes' : 'typography style, text size, text placement, text color and outline'}, color palette, lighting and finish — a NEW image about this video, never a copy of its subject, faces, logos or words${visualOverlay ? '' : `. The ONLY text in the image must be exactly: "${text}"`}`;
+  return `. USE THE ATTACHED REFERENCE THUMBNAIL AS THE STYLE MODEL: copy its composition, framing, focal point position, ${visualOverlay ? 'empty area where the title goes' : 'typography style, text size, text placement, text color and outline'}, color palette, lighting and finish — a NEW image about this video, never a copy of its subject, faces or logos${visualOverlay ? '' : `. Do NOT reuse the reference's words or labels: write ONLY the headline "${text}" (big, bold, outlined, in the reference's typography), with no other text, captions or labels`}`;
+}
+
+/** Abre o pedido da thumbnail com o texto a ESCREVER (o gerador costuma esquecer); mais enfático numa nova tentativa. Função pura. */
+export function headlineFirst(text: string, retry = 0): string {
+  const base = `YouTube thumbnail with the headline text "${text}" written in the image in huge bold letters with thick outline, perfectly spelled, the main element of the design. `;
+  return retry ? `IMPORTANT — the previous image had no text. ${base}The text "${text}" MUST be clearly readable; do not draw any other words. ` : base;
 }
 
 /**

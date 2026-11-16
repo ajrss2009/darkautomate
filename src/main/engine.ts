@@ -20,6 +20,8 @@ import { estimateSpeechSec, h3Mode, isH3Video, isH3Voice, normalizeEmotion } fro
 import { applySkillMix } from './skill-mix';
 
 export interface ExecContext {
+  /** thumbnail: nova tentativa porque o gerador não escreveu o texto (o pedido reforça o texto) */
+  thumbTextRetry?: number;
   project: Project;
   projectDir: string;
   step: RouteStep;

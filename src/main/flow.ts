@@ -174,7 +174,10 @@ export interface FlowJob {
 /** Com referências, o pedido diz quem é quem (a ordem dos anexos = a ordem dos personagens). Função pura. */
 export function flowRefsText(refs: Array<{ name: string }> | undefined): string {
   if (!refs?.length) return '';
-  return ` Use as imagens anexadas como referência de personagem (mesmo rosto, cabelo, corpo e roupa): ${refs.map((r, i) => `imagem ${i + 1} = ${r.name}`).join('; ')}.`;
+  const style = refs.filter((r) => /MODELO DA THUMBNAIL/i.test(r.name)), cast = refs.filter((r) => !/MODELO DA THUMBNAIL/i.test(r.name));
+  const idx = (r: { name: string }) => refs.indexOf(r) + 1;
+  return (style.length ? ` A imagem ${style.map(idx).join(', ')} anexada é o MODELO DE ESTILO da thumbnail: copie composição, tipografia, cores e acabamento, não o conteúdo nem os textos dela.` : '') +
+    (cast.length ? ` Use as imagens anexadas como referência de personagem (mesmo rosto, cabelo, corpo e roupa): ${cast.map((r) => `imagem ${idx(r)} = ${r.name}`).join('; ')}.` : '');
 }
 /** Proporções que o Flow oferece: imagem 16:9/4:3/1:1/3:4/9:16; vídeo 16:9/9:16. */
 export function flowAspect(media: 'image' | 'video', aspect = '16:9'): string {
@@ -336,6 +339,11 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     }
     // 4) espera a primeira mídia nova (imagem ou vídeo, conforme o pedido)
     let src = '';
+    let got: { type: string; data: string } | undefined, small: typeof got;
+    let lastErr = '';
+    /* até 4 escolhas: se a mídia nova for a própria referência anexada (o Flow mostra o anexo na grade), ignora e espera */
+    for (let pick = 0; pick < 4; pick++) {
+    src = ''; got = undefined; small = undefined;
     while (Date.now() < deadline) {
       if (job.signal?.aborted) throw new Error('cancelado');
       await wait(4000);
@@ -348,8 +356,6 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     await wait(job.media === 'video' ? 3000 : 1500);   // deixa terminar de carregar
     /* baixa: fetch na página; se falhar (CORS/URL assinada) ou vier quase vazio (prévia ainda carregando), espera e tenta
        de novo e, por fim, baixa pelo Node com os cookies da página */
-    let got: { type: string; data: string } | undefined, small: typeof got;
-    let lastErr = '';
     const minBytes = job.media === 'video' ? 300_000 : 80_000;   // abaixo disso é a prévia, não o arquivo final
     for (let t = 0; t < 6 && !got; t++) {
       if (t) {
@@ -372,6 +378,13 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
       fs.writeFileSync(path.join(job.debugDir, 'flow-media.json'), JSON.stringify({ src, imgs }, null, 2));
     }
     if (!got && small) { got = small; job.log(`Flow: só veio a prévia (${Math.round(small.data.length * 0.75 / 1024)} KB) — usada assim mesmo`); }
+    const gotBuf = got ? Buffer.from(got.data, 'base64') : undefined;
+    if (gotBuf && job.media === 'image' && job.refs?.some((r) => sameImage(gotBuf, r.file))) {
+      job.log('Flow: a imagem nova é a referência anexada, não o resultado — ignorada, aguardando a imagem gerada');
+      before.add(src); got = undefined; continue;
+    }
+    break;
+    }
     if (!got) throw new Error(`o Flow gerou, mas o download falhou: ${lastErr}`);
     const ext = /png/.test(got.type) ? '.png' : /jpe?g/.test(got.type) ? '.jpg' : /webp/.test(got.type) ? '.webp' : /webm/.test(got.type) ? '.webm' : job.media === 'video' ? '.mp4' : '.png';
     const out = job.dest.replace(/\.\w+$/, ext);
@@ -504,3 +517,33 @@ async function nodeFetchMedia(cdp: { send: (m: string, p?: Record<string, unknow
 
 /** URL do arquivo original de uma mídia do Flow (a grade usa "=s1600-rw", reduzida em webp). Função pura. */
 export const flowOriginalUrl = (src: string) => /\/asb\/[^?#]+=s\d+(-[a-z]+)*$/i.test(src) ? src.replace(/=s\d+(-[a-z]+)*$/i, '=s0') : src;
+
+/** Assinatura 16×16 em tons de cinza (Electron nativeImage: PNG/JPEG); undefined fora do Electron ou formato não lido. */
+function graySig(img: Buffer): number[] | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { nativeImage } = require('electron') as typeof import('electron');
+    if (!nativeImage?.createFromBuffer) return undefined;
+    const ni = nativeImage.createFromBuffer(img);
+    if (ni.isEmpty()) return undefined;
+    const bmp = ni.resize({ width: 16, height: 16, quality: 'good' }).toBitmap();   // BGRA
+    const out: number[] = [];
+    for (let i = 0; i + 3 < bmp.length; i += 4) out.push(0.114 * bmp[i]! + 0.587 * bmp[i + 1]! + 0.299 * bmp[i + 2]!);
+    return out.length === 256 ? out : undefined;
+  } catch { return undefined; }
+}
+
+/** As duas imagens são a mesma (a baixada é a referência anexada)? Diferença média de cinza normalizada. Função pura sobre as assinaturas. */
+export function sameSig(a: number[], b: number[], limit = 14): boolean {
+  if (a.length !== b.length || !a.length) return false;
+  const norm = (v: number[]) => { const m = v.reduce((s, x) => s + x, 0) / v.length; return v.map((x) => x - m); };
+  const x = norm(a), y = norm(b);
+  return x.reduce((s, v, i) => s + Math.abs(v - y[i]!), 0) / x.length < limit;
+}
+
+function sameImage(got: Buffer, refFile: string): boolean {
+  try {
+    const a = graySig(got), b = graySig(fs.readFileSync(refFile));
+    return !!a && !!b && sameSig(a, b);
+  } catch { return false; }
+}
