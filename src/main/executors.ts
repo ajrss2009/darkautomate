@@ -2204,7 +2204,8 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       try { fs.renameSync(graded, raw); } catch { fs.copyFileSync(graded, raw); fs.rmSync(graded, { force: true }); }
       c.log(`acabamento do vídeo final: ${fin.length} filtro(s)`);
     }
-    const music = fs.readdirSync(c.outDir).find((f) => f.startsWith('music.'));
+    /* só áudio: out/ também tem marcadores (ex.: music-source.json) e listas de faixas */
+    const music = fs.readdirSync(c.outDir).find((f) => /^music.(mp3|wav|m4a|ogg|flac|aac)$/i.test(f));
     /* volume da trilha: o do editor (projeto) vence o da rota; 0 = mudo (mudo da faixa também) */
     const musicVol = c.project.tracks?.music?.muted ? 0 : (c.project.musicVolume ?? Number(params.musicVolume ?? 0.05));
     if (music && musicVol > 0) await ff.mixMusic(c.settings.ffmpeg, raw, path.join(c.outDir, music), final, c.signal, musicVol);

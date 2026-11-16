@@ -168,6 +168,10 @@ Every shot has camera motion. Hold a perfectly still frame never.
   assert.equal(musicStale(od, { ...pm, musicStyle: 'darksynth' }), true, 'mudou o estilo: refaz');
   writeMusicSource(od, { by: 'user' });
   assert.equal(musicStale(od, { ...pm, musicStyle: 'darksynth' }), false, 'escolhida à mão: nunca');
+  /* o marcador não pode parecer trilha (music.<ext>): nome antigo music.source.json é migrado */
+  assert.ok(fs.existsSync(path.join(od, 'music-source.json')) && !fs.readdirSync(od).some((f) => /^music\.(json|source)/i.test(f)));
+  fs.renameSync(path.join(od, 'music-source.json'), path.join(od, 'music.source.json'));
+  assert.equal(musicStale(od, pm), false); assert.ok(!fs.existsSync(path.join(od, 'music.source.json')) && fs.existsSync(path.join(od, 'music-source.json')), 'migrado');
   fs.rmSync(od, { recursive: true, force: true });
 
   /* ── Range do forge-file (seek do "Ver final") ── */

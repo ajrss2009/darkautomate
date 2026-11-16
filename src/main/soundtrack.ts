@@ -28,7 +28,7 @@ export function setMusic(outDir: string, src: string | null): string | null {
   if (src && !fs.existsSync(src)) throw new Error(`arquivo não encontrado: ${src}`);
   fs.mkdirSync(outDir, { recursive: true });
   for (const n of fs.readdirSync(outDir).filter((x) => MUSIC_RE.test(x))) fs.rmSync(path.join(outDir, n), { force: true });
-  if (!src) { try { fs.rmSync(path.join(outDir, 'music.source.json'), { force: true }); } catch { /* ok */ } return null; }
+  if (!src) { try { fs.rmSync(path.join(outDir, SOURCE_FILE), { force: true }); } catch { /* ok */ } return null; }
   const dest = path.join(outDir, 'music' + path.extname(src).toLowerCase());
   fs.copyFileSync(src, dest);
   writeMusicSource(outDir, { by: 'user' });
@@ -119,14 +119,19 @@ export async function generateMusic(s: Settings, outDir: string, mood: Mood | st
  * "user" = escolhida/gerada no editor (nunca é sobrescrita ao regerar o final); "route" = etapa de música da rota,
  * com a chave da configuração (estilo, modo, trilha por código, humor). Mudou a configuração → o regerar final refaz a música.
  */
+/* fora do padrão music.* (a montagem escolhe a trilha por music.<ext>); o nome antigo music.source.json é migrado */
+const SOURCE_FILE = 'music-source.json';
+const migrateSource = (outDir: string) => { try { const old = path.join(outDir, 'music.source.json'); if (fs.existsSync(old)) { if (!fs.existsSync(path.join(outDir, SOURCE_FILE))) fs.renameSync(old, path.join(outDir, SOURCE_FILE)); else fs.rmSync(old, { force: true }); } } catch { /* ok */ } };
 export interface MusicSource { by: 'user' | 'route'; key?: string; at: string }
 export const musicKey = (p: { musicStyle?: string; musicMode?: string; codeMusic?: boolean; route?: { steps: Array<{ kind: string; enabled: boolean; bindings: unknown[]; params?: unknown }> } }) =>
   JSON.stringify([p.musicStyle ?? '', p.musicMode ?? '', !!p.codeMusic, (p.route?.steps ?? []).filter((s) => s.kind === 'music' && s.enabled).map((s) => [s.bindings, s.params ?? null])]);
 export function readMusicSource(outDir: string): MusicSource | undefined {
-  try { return JSON.parse(fs.readFileSync(path.join(outDir, 'music.source.json'), 'utf8')) as MusicSource; } catch { return undefined; }
+  migrateSource(outDir);
+  try { return JSON.parse(fs.readFileSync(path.join(outDir, SOURCE_FILE), 'utf8')) as MusicSource; } catch { return undefined; }
 }
 export function writeMusicSource(outDir: string, src: Omit<MusicSource, 'at'>): void {
-  try { fs.mkdirSync(outDir, { recursive: true }); fs.writeFileSync(path.join(outDir, 'music.source.json'), JSON.stringify({ ...src, at: new Date().toISOString() }, null, 1)); } catch { /* só marcador */ }
+  migrateSource(outDir);
+  try { fs.mkdirSync(outDir, { recursive: true }); fs.writeFileSync(path.join(outDir, SOURCE_FILE), JSON.stringify({ ...src, at: new Date().toISOString() }, null, 1)); } catch { /* só marcador */ }
 }
 /** A trilha atual está desatualizada em relação à configuração do projeto? (escolhida pelo usuário: nunca) */
 export function musicStale(outDir: string, p: Parameters<typeof musicKey>[0]): boolean {
