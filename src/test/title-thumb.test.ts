@@ -4,7 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { ForgeDb } from '../main/db';
 import { channelFavId, insightsToHtml, insightsToText, readFavoriteChannels, removeFavoriteChannels, reportBaseName, toggleFavoriteChannel } from '../main/research-report';
-import { ogImage, thumbCandidates, thumbRefPrompt } from '../main/thumb-ref';
+import { flowOriginalUrl } from '../main/flow';
+import { ogImage, preferStyleBindings, styleImagePrompt, thumbCandidates, thumbRefPrompt, thumbStyleImage } from '../main/thumb-ref';
 import { GTTS_VOICES, gttsChunks, gttsVoice, providerNeedsKey } from '../main/providers';
 import { buildArgs, codexArgs, DEFAULT_HARNESSES } from '../main/harness';
 import { addChannel, createdFromClone, CREATED_FILE, defaultThumbTemplateId, registerCreatedChannel, updateChannel } from '../main/channels';
@@ -146,6 +147,30 @@ async function main() {
   assert.deepEqual(adoptPlugins(oldDir, newDir, [...sp.removedPlugins!, 'tirado']), [], 'removido não volta');
   setAppPluginsDir(undefined);
   fs.rmSync(npm, { recursive: true, force: true });
+
+  /* ── modelo de thumbnail: imagem do estilo, pedido e rota Flow → Z-Image ── */
+  {
+    const tw = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-style-'));
+    const clone = path.join(tw, 'channels', 'clone-x'); fs.mkdirSync(clone, { recursive: true });
+    fs.writeFileSync(path.join(clone, 'thumb.png'), 'x');
+    fs.writeFileSync(path.join(clone, 'result.json'), JSON.stringify({ thumbnailTemplate: { id: 'm1' } }));
+    const st = { workspace: tw, thumbnails: [{ id: 'm1', name: 'M', preview: './thumb.png' }], channels: [{ id: 'c1', thumbnailTemplate: 'm1' }] } as unknown as Settings;
+    assert.equal(thumbStyleImage(st, { channelId: 'c1' } as never), path.join(clone, 'thumb.png'), 'modelo do canal → imagem do clone');
+    assert.equal(thumbStyleImage(st, { thumbnailTemplate: 'm1' } as never), path.join(clone, 'thumb.png'));
+    assert.equal(thumbStyleImage(st, {} as never), undefined, 'sem modelo → nada');
+    const own = path.join(tw, 'ref.jpg'); fs.writeFileSync(own, 'x');
+    assert.equal(thumbStyleImage(st, { thumbRef: { file: own }, thumbnailTemplate: 'm1' } as never), own, 'referência do projeto vence');
+    const pud = path.join(tw, 'projects', 'p1', 'assets', 'user'); fs.mkdirSync(pud, { recursive: true });
+    fs.writeFileSync(path.join(pud, 'thumb-reference.jpg'), 'x');
+    assert.equal(thumbStyleImage(st, { id: 'p1', thumbRef: { file: 'Z:/sumiu/thumb-reference.jpg' }, thumbnailTemplate: 'm1' } as never), path.join(pud, 'thumb-reference.jpg'), 'projeto movido: acha a cópia na pasta do projeto');
+    assert.match(styleImagePrompt('ELE SABIA', false), /ONLY text in the image must be exactly: "ELE SABIA"/);
+    assert.doesNotMatch(styleImagePrompt('ELE SABIA', true), /ELE SABIA/, 'texto por código → a IA não escreve');
+    const r = preferStyleBindings({ id: 'r', name: 'r', steps: [{ id: 't', kind: 'thumbnail', bindings: [{ type: 'comfyui', server: 'local', workflow: 'krea2-turbo-t2i.json' }, { type: 'flow' }] }] } as never);
+    assert.deepEqual(r.steps[0]!.bindings.map((b: { type: string; workflow?: string }) => b.workflow ?? b.type), ['flow', 'z-image-turbo-t2i.json', 'krea2-turbo-t2i.json']);
+    fs.rmSync(tw, { recursive: true, force: true });
+    assert.equal(flowOriginalUrl('https://flow.google.com/asb/ABC_d-e=s1600-rw'), 'https://flow.google.com/asb/ABC_d-e=s0', 'Flow: original, não a prévia');
+    assert.equal(flowOriginalUrl('https://flow-content.google/image/x?Expires=1'), 'https://flow-content.google/image/x?Expires=1');
+  }
 
   fs.rmSync(ws, { recursive: true, force: true }); fs.rmSync(root, { recursive: true, force: true });
   console.log('title-thumb tests: OK');

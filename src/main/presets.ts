@@ -137,9 +137,11 @@ const transcribeStep = (): RouteStep => step({ id: 'transcribe', kind: 'transcri
   bindings: [{ type: 'builtin', tool: 'whisper' }, { type: 'builtin', tool: 'estimate-words' }], retry: { max: 1, backoffMs: 500 }, timeoutSec: 600, concurrency: 1 });
 
 /** Thumbnail no formato do projeto, depois do SEO (usa o título/texto escolhidos); reserva final = quadro real do vídeo. */
+/* thumbnail: Google Flow (recebe o modelo/elenco como referência) → Z-Image local → demais */
 const thumbChain: Binding[] = [
-  { type: 'comfyui', server: 'local', workflow: 'krea2-turbo-t2i.json' },
+  { type: 'flow' },
   { type: 'comfyui', server: 'local', workflow: 'z-image-turbo-t2i.json' },
+  { type: 'comfyui', server: 'local', workflow: 'krea2-turbo-t2i.json' },
   { type: 'wan2gp', template: 'wan2gp-image.json' },
   { type: 'api', provider: 'openai', model: 'gpt-image-1' },
   { type: 'api', provider: 'gemini', model: 'gemini-2.5-flash-image' },

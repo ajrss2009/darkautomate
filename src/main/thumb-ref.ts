@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Project, Settings } from '../shared/types';
+import type { Binding, Project, Route, Settings } from '../shared/types';
 import { measurePalette } from './style-ref';
+import { projectDirOf } from './settings';
 
 /*
  * THUMBNAIL DE REFERÊNCIA DO PROJETO (Novo projeto → 🏷 Título e thumbnail → "Referência"):
@@ -86,4 +87,57 @@ export function thumbRefPrompt(p: Pick<Project, 'thumbRef'>): string {
   const r = p.thumbRef;
   if (!r) return '';
   return `. FOLLOW THE REFERENCE THUMBNAIL (${path.basename(r.file)}): same composition, framing, focal point position, text size and placement, contrast and lighting${r.palette?.length ? `, palette ${r.palette.join(' ')}` : ''}; new subject about this video — do NOT copy its text, logos, brands or real faces${r.note ? `. ${r.note}` : ''}`;
+}
+
+/**
+ * Imagem que DEFINE o estilo da thumbnail: a referência do projeto (imagem/link) ou a imagem do modelo escolhido
+ * (modelos modelados de canal/vídeo/link guardam a thumbnail de referência em "preview"); sem modelo no projeto,
+ * o modelo do canal de destino. Relativo ("./thumb.png") = pasta do clone que criou o modelo.
+ */
+export function thumbStyleImage(s: Settings, p: Pick<Project, 'thumbRef' | 'thumbnailTemplate' | 'channelId'> & { id?: string }): string | undefined {
+  /* 1º: a imagem adicionada no projeto (vence o modelo do canal). Projeto movido (portátil, outra pasta): o caminho
+     gravado quebra — procura a cópia dentro da própria pasta do projeto */
+  if (p.thumbRef?.file && fs.existsSync(p.thumbRef.file)) return p.thumbRef.file;
+  if (p.id && s.workspace) {
+    const ud = path.join(projectDirOf(s, p.id), 'assets', 'user');
+    try { const f = fs.readdirSync(ud).find((n) => /^thumb-reference.(png|jpe?g|webp)$/i.test(n)); if (f) return path.join(ud, f); } catch { /* sem pasta */ }
+  }
+  const ch = p.channelId ? (s.channels ?? []).find((c) => c.id === p.channelId) : undefined;
+  const id = p.thumbnailTemplate ?? ch?.thumbnailTemplate;
+  const tpl = (s.thumbnails ?? []).find((t) => t.id === id);
+  if (!tpl?.preview) return undefined;
+  const pv = tpl.preview;
+  if (path.isAbsolute(pv)) return fs.existsSync(pv) && /\.(png|jpe?g|webp)$/i.test(pv) ? pv : undefined;
+  /* relativo: procura o clone dono do modelo (result.json com thumbnailTemplate.id) */
+  const root = path.join(s.workspace, 'channels');
+  try {
+    for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name === 'mine') continue;
+      try {
+        const r = JSON.parse(fs.readFileSync(path.join(root, d.name, 'result.json'), 'utf8')) as { thumbnailTemplate?: { id?: string } };
+        if (r.thumbnailTemplate?.id === tpl.id) { const f = path.join(root, d.name, pv); if (fs.existsSync(f)) return f; }
+      } catch { /* clone sem result.json */ }
+    }
+  } catch { /* sem clones */ }
+  return undefined;
+}
+
+/** Trecho do pedido quando a imagem do estilo vai junto (Gemini/Snapgen/Flow). Função pura. */
+export function styleImagePrompt(text: string, visualOverlay: boolean): string {
+  return `. USE THE ATTACHED REFERENCE THUMBNAIL AS THE STYLE MODEL: copy its composition, framing, focal point position, ${visualOverlay ? 'empty area where the title goes' : 'typography style, text size, text placement, text color and outline'}, color palette, lighting and finish — a NEW image about this video, never a copy of its subject, faces, logos or words${visualOverlay ? '' : `. The ONLY text in the image must be exactly: "${text}"`}`;
+}
+
+/**
+ * Com modelo de imagem, a etapa de thumbnail usa o Google Flow AI (recebe a imagem do modelo e os retratos do elenco)
+ * e, de reserva, o Z-Image local (ComfyUI); depois os demais da rota. Função pura sobre a rota.
+ */
+export function preferStyleBindings(route: Route, _s?: Pick<Settings, 'providers'>): Route {
+  const r = JSON.parse(JSON.stringify(route)) as Route;
+  const key = (x: Binding) => JSON.stringify(x);
+  const first: Binding[] = [{ type: 'flow' } as Binding, { type: 'comfyui', server: 'local', workflow: 'z-image-turbo-t2i.json' } as Binding];
+  for (const st of r.steps.filter((x) => x.kind === 'thumbnail')) {
+    const rest = st.bindings.filter((x) => !first.some((f) => key(f) === key(x) || (f.type === 'flow' && x.type === 'flow')));
+    st.bindings = [...first, ...rest];
+  }
+  return r;
 }

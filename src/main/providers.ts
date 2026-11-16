@@ -50,15 +50,18 @@ export async function chat(p: ProviderConfig, model: string, prompt: string, sig
 }
 
 /** Imagem (images/generations). Aceita b64_json ou url. */
-export async function image(p: ProviderConfig, model: string, prompt: string, size: string, dest: string, signal: AbortSignal): Promise<string> {
+export async function image(p: ProviderConfig, model: string, prompt: string, size: string, dest: string, signal: AbortSignal, refs?: string[]): Promise<string> {
   if (p.kind === 'snapgen') {
     const aspect = size === '1024x1024' ? '1:1' : size.includes('1536x1024') ? '16:9' : '9:16';
-    return snapgenImage(p, model, prompt, { aspect, dest, signal });
+    return snapgenImage(p, model, prompt, { aspect, dest, signal, imagePath: refs?.[0] });
   }
   if (p.kind === 'gemini') {
     const r = await ok(await fetch(`${base(p)}/models/${model}:generateContent?key=${gkey(p)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
+      body: JSON.stringify({ contents: [{ parts: [
+        /* imagens de referência (ex.: modelo da thumbnail) antes do texto */
+        ...(refs ?? []).filter((f) => fs.existsSync(f)).slice(0, 3).map((f) => ({ inline_data: { mime_type: /\.png$/i.test(f) ? 'image/png' : /\.webp$/i.test(f) ? 'image/webp' : 'image/jpeg', data: fs.readFileSync(f).toString('base64') } })),
+        { text: prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
     }), 'gemini-image');
     const j = (await r.json()) as any;
     const part = (j?.candidates?.[0]?.content?.parts ?? []).find((x: any) => x.inlineData?.data || x.inline_data?.data);

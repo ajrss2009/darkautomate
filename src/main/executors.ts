@@ -50,10 +50,11 @@ import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Lan
 import { styleNegative } from './style-ref';
 import * as pyFilm from './python-film';
 import * as sceneReview from './scene-review';
+import { thumbStyleImage } from './thumb-ref';
 import { llmJson } from './editor';
 import { languageName } from './prompts';
 import { inScene } from './characters';
-import { isPerson, projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
+import { isPerson, projectThumbDesign, renderThumb, type SnapHtml , thumbText as thumbTextOf } from './thumb-render';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 import { mark, stepSchema } from '../shared/strict';
 import { backdropRef, fallbackPlan, mergeShotSfx, parsePlan, planPrompt, planSchema, shotDurations, shotIdea, shotsWanted, type ShotPlan } from './free-shots';
@@ -698,13 +699,17 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
   if (k === 'image' || k === 'thumbnail') {
     const aspect = c.project.aspect;      // thumbnail no formato do projeto (capa 9:16 nos shorts)
     const prompt = k === 'thumbnail' ? thumbnailPrompt(c) : visualPrompt(c);
+    /* thumbnail com modelo: a IMAGEM do modelo vai junto (o gerador copia o estilo, não só lê a descrição) */
+    const styleImg = k === 'thumbnail' ? thumbStyleImage(c.settings, c.project) : undefined;
+    if (styleImg) c.log(`thumbnail no estilo do modelo: ${path.basename(styleImg)} vai como referência para ${p.id}/${model}`);
     if (p.kind === 'snapgen') {
-      await prov.snapgenImage(p, model, prompt, { aspect, resolution: '1K', dest: file, signal: c.signal, log: c.log });
+      await prov.snapgenImage(p, model, prompt, { aspect, resolution: '1K', dest: file, signal: c.signal, log: c.log, imagePath: styleImg });
       return { files: [file] };
     }
     const { w, h } = ff.resolution(aspect);
     const size = w === h ? '1024x1024' : h > w ? '1024x1536' : '1536x1024';
-    await prov.image(p, model, prompt, size, file, c.signal);
+    if (styleImg && p.kind !== 'gemini') c.log(`⚠ ${p.id} não recebe imagem de referência: a thumbnail segue só a descrição do modelo`);
+    await prov.image(p, model, prompt, size, file, c.signal, styleImg && p.kind === 'gemini' ? [styleImg] : undefined);
     return { files: [file] };
   }
   if (k === 'video' && p.kind === 'snapgen') {
@@ -1239,7 +1244,10 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
     c.log(`Flow (conta "${acc.label}"): gerando ${media === 'image' ? 'imagem' : 'vídeo'}…`);
     const dest = primaryFile(k, c);
     /* personagens da cena (biblioteca/elenco): folha ou retrato como referência, na ordem em que aparecem */
-    const refs = c.scene && k !== 'thumbnail' ? charactersInScene(c.projectDir, c.scene, 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file)) : [];
+    const styleRefImg = k === 'thumbnail' ? thumbStyleImage(c.settings, c.project) : undefined;
+    const refs = !c.scene && styleRefImg ? [{ name: 'MODELO DA THUMBNAIL (copie o estilo, não o conteúdo)', file: styleRefImg },
+      ...(c.project.characters ?? []).filter(isPerson).slice(0, 2).map((ch) => ({ name: `rosto de ${ch.name} (mantenha)`, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file))]
+      : c.scene && k !== 'thumbnail' ? charactersInScene(c.projectDir, c.scene, 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file)) : [];
     /* cenários e objetos da biblioteca citados na cena + o esboço escolhido no storyboard (composição) */
     if (c.scene && k !== 'thumbnail') {
       for (const it of (c.project.characters ?? []).filter((x) => x.entity && inScene(x.name, c.scene))) {
@@ -2626,10 +2634,27 @@ async function visualThumb(c: ExecContext, o: ExecutorOptions, ex: Executor): Pr
   /* personagem da biblioteca no projeto e nenhum design escolhido: a capa usa um QUADRO do vídeo (o rosto certo) com o
      texto escrito por código — o gerador de imagem sem referência inventava outra pessoa (cantor homem no clipe da
      Seo-yeon) e escrevia o texto com erro ("Ela ainda especa") */
-  const castFrame = !projectThumbDesign(c.settings, c.project) && (c.project.characters ?? []).some(isPerson) && fs.existsSync(primaryFile('edit', c));
+  const castFrame = !projectThumbDesign(c.settings, c.project) && !thumbStyleImage(c.settings, c.project) && (c.project.characters ?? []).some(isPerson) && fs.existsSync(primaryFile('edit', c));
   const fromFrame = castFrame || (c.binding.type === 'builtin' && c.binding.tool === 'frame-thumbnail');
   const design = projectThumbDesign(c.settings, c.project) ?? (fromFrame ? THUMB_DESIGN_TEMPLATES[0]!.design : undefined);
-  if (!design || !o.snapHtml) return ex(c);
+  if (!design || !o.snapHtml) {
+    const res = await ex(c);
+    /* thumbnail com MODELO e sem layout por código: confere se o texto da LLM saiu na imagem; se não, escreve por código */
+    const img = res.files.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
+    if (img && o.snapHtml && thumbStyleImage(c.settings, c.project)) {
+      const text = thumbTextOf(c.projectDir, c.project, undefined);
+      const has = await sceneReview.imageHasText(c.settings, img, text, c.signal, c.log).catch(() => undefined);
+      if (has === false) {
+        const out = primaryFile('thumbnail', c), tmp2 = out.replace(/(\.\w+)$/, '.text$1');
+        const d2 = { ...THUMB_DESIGN_TEMPLATES[0]!.design, shade: 0.25 };
+        await renderThumb({ settings: c.settings, snap: o.snapHtml, projectDir: c.projectDir, project: c.project, design: d2, out: tmp2, bgFile: img, signal: c.signal });
+        fs.renameSync(tmp2, out);
+        c.log(`texto "${text}" escrito por código sobre a thumbnail gerada no estilo do modelo`);
+        return { files: [out] };
+      }
+    }
+    return res;
+  }
   let bgFile: string | undefined;
   if (!fromFrame) {
     const r = await ex(c);

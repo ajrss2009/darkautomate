@@ -79,7 +79,7 @@ import { auditLibrary } from './audit';
 import { findOutliers, type FinderQuery } from './finder';
 import { analyzeGaps, cachedCollection, collectFrontier, depthPlan, gapToProjectInput, listFrontiers, loadGaps, makeFrontier, researchRoot, saveCachedCollection, saveResearch, type Frontier, type Gap } from './research';
 import { closeDb, getDb, listProjectsIndexed, openDb, recordQuiet, setProjectCostProvider, syncRecordsQuiet } from './db';
-import { prepareThumbRef } from './thumb-ref';
+import { preferStyleBindings, prepareThumbRef, thumbStyleImage } from './thumb-ref';
 import { fileResponse } from './media-range';
 import { loadKitSounds } from './kit-import';
 import { insightsToHtml, insightsToText, readFavoriteChannels, removeFavoriteChannels, reportBaseName, reportsDir, toggleFavoriteChannel, type FavoriteChannel, type InsightMeta } from './research-report';
@@ -669,7 +669,8 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
   const project: Project = ops.readProject(settings, id);
   if (!project.route) return { ok: false, error: 'projeto sem rota' };
   /* bypass de executor do projeto: vale só nesta execução (a rota gravada não muda) */
-  const runRouteEff = applyBypass(project.route, project.executorBypass);
+  /* thumbnail com modelo de imagem (referência/modelo do projeto ou do canal): Flow AI com a imagem do modelo → Z-Image local */
+  const runRouteEff = applyBypass(thumbStyleImage(settings, project) ? preferStyleBindings(project.route) : project.route, project.executorBypass);
 
   /* ── parâmetros efetivos + log ficam gravados no projeto ─────────── */
   const conc = Math.max(0, Math.min(8, Math.round(project.sceneConcurrency ?? settings.defaults?.sceneConcurrency ?? 0)));
@@ -2016,6 +2017,8 @@ function registerIpc() {
       try { await prepareThumbRef(settings, p, projectDirOf(settings, p.id), input.thumbRef, AbortSignal.timeout(90_000)); ops.saveProjectFile(settings, p); }
       catch (e) { send({ t: 'log', line: `⚠ thumbnail de referência: ${(e as Error).message}` } as EngineEvent); (p as Project & { warnings?: string[] }).warnings = [`thumbnail de referência: ${(e as Error).message}`]; }
     }
+    /* thumbnail com modelo de imagem: geradores que recebem a imagem do modelo vão primeiro na etapa de thumbnail */
+    if (p.route && thumbStyleImage(settings, p)) { p.route = preferStyleBindings(p.route); ops.saveProjectFile(settings, p); }
     if (input.refScriptFile || input.refVideoFile) {
       await prepareReferences(settings, p, projectDirOf(settings, p.id), { scriptFile: input.refScriptFile, videoFile: input.refVideoFile }, toolsDir(), AbortSignal.timeout(20 * 60_000));
       /* roteiro importado = O roteiro do vídeo (não só modelo de estilo) */

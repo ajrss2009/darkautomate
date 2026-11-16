@@ -10,7 +10,7 @@ import { productCtaPrompt } from './clone-business';
 import { emotionInstruction, h3SpeechScene, isH3Video } from './speech-emotion';
 import { seriesBlock } from './story-import';
 import { styleBlock, styleVisual } from './style-ref';
-import { thumbRefPrompt } from './thumb-ref';
+import { styleImagePrompt, thumbRefPrompt, thumbStyleImage } from './thumb-ref';
 import type { ExecContext } from './engine';
 import { pluginPrompt, pluginsRoot } from './plugins';
 import { smallModelBudget } from './contract';
@@ -395,6 +395,8 @@ export function thumbnailPrompt(c: ExecContext): string {
     (destCh?.identity?.thumbRules ? `. Channel thumbnail rules: ${destCh.identity.thumbRules}` : '') +
     /* referência (imagem ou link de vídeo) escolhida no projeto: composição e estilo dela */
     thumbRefPrompt(p) +
+    /* modelo com imagem (referência do projeto, modelo modelado de canal/vídeo/link): a imagem vai junto aos geradores que aceitam */
+    (thumbStyleImage(c.settings, p) ? styleImagePrompt(thumbText, visual) : visual ? '' : `. Text on the thumbnail (exactly, no other words): "${thumbText}"`) +
     /* título × thumbnail: o texto da imagem COMPLETA o título, não repete */
     `. The thumbnail must sell the title "${title}": the image shows the promise/curiosity, the overlay text complements the title instead of repeating it` +
     (visual ? '. BACKGROUND ONLY: absolutely NO text, letters, numbers or logos in the image (the title is added later); one clear focal point, leave clean space for the title, 3-color high-contrast palette'

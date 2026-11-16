@@ -72,7 +72,7 @@ const PAGE_HELPERS = String.raw`
   const findBtn = (re) => clickables().find((el) => re.test(txt(el)));
   const editor = () => [...document.querySelectorAll('[contenteditable][role=textbox], .ProseMirror, textarea')].filter(vis)[0];
   const inputs = () => [...document.querySelectorAll('textarea, [contenteditable=true], [contenteditable=""], input[type=text]')].filter(vis);
-  const medias = () => [...document.querySelectorAll('video, img')].filter((m) => { const r = m.getBoundingClientRect(); const src = m.currentSrc || m.src || (m.querySelector && m.querySelector('source') && m.querySelector('source').src) || ''; return r.width >= 120 && r.height >= 80 && src && !/^data:image\/svg|\.svg(\?|$)|googleusercontent\.com\/a\/|avatar|logo/i.test(src); }).map((m) => ({ tag: m.tagName.toLowerCase(), src: m.currentSrc || m.src || (m.querySelector('source') || {}).src }));
+  const medias = () => [...document.querySelectorAll('video, img')].filter((m) => { const r = m.getBoundingClientRect(); const src = m.currentSrc || m.src || (m.querySelector && m.querySelector('source') && m.querySelector('source').src) || ''; return Math.max(r.width, r.height) >= 120 && Math.min(r.width, r.height) >= 60 && src && !/^data:image\/svg|\.svg(\?|$)|googleusercontent\.com\/a\/|avatar|logo/i.test(src); }).map((m) => ({ tag: m.tagName.toLowerCase(), src: m.currentSrc || m.src || (m.querySelector('source') || {}).src }));
 `;
 
 /** Estado da página: login, campo de prompt, mídias atuais (para detectar as novas). */
@@ -238,12 +238,53 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
         const doc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true }, session) as { root: { nodeId: number } };
         const q = await cdp.send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: 'input[type=file]' }, session) as { nodeIds: number[] };
         const nodeId = q.nodeIds?.[0];
+        const files = job.refs.map((r) => path.resolve(r.file));
         if (nodeId) {
-          await cdp.send('DOM.setFileInputFiles', { nodeId, files: job.refs.map((r) => path.resolve(r.file)) }, session);
+          await cdp.send('DOM.setFileInputFiles', { nodeId, files }, session);
           refsOk = job.refs.length;
-          job.log(`Flow: ${refsOk} referência(s) de personagem enviada(s) (${job.refs.map((r) => r.name).join(', ')})`);
-          await wait(4000);   // o Flow sobe as imagens antes do pedido
-        } else job.log('Flow: campo de anexo não encontrado — o pedido segue só com a descrição dos personagens');
+        } else {
+          /* o campo de arquivo do Flow só existe depois de clicar em "adicionar/anexar": intercepta o seletor de arquivos
+             do navegador, clica no botão e entrega as imagens ao seletor que abrir (sem janela do Windows) */
+          await cdp.send('Page.enable', {}, session).catch(() => {});
+          await cdp.send('Page.setInterceptFileChooserDialog', { enabled: true }, session).catch(() => {});
+          for (let i = 0; i < files.length && i < 4; i++) {
+            const opened = cdp.waitEvent('Page.fileChooserOpened', session, 9000);
+            const at = await evaluate<string>(cdp, session, FLOW_ATTACH_CLICK, 10_000).catch(() => 'none');
+            let clicked = 'none';
+            if (at && at !== 'none') {
+              await realClick(cdp, session, JSON.parse(at) as { x: number; y: number }); clicked = 'ok';
+              await wait(800);
+              const up = await evaluate<string>(cdp, session, FLOW_UPLOAD_ITEM, 5000).catch(() => '');
+              if (up) await realClick(cdp, session, JSON.parse(up) as { x: number; y: number });
+            }
+            const ev = await opened as { backendNodeId?: number; mode?: string } | undefined;
+            if (ev?.backendNodeId) {
+              await cdp.send('DOM.setFileInputFiles', { backendNodeId: ev.backendNodeId, files: ev.mode === 'selectMultiple' ? files.slice(i) : [files[i]!] }, session);
+              refsOk += ev.mode === 'selectMultiple' ? files.length - i : 1;
+              await wait(2500);
+              if (ev.mode === 'selectMultiple') break;
+            } else {
+              /* sem seletor: talvez o clique tenha criado o input — tenta de novo direto */
+              const doc2 = await cdp.send('DOM.getDocument', { depth: -1, pierce: true }, session) as { root: { nodeId: number } };
+              const q2 = await cdp.send('DOM.querySelectorAll', { nodeId: doc2.root.nodeId, selector: 'input[type=file]' }, session) as { nodeIds: number[] };
+              if (q2.nodeIds?.[0]) { await cdp.send('DOM.setFileInputFiles', { nodeId: q2.nodeIds[0], files }, session); refsOk = files.length; }
+              else job.log(`Flow: botão de anexo ${clicked === 'ok' ? 'clicado, mas o seletor não abriu' : 'não encontrado'}`);
+              break;
+            }
+          }
+          await cdp.send('Page.setInterceptFileChooserDialog', { enabled: false }, session).catch(() => {});
+        }
+        if (refsOk) {
+          job.log(`Flow: ${refsOk} referência(s) enviada(s) (${job.refs.map((r) => r.name).join(', ')})`);
+          /* aviso "Direitos de uso desta imagem" (o usuário autorizou o app a aceitar nos envios de referência): "Concordo" */
+          for (let i = 0; i < 10; i++) {
+            const at = await evaluate<string>(cdp, session, FLOW_RIGHTS_AGREE, 5000).catch(() => '');
+            if (at) { await realClick(cdp, session, JSON.parse(at) as { x: number; y: number }); job.log('Flow: aviso de direitos de uso da imagem aceito'); await wait(1500); break; }
+            await wait(500);
+          }
+          await wait(3000);   // o Flow sobe as imagens antes do pedido
+        }
+        else job.log('Flow: campo de anexo não encontrado — o pedido segue só com a descrição');
       } catch (e) { job.log(`Flow: não consegui anexar os personagens (${(e as Error).message.slice(0, 120)}) — segue só com o texto`); }
     }
     if (refsOk) job.prompt = job.prompt + flowRefsText(job.refs);
@@ -253,6 +294,10 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     if (!pt) { await dbg('foco no campo'); throw new Error('não consegui focar o campo do agente'); }
     for (const type of ['mousePressed', 'mouseReleased'] as const) await cdp.send('Input.dispatchMouseEvent', { type, x: pt.x, y: pt.y, button: 'left', clickCount: 1 }, session);
     await wait(250);
+    /* SEGURANÇA: Ctrl+A + Backspace fora do campo seleciona e APAGA as mídias do projeto do Flow (aconteceu com um aviso
+       aberto por cima: 54 itens foram para a lixeira). Só digita se o foco está num campo de texto e não há diálogo aberto. */
+    const focusOk = await evaluate<string>(cdp, session, FLOW_FOCUS_CHECK, 5000).catch(() => 'erro');
+    if (focusOk !== 'ok') { await dbg(`foco fora do campo (${focusOk})`); throw new Error(`o campo do agente do Flow não está com o foco (${focusOk}) — nada foi digitado`); }
     // limpa o que houver no campo (Ctrl+A, Backspace) e digita o pedido
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 }, session);
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 }, session);
@@ -283,6 +328,12 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     }
     if (!sent) { await dbg('pedido não enviado'); throw new Error('o Flow não aceitou o envio do pedido (a seta não respondeu)'); }
     job.log(`Flow: pedido enviado ao agente ("${flowPrompt(job).slice(0, 80)}…") — aguardando a geração…`);
+    /* o balão do pedido mostra as referências anexadas logo após o envio: o que aparece nos primeiros segundos não é o
+       resultado (a geração demora mais) — entra na lista do que ignorar */
+    if (refsOk) {
+      await wait(6000);
+      for (const m of await evaluate<typeof probe>(cdp, session, PROBE, 10_000).then((r) => r.medias).catch(() => [] as string[])) before.add(m);
+    }
     // 4) espera a primeira mídia nova (imagem ou vídeo, conforme o pedido)
     let src = '';
     while (Date.now() < deadline) {
@@ -295,7 +346,33 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     }
     if (!src) { await dbg('nenhuma mídia nova'); throw new Error(`o Flow não entregou ${job.media === 'image' ? 'imagem' : 'vídeo'} em ${job.timeoutSec}s`); }
     await wait(job.media === 'video' ? 3000 : 1500);   // deixa terminar de carregar
-    const got = await evaluate<{ type: string; data: string }>(cdp, session, fetchMedia(src), 180_000);
+    /* baixa: fetch na página; se falhar (CORS/URL assinada) ou vier quase vazio (prévia ainda carregando), espera e tenta
+       de novo e, por fim, baixa pelo Node com os cookies da página */
+    let got: { type: string; data: string } | undefined, small: typeof got;
+    let lastErr = '';
+    const minBytes = job.media === 'video' ? 300_000 : 80_000;   // abaixo disso é a prévia, não o arquivo final
+    for (let t = 0; t < 6 && !got; t++) {
+      if (t) {
+        await wait(4000);
+        const ms = await evaluate<{ medias: Array<{ tag: string; src: string }> }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000).then((r) => r.medias).catch(() => [] as Array<{ tag: string; src: string }>);
+        const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img'));
+        if (fresh) src = fresh.src;
+      }
+      try {
+        /* a grade mostra versão reduzida (=s1600-rw, webp): pede o original (=s0) e, se falhar, a URL da grade */
+        const full = flowOriginalUrl(src);
+        const g = t < 4 ? await evaluate<{ type: string; data: string }>(cdp, session, fetchMedia(full), 180_000).catch(() => evaluate<{ type: string; data: string }>(cdp, session, fetchMedia(src), 180_000)) : await nodeFetchMedia(cdp, session, full).catch(() => nodeFetchMedia(cdp, session, src));
+        if (g.data.length * 0.75 < minBytes) { if (!small || g.data.length > small.data.length) small = g; lastErr = `só a prévia (${Math.round(g.data.length * 0.75 / 1024)} KB)`; if (t < 5) await wait(5000); continue; }
+        got = g;
+      } catch (e) { lastErr = (e as Error).message; }
+    }
+    if (!got && small && job.debugDir) {
+      await dbg('só a prévia');
+      const imgs = await evaluate<Json>(cdp, session, `[...document.querySelectorAll('img, video')].filter((i) => i.getBoundingClientRect().width > 100).slice(0, 12).map((i) => ({ tag: i.tagName, src: (i.currentSrc || i.src || '').slice(0, 400), srcset: (i.srcset || '').slice(0, 600), nat: (i.naturalWidth || i.videoWidth) + 'x' + (i.naturalHeight || i.videoHeight), box: Math.round(i.getBoundingClientRect().width) + 'x' + Math.round(i.getBoundingClientRect().height), link: (i.closest('a') || {}).href || '' }))`, 10_000).catch(() => null);
+      fs.writeFileSync(path.join(job.debugDir, 'flow-media.json'), JSON.stringify({ src, imgs }, null, 2));
+    }
+    if (!got && small) { got = small; job.log(`Flow: só veio a prévia (${Math.round(small.data.length * 0.75 / 1024)} KB) — usada assim mesmo`); }
+    if (!got) throw new Error(`o Flow gerou, mas o download falhou: ${lastErr}`);
     const ext = /png/.test(got.type) ? '.png' : /jpe?g/.test(got.type) ? '.jpg' : /webp/.test(got.type) ? '.webp' : /webm/.test(got.type) ? '.webm' : job.media === 'video' ? '.mp4' : '.png';
     const out = job.dest.replace(/\.\w+$/, ext);
     fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -364,3 +441,66 @@ export async function flowDiagnose(port: number, flowUrl: string, debugDir: stri
     cdp.close();
   }
 }
+
+/** Clica no botão de anexar/adicionar imagem do Flow (perto do campo do agente). 'ok' se clicou. */
+const FLOW_ATTACH_CLICK = `(() => {
+  const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 && getComputedStyle(el).visibility !== 'hidden'; };
+  const label = (el) => ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.textContent || '')).toLowerCase();
+  const btns = [...document.querySelectorAll('button, [role=button]')].filter(vis);
+  /* Flow (nov/2026): "Menu para adicionar arquivos" (ícone add, no topo do projeto) → item de menu "Enviar" (upload) */
+  const aria = (b) => (b.getAttribute('aria-label') || '').toLowerCase();
+  const hit = btns.find((b) => /adicionar arquivos|add files|add media|adicionar mídia/.test(aria(b)))
+    || btns.find((b) => /add_photo|attach|anexar|upload|ingredient|ingrediente/.test(label(b)) && !/imagens$|^image imagens/.test(label(b).trim()));
+  if (!hit) return 'none';
+  /* o seletor de arquivos só abre com gesto REAL do usuário: devolve o ponto e o app clica com o mouse (CDP) */
+  const r = hit.getBoundingClientRect();
+  return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+})()`;
+/** Ponto do item "Enviar/Upload" do menu aberto (ou ''). */
+const FLOW_UPLOAD_ITEM = `(() => {
+  const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+  const label = (el) => ((el.getAttribute('aria-label') || '') + ' ' + (el.textContent || '')).toLowerCase();
+  const opt = [...document.querySelectorAll('[role=menuitem]')].filter(vis).find((e) => /upload|enviar|carregar|do computador|from computer|from device/.test(label(e)));
+  if (!opt) return '';
+  const r = opt.getBoundingClientRect();
+  return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+})()`;
+/** Clique de mouse real (gesto do usuário) num ponto da página. */
+async function realClick(cdp: Cdp, session: string, pt: { x: number; y: number }): Promise<void> {
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) await cdp.send('Input.dispatchMouseEvent', { type, x: pt.x, y: pt.y, button: 'left', clickCount: 1 }, session);
+}
+
+/** O foco está num campo de texto (o editor do agente) e não há diálogo/modal aberto? 'ok' ou o motivo. */
+const FLOW_FOCUS_CHECK = `(() => {
+  const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 && getComputedStyle(el).visibility !== 'hidden'; };
+  const dlg = [...document.querySelectorAll('[role=dialog], [role=alertdialog], dialog[open], [aria-modal=true]')].filter(vis);
+  if (dlg.length) return 'diálogo aberto: ' + (dlg[0].textContent || '').trim().slice(0, 60);
+  const a = document.activeElement;
+  if (!a || a === document.body) return 'sem foco';
+  const editable = a.isContentEditable || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && /text|search/.test(a.type || 'text'));
+  return editable ? 'ok' : 'foco em ' + a.tagName.toLowerCase();
+})()`;
+
+/** Ponto do botão "Concordo" do aviso "Direitos de uso desta imagem" (ou ''). */
+const FLOW_RIGHTS_AGREE = `(() => {
+  const dlg = [...document.querySelectorAll('[role=dialog], [role=alertdialog], [aria-modal=true]')].find((d) => /direitos de uso|usage rights|rights to use/i.test(d.textContent || ''));
+  if (!dlg) return '';
+  const b = [...dlg.querySelectorAll('button')].find((x) => /^(concordo|i agree|agree|aceito)$/i.test((x.textContent || '').trim()));
+  if (!b) return '';
+  const r = b.getBoundingClientRect();
+  return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+})()`;
+
+/** Baixa a mídia pelo Node (fora da página) com os cookies que o navegador tem para a URL — para quando o fetch da página falha. */
+async function nodeFetchMedia(cdp: { send: (m: string, p?: Record<string, unknown>, s?: string) => Promise<unknown> }, session: string, src: string): Promise<{ type: string; data: string }> {
+  if (src.startsWith('blob:') || src.startsWith('data:')) throw new Error('mídia só existe dentro da página');
+  const ck = await cdp.send('Network.getCookies', { urls: [src] }, session).catch(() => ({ cookies: [] })) as { cookies?: Array<{ name: string; value: string }> };
+  const cookie = (ck.cookies ?? []).map((c) => `${c.name}=${c.value}`).join('; ');
+  const r = await fetch(src, { headers: cookie ? { cookie } : {} });
+  if (!r.ok) throw new Error('download HTTP ' + r.status);
+  const buf = Buffer.from(await r.arrayBuffer());
+  return { type: r.headers.get('content-type') ?? '', data: buf.toString('base64') };
+}
+
+/** URL do arquivo original de uma mídia do Flow (a grade usa "=s1600-rw", reduzida em webp). Função pura. */
+export const flowOriginalUrl = (src: string) => /\/asb\/[^?#]+=s\d+(-[a-z]+)*$/i.test(src) ? src.replace(/=s\d+(-[a-z]+)*$/i, '=s0') : src;

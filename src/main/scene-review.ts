@@ -84,3 +84,25 @@ export function reviewFixPrompt(rel: string, issues: string[]): string {
     'Mantenha o visual, a história, os textos, os tempos, a fala e os efeitos sonoros. NÃO crie arquivos de teste nem rode comandos: o FilmForge renderiza de novo e revisa sozinho.',
   ].join('\n\n');
 }
+
+/**
+ * A imagem tem o texto pedido, legível? (thumbnail com modelo: o gerador às vezes ignora o texto). Usa um harness com
+ * visão; undefined = não deu para conferir.
+ */
+export async function imageHasText(s: Settings, image: string, text: string, signal: AbortSignal, log: (l: string) => void): Promise<boolean | undefined> {
+  const dir = path.dirname(image);
+  const prompt = `Abra a imagem "${image}". Ela contém o texto "${text}" escrito de forma legível (pode ter outra caixa de letra)? Responda SÓ com JSON: {"has": true|false, "seen": "texto que você lê na imagem"}`;
+  for (const b of [{ type: 'harness', harness: 'antigravity' }, { type: 'harness', harness: 'claude', model: 'sonnet' }, { type: 'harness', harness: 'codex' }] as Array<Extract<Binding, { type: 'harness' }>>) {
+    try {
+      const { id, cfg, model } = await resolveHarness(s, b);
+      const http = isHttpHarness(cfg);
+      const r = await runHarness(cfg, { cwd: dir, prompt, model, signal, timeoutSec: 300, images: http ? [image] : undefined, tools: http ? undefined : { roots: [dir], allowShell: false } } as Parameters<typeof runHarness>[1]);
+      const m = /\{[\s\S]*\}/.exec(r.stdout);
+      if (!m) continue;
+      const j = JSON.parse(m[0]) as { has?: boolean; seen?: string };
+      log(`conferência do texto da thumbnail (${id}): ${j.has ? 'ok' : `faltou — a imagem mostra "${(j.seen ?? '').slice(0, 60)}"`}`);
+      return !!j.has;
+    } catch { /* próximo harness */ }
+  }
+  return undefined;
+}
