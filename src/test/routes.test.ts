@@ -134,11 +134,11 @@ async function main() {
     const run2 = await runRoute({ project: sh, route: tr, projectDir: fdir, signal: new AbortController().signal, deps: { settings: s, emit: () => {}, sleep: async () => {}, executors: execs } });
     assert.equal(run2.ok, true, run2.error ?? '');
     const dims = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', path.join(fdir, 'out', 'thumbnail.png')]).toString().trim();
-    assert.equal(dims, '1080,1920', 'capa vertical no formato do projeto');
+    assert.equal(dims, '1280,720', 'thumbnail 16:9 mesmo em vídeo vertical');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') console.log('(ffmpeg ausente: teste de thumbnail por quadro pulado)'); else throw e;
   }
-  assert.match(thumbnailPrompt({ ...ctx(sh, 'thumbnail') }), /vertical Shorts\/Reels cover/);
+  assert.match(thumbnailPrompt({ ...ctx(sh, 'thumbnail') }), /16:9/);   // thumbnail sempre 16:9, mesmo em vídeo vertical
 
   /* executor por etapa: roteiro no Claude, cenas no Ollama, revisão no Antigravity — vencem o perfil; a rota fica de reserva */
   {

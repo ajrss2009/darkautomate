@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { ForgeDb } from '../main/db';
 import { channelFavId, insightsToHtml, insightsToText, readFavoriteChannels, removeFavoriteChannels, reportBaseName, toggleFavoriteChannel } from '../main/research-report';
 import { flowOriginalUrl } from '../main/flow';
+import { thumbSize } from '../main/thumb-render';
 import { ogImage, preferStyleBindings, styleImagePrompt, thumbCandidates, thumbRefPrompt, thumbStyleImage } from '../main/thumb-ref';
 import { GTTS_VOICES, gttsChunks, gttsVoice, providerNeedsKey } from '../main/providers';
 import { buildArgs, codexArgs, DEFAULT_HARNESSES } from '../main/harness';
@@ -170,6 +171,7 @@ async function main() {
     fs.rmSync(tw, { recursive: true, force: true });
     assert.equal(flowOriginalUrl('https://flow.google.com/asb/ABC_d-e=s1600-rw'), 'https://flow.google.com/asb/ABC_d-e=s0', 'Flow: original, não a prévia');
     assert.equal(flowOriginalUrl('https://flow-content.google/image/x?Expires=1'), 'https://flow-content.google/image/x?Expires=1');
+    assert.deepEqual(thumbSize('9:16'), { w: 1280, h: 720 }, 'thumbnail sempre 16:9, mesmo em vídeo vertical');
   }
 
   fs.rmSync(ws, { recursive: true, force: true }); fs.rmSync(root, { recursive: true, force: true });

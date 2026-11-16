@@ -78,7 +78,7 @@ async function main() {
   assert.equal(thumbText(pdir, p), 'Projeto X');
   fs.writeFileSync(path.join(pdir, 'out', 'metadata.json'), JSON.stringify({ thumbnailText: 'POR QUE CAIU?' }));
   assert.equal(thumbText(pdir, p), 'POR QUE CAIU?');
-  assert.deepEqual(thumbSize('16:9'), { w: 1280, h: 720 }); assert.deepEqual(thumbSize('9:16'), { w: 1080, h: 1920 });
+  assert.deepEqual(thumbSize('16:9'), { w: 1280, h: 720 }); assert.deepEqual(thumbSize('9:16'), { w: 1280, h: 720 });   // thumbnail sempre 16:9
   assert.equal(autoFrameTime({ ...p, scenes: [{ kind: 'code', durationSec: 4 }, { kind: 'code', durationSec: 10 }] } as unknown as Project, 14), 9);
   /* quadro mais "thumb": colorido e claro vence cartela preta e cinza lavado */
   const solid = (r: number, g: number, b: number) => new Uint8Array(Array.from({ length: 48 * 27 }, () => [r, g, b]).flat());

@@ -19,8 +19,10 @@ export function projectThumbDesign(s: Settings, p: Project): ThumbDesign | undef
   return allThumbTemplates(s).find((t) => t.id === p.thumbnailTemplate)?.design;
 }
 
-/** Tamanho da thumbnail: 1280×720 no 16:9 (padrão do YouTube); capa vertical/quadrada no tamanho do vídeo. */
-export const thumbSize = (aspect: Project['aspect']) => (aspect === '16:9' || !aspect ? { w: 1280, h: 720 } : ff.resolution(aspect));
+/** A thumbnail é SEMPRE 16:9 (padrão do YouTube), mesmo em vídeo vertical. */
+export const THUMB_ASPECT = '16:9' as const;
+/** Tamanho da thumbnail: 1280×720 em qualquer formato de vídeo. */
+export const thumbSize = (_aspect?: Project['aspect']) => ({ w: 1280, h: 720 });
 
 /** Texto da thumbnail: o do desenho, o do SEO (metadata.json) ou as 3 primeiras palavras do título. */
 export function thumbText(projectDir: string, p: Project, d?: ThumbDesign): string {
@@ -105,7 +107,10 @@ export async function bestFrameTime(ffmpeg: string, video: string, p: Project, t
 /** Extrai um quadro do vídeo final (JPEG) para o fundo. */
 export async function grabFrame(ffmpeg: string, video: string, t: number, out: string, signal?: AbortSignal): Promise<string> {
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  await ff.run(ffmpeg, ['-y', '-ss', Math.max(0, t).toFixed(2), '-i', video, '-frames:v', '1', '-q:v', '2', out], signal);
+  /* sempre 16:9 (1280×720): quadro de vídeo vertical/quadrado vai inteiro no centro, sobre ele mesmo desfocado */
+  const { w, h } = thumbSize();
+  const vf = `split[a][b];[a]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=30:2[bg];[b]scale=${w}:${h}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2`;
+  await ff.run(ffmpeg, ['-y', '-ss', Math.max(0, t).toFixed(2), '-i', video, '-frames:v', '1', '-vf', vf, '-q:v', '2', out], signal);
   return out;
 }
 

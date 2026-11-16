@@ -54,7 +54,7 @@ import { thumbStyleImage } from './thumb-ref';
 import { llmJson } from './editor';
 import { languageName } from './prompts';
 import { inScene } from './characters';
-import { isPerson, projectThumbDesign, renderThumb, type SnapHtml , thumbText as thumbTextOf } from './thumb-render';
+import { isPerson, projectThumbDesign, renderThumb, type SnapHtml , thumbText as thumbTextOf, THUMB_ASPECT, thumbSize } from './thumb-render';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
 import { mark, stepSchema } from '../shared/strict';
 import { backdropRef, fallbackPlan, mergeShotSfx, parsePlan, planPrompt, planSchema, shotDurations, shotIdea, shotsWanted, type ShotPlan } from './free-shots';
@@ -697,7 +697,7 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     return { files: [file] };
   }
   if (k === 'image' || k === 'thumbnail') {
-    const aspect = c.project.aspect;      // thumbnail no formato do projeto (capa 9:16 nos shorts)
+    const aspect = k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect;      // thumbnail sempre 16:9
     const prompt = k === 'thumbnail' ? thumbnailPrompt(c) : visualPrompt(c);
     /* thumbnail com modelo: a IMAGEM do modelo vai junto (o gerador copia o estilo, não só lê a descrição) */
     const styleImg = k === 'thumbnail' ? thumbStyleImage(c.settings, c.project) : undefined;
@@ -776,7 +776,7 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 /** Variáveis comuns a ComfyUI e Wan2GP. */
 function commonVars(c: ExecContext, side: { maxSide?: number; multiple?: number; megapixels?: number; exactAspect?: boolean }): Record<string, string | number> {
   const isThumb = c.step.kind === 'thumbnail';
-  const aspect = c.project.aspect;
+  const aspect = isThumb ? THUMB_ASPECT : c.project.aspect;   // thumbnail sempre 16:9
   const { w, h } = ff.resolution(aspect);
   const vt = getVideoType(c.project.videoType);
   const seedBase = parseInt(crypto.createHash('md5').update(c.project.id).digest('hex').slice(0, 8), 16) % 2147483647;
@@ -1258,7 +1258,7 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
       if (sk && fs.existsSync(sk) && refs.length < 6) refs.push({ name: 'esboço do storyboard (siga a composição)', file: sk });
     }
     const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
-      aspect: c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
+      aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });
     // formato que a montagem espera: frame.png / thumbnail.png / clip.mp4
     if (got !== dest) {
@@ -2568,7 +2568,7 @@ async function frameThumbnail(c: ExecContext): Promise<ExecResult> {
   t = clamp(t, 0, Math.max(0, total - 0.1));
   let text = c.project.name.split(/\s+/).slice(0, 3).join(' ').toUpperCase();
   try { const m = JSON.parse(fs.readFileSync(path.join(c.outDir, 'metadata.json'), 'utf8')) as { thumbnailText?: string }; if (m.thumbnailText) text = m.thumbnailText; } catch { /* sem SEO */ }
-  const { w, h } = ff.resolution(c.project.aspect);
+  const { w, h } = thumbSize(c.project.aspect);   // 16:9 mesmo em vídeo vertical
   const dest = primaryFile('thumbnail', c);
   ensureDir(dest);
   const txt = path.join(c.outDir, 'thumb-text.txt');
@@ -2576,7 +2576,9 @@ async function frameThumbnail(c: ExecContext): Promise<ExecResult> {
   const tf = txt.replace(/\\/g, '/').replace(/:/g, '\\:');
   const font = process.platform === 'win32' ? `fontfile='C\\:/Windows/Fonts/arialbd.ttf':` : '';
   const size = Math.round(Math.min(w, h) / 8);
-  const scale = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},eq=contrast=1.12:saturation=1.25`;
+  /* vídeo vertical/quadrado: o quadro inteiro no centro sobre ele mesmo desfocado (sem cortar o assunto) */
+  const scale = c.project.aspect === '16:9' ? `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},eq=contrast=1.12:saturation=1.25`
+    : `split[a][b];[a]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=30:2[bg];[b]scale=${w}:${h}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,eq=contrast=1.12:saturation=1.25`;
   const draw = `drawtext=${font}textfile='${tf}':fontcolor=white:fontsize=${size}:borderw=${Math.round(size / 10)}:bordercolor=black:x=(w-text_w)/2:y=h-text_h-h*0.12`;
   try { await ff.run(c.settings.ffmpeg, ['-y', '-ss', t.toFixed(2), '-i', final, '-frames:v', '1', '-vf', `${scale},${draw}`, dest], c.signal); }
   catch { await ff.run(c.settings.ffmpeg, ['-y', '-ss', t.toFixed(2), '-i', final, '-frames:v', '1', '-vf', scale, dest], c.signal); }

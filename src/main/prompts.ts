@@ -384,10 +384,9 @@ export function thumbnailPrompt(c: ExecContext): string {
   } catch { /* primeira execução: metadata ainda não existe */ }
   const base0 = tpl?.prompt ?? 'YouTube thumbnail, 16:9, {{title}}, bold text "{{thumb_text}}"';
   /* capa vertical/quadrada: os templates foram escritos para 16:9 */
-  const base = p.aspect === '16:9' ? base0
-    : base0.replace(/YouTube thumbnail/gi, p.aspect === '9:16' ? 'vertical Shorts/Reels cover' : 'social media cover').replace(/16:9/g, p.aspect)
-      .replace(/on the left|on the right/gi, 'in the upper half') + ' Keep the title text inside the central safe area.';
-  return base.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => ({ title, thumb_text: thumbText, style: vt?.label ?? '', idea: p.idea, aspect: p.aspect })[k] ?? '') +
+  /* thumbnail sempre 16:9 (padrão do YouTube), mesmo em vídeo vertical */
+  const base = /16:9/.test(base0) ? base0 : `${base0}, 16:9 horizontal`;
+  return base.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => ({ title, thumb_text: thumbText, style: vt?.label ?? '', idea: p.idea, aspect: '16:9' })[k] ?? '') +
     (p.skill?.steps?.['thumbnail'] ? `. ${p.skill.steps['thumbnail']}` : '') + (p.videoStyle ? `. ${p.videoStyle}` : '') +
     /* paleta da thumbnail escolhida no Novo projeto (vence o template e o canal); sem ela, a da identidade do canal */
     (paletteEnglish(p.palette?.thumbnail ?? p.palette?.video) ? `. Color palette: ${paletteEnglish(p.palette?.thumbnail ?? p.palette?.video)}`

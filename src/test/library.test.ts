@@ -296,7 +296,7 @@ async function main() {
   const r5 = await runRoute({ project: r3, route: { ...mini, steps: [mini.steps[1]!] }, projectDir: rdir, signal: new AbortController().signal, noCache: true, deps: { settings: s2, emit: () => {}, sleep: async () => {}, executors: execs } });
   assert.equal(r5.ok, true);
   assert.ok(fs.existsSync(path.join(rdir, 'out', 'thumbnail.png')), 'capa vertical gerada');
-  assert.match(thumbnailPrompt({ ...ctx, project: r3 }), /vertical Shorts\/Reels cover|9:16/);
+  assert.match(thumbnailPrompt({ ...ctx, project: r3 }), /16:9/);   // thumbnail sempre 16:9, mesmo em vídeo vertical
 
   // Whisper: estimativa + script python com módulo falso (pulado se não há python no PATH)
   const py = ['python3', 'python', 'py'].find((c) => { try { execFileSync(c, ['-V'], { stdio: 'ignore' }); return true; } catch { return false; } });
