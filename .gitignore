@@ -36,3 +36,4 @@ plugins-data/**/*.hdr
 # projetos gerados e dados locais
 projects/
 .claude/settings.local.json
+release[0-9]*/
