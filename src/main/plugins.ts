@@ -32,12 +32,14 @@ export const pluginsRoot = (s: Settings): string =>
  * Plugins instalados na pasta antiga (Documentos/FilmForge/plugins) que ainda não estão na pasta do app:
  * copia (a antiga fica como cópia de segurança). Devolve os ids copiados.
  */
-export function adoptPlugins(from: string, to: string): string[] {
+export function adoptPlugins(from: string, to: string, skip: string[] = []): string[] {
   if (path.resolve(from) === path.resolve(to) || !fs.existsSync(from)) return [];
   fs.mkdirSync(to, { recursive: true });
   const copied: string[] = [];
   for (const e of fs.readdirSync(from, { withFileTypes: true })) {
     if (!e.isDirectory() || fs.existsSync(path.join(to, e.name))) continue;
+    /* só plugins (e as dependências deles); os removidos pelo usuário não voltam */
+    if (e.name !== '_deps' && (!SAFE.test(e.name) || skip.includes(e.name))) continue;
     fs.cpSync(path.join(from, e.name), path.join(to, e.name), { recursive: true });
     copied.push(e.name);
   }
@@ -463,6 +465,8 @@ function isPluginDir(dir: string): boolean {
 
 function copyInto(s: Settings, src: string, id: string): PluginInfo {
   const dest = path.join(pluginsRoot(s), id);
+  /* instalar de novo um plugin removido: ele volta a ser copiado entre versões */
+  if (s.removedPlugins?.includes(id)) { s.removedPlugins = s.removedPlugins.filter((x) => x !== id); if (!s.removedPlugins.length) delete s.removedPlugins; }
   /* já instalado: atualiza por cima (arquivos novos/alterados; nada é apagado) */
   fs.mkdirSync(pluginsRoot(s), { recursive: true });
   fs.cpSync(src, dest, { recursive: true, force: true, filter: (f) => !skipOnInstall(path.relative(src, f)) });
@@ -701,6 +705,8 @@ export function removePlugin(s: Settings, id: string): void {
   if (!fs.existsSync(dir)) throw new Error('plugin não encontrado');
   /* Windows: arquivo aberto (antivírus, indexador, servidor do plugin) dá EBUSY/EPERM momentâneo */
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  /* lembra a remoção: as cópias em pastas de versões anteriores não trazem o plugin de volta */
+  s.removedPlugins = [...new Set([...(s.removedPlugins ?? []), id])];
 }
 
 const readText = (f: string): string => {

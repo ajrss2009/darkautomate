@@ -677,6 +677,10 @@ export interface Settings {
   pluginsDir?: string;
   /** plugins que vêm com o app e já foram instalados uma vez (se o usuário remover, não voltam) */
   seededPlugins?: string[];
+  /** pastas de plugins já usadas (pasta do app de cada versão/pacote): ao abrir, os plugins delas vêm junto */
+  pluginDirsSeen?: string[];
+  /** plugins que o usuário removeu: não voltam ao copiar de pastas antigas (instalar de novo libera) */
+  removedPlugins?: string[];
   /** perfis de executores do usuário (os padrão vêm do app) */
   executorProfiles?: ExecutorProfile[];
   /** Automações: contas Google (navegador próprio por conta), Flow e Antigravity por conta */

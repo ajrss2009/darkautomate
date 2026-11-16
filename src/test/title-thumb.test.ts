@@ -12,6 +12,8 @@ import { favoritesFirst, listRoutes, setFavoriteRoute } from '../main/library';
 import { defaultSettings, DEFAULT_GTTS_PROVIDER } from '../main/settings';
 import { unusableReason } from '../main/usability';
 import type { Settings } from '../shared/types';
+import { adoptPlugins, removePlugin, setAppPluginsDir } from '../main/plugins';
+import { nativeCodexExe, winExecutable } from '../main/harness';
 
 /** Codex, pesquisa (TXT/PDF, canais favoritos), banco (registros), thumbnail por canal/referência, voz Google sem chave, rotas favoritas. */
 async function main() {
@@ -124,6 +126,26 @@ async function main() {
   assert.equal(s.favoriteRoutes, undefined);
   assert.notEqual(listRoutes(s)[0]!.id, last);
   assert.deepEqual(favoritesFirst([{ id: 'a' }, { id: 'b' }, { id: 'c' }], ['c']).map((x) => x.id), ['c', 'a', 'b']);
+
+  /* ── Codex no Windows: o where lista o script sem extensão antes do .cmd; o codex.exe nativo do pacote npm ── */
+  assert.equal(winExecutable(['C:/n/codex', 'C:/n/codex.cmd']), 'C:/n/codex.cmd');
+  const npm = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-npm-'));
+  const exe = path.join(npm, 'node_modules', '@openai', 'codex', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
+  fs.mkdirSync(path.dirname(exe), { recursive: true }); fs.writeFileSync(exe, '');
+  assert.equal(nativeCodexExe([npm]), exe);
+  assert.equal(nativeCodexExe([ws]), undefined);
+
+  /* ── plugins: pasta de cada pacote → os de versões anteriores vêm junto; removidos não voltam ── */
+  const oldDir = path.join(ws, 'old-plugins'), newDir = path.join(ws, 'new-plugins');
+  for (const n of ['meu-plugin', 'tirado', '_deps', 'Pasta Estranha']) fs.mkdirSync(path.join(oldDir, n, '.claude-plugin'), { recursive: true });
+  assert.deepEqual(adoptPlugins(oldDir, newDir, ['tirado']).sort(), ['_deps', 'meu-plugin']);
+  setAppPluginsDir(newDir);
+  const sp = { ...s } as Settings;
+  removePlugin(sp, 'meu-plugin');
+  assert.deepEqual(sp.removedPlugins, ['meu-plugin']);
+  assert.deepEqual(adoptPlugins(oldDir, newDir, [...sp.removedPlugins!, 'tirado']), [], 'removido não volta');
+  setAppPluginsDir(undefined);
+  fs.rmSync(npm, { recursive: true, force: true });
 
   fs.rmSync(ws, { recursive: true, force: true }); fs.rmSync(root, { recursive: true, force: true });
   console.log('title-thumb tests: OK');

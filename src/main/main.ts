@@ -973,7 +973,7 @@ function registerIpc() {
     try { return await kitRerender(settings, p, projectDirOf(settings, id), kit, { host: kitHost, frames: renderKitFrames }, (line) => send({ t: 'log', line, projectId: id } as EngineEvent & { projectId: string }), ac.signal); }
     finally { running.delete(id); }
   });
-  h('plugins:remove', (id: string) => { removePlugin(settings, id); return true; });
+  h('plugins:remove', (id: string) => { removePlugin(settings, id); saveSettings(settings); return true; });
   /* adaptar o plugin ao FilmForge: o que entra em cada etapa (com IA ou sem IA) */
   h('plugins:adapt', async (id: string, o: { harness?: string; model?: string } = {}) => {
     const a = await adaptPlugin(settings, id, { harness: (o.harness ?? '') as HarnessBinding['harness'] | '', model: o.model, log: (line) => send({ t: 'log', stepId: 'craft', line } as EngineEvent) });
@@ -2650,7 +2650,9 @@ function registerIpc() {
  */
 function useAppPluginsDir(): void {
   if (!app.isPackaged || dataRoot || settings.pluginsDir?.trim()) return;
-  const exeDir = path.dirname(process.execPath);
+  /* executável PORTÁTIL: o app roda de uma pasta temporária (apagada ao fechar) — a pasta real é PORTABLE_EXECUTABLE_DIR.
+     Sem isso os plugins instalados iam para a pasta temporária e sumiam ao reiniciar. */
+  const exeDir = process.env['PORTABLE_EXECUTABLE_DIR']?.trim() || path.dirname(process.execPath);
   /* instalado pelo Setup: atualizar/desinstalar apaga a pasta do app inteira — os plugins ficam na pasta de trabalho */
   if (fs.readdirSync(exeDir).some((n) => /^Uninstall .*\.exe$/i.test(n))) return;
   const dir = path.join(exeDir, 'plugins');
@@ -2661,10 +2663,19 @@ function useAppPluginsDir(): void {
   } catch { return; }
   const old = pluginsRoot(settings);
   setAppPluginsDir(dir);
-  try {
-    const copied = adoptPlugins(old, dir);
-    if (copied.length) console.log(`plugins copiados para a pasta do app (${dir}): ${copied.join(', ')} — a pasta antiga ${old} ficou como cópia`);
-  } catch (e) { dumpErr('plugins-adopt', e); }
+  /* cada pacote novo (outra pasta) começa vazio: traz os plugins da pasta de trabalho e das pastas de plugins de
+     versões anteriores (instalados nelas), menos os que o usuário removeu */
+  const sources = [old, ...(settings.pluginDirsSeen ?? [])].filter((d, i, a) => a.indexOf(d) === i && path.resolve(d) !== path.resolve(dir));
+  for (const src of sources) {
+    try {
+      const copied = adoptPlugins(src, dir, settings.removedPlugins ?? []);
+      if (copied.length) console.log(`plugins copiados para a pasta do app (${dir}): ${copied.join(', ')} — vindos de ${src}`);
+    } catch (e) { dumpErr('plugins-adopt', e); }
+  }
+  /* e o contrário: a pasta de trabalho recebe os plugins desta pasta (sobrevive a apagar a pasta do pacote) */
+  try { adoptPlugins(dir, path.join(settings.workspace, 'plugins'), settings.removedPlugins ?? []); } catch (e) { dumpErr('plugins-mirror', e); }
+  const seen = [dir, ...(settings.pluginDirsSeen ?? []).filter((d) => path.resolve(d) !== path.resolve(dir) && fs.existsSync(d))].slice(0, 30);
+  if (JSON.stringify(seen) !== JSON.stringify(settings.pluginDirsSeen ?? [])) { settings.pluginDirsSeen = seen; saveSettings(settings); }
 }
 
 app.whenReady().then(async () => {

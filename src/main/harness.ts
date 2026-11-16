@@ -182,7 +182,7 @@ function shellFor(command: string): boolean {
   if (/[\\/]/.test(c)) return false;
   try {
     const r = spawnSync('where.exe', [c], { encoding: 'utf8', timeout: 8000, windowsHide: true });
-    const first = (r.stdout ?? '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)[0] ?? '';
+    const first = winExecutable((r.stdout ?? '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)) ?? '';
     return /\.(cmd|bat)$/i.test(first);
   } catch { return true; }
 }
@@ -231,6 +231,35 @@ const KNOWN_COMMAND_PATHS: Record<string, string[]> = {
 const NOT_FOUND_OUTPUT = /(n[ãa]o\s+[ée]\s+reconhecido|not\s+recognized|command\s+not\s+found|no\s+such\s+file|n[ãa]o\s+foi\s+encontrado)/i;
 
 /** O comando existe de fato (arquivo ou PATH)? Evita confundir o erro do shell com "instalado". */
+/** Primeiro resultado do where.exe que o Windows executa (.exe/.cmd/.bat/.com); ignora scripts sem extensão. */
+export function winExecutable(lines: string[]): string | undefined {
+  return lines.find((l) => /\.(exe|cmd|bat|com)$/i.test(l)) ?? lines[0];
+}
+
+/** codex.exe nativo dentro do pacote npm @openai/codex (instalação global do Node ou %APPDATA%\npm). */
+export function nativeCodexExe(roots?: string[]): string | undefined {
+  const dirs = roots ?? (() => {
+    const out = new Set<string>();
+    try {
+      const r = spawnSync('where.exe', ['codex'], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+      for (const l of (r.stdout ?? '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)) out.add(path.dirname(l));
+    } catch { /* sem where */ }
+    if (process.env.APPDATA) out.add(path.join(process.env.APPDATA, 'npm'));
+    return [...out];
+  })();
+  const rels = [
+    ['node_modules', '@openai', 'codex', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'],
+    ['node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'],
+    ['node_modules', '@openai', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'codex', 'codex.exe'],
+    ['node_modules', '@openai', 'codex', 'node_modules', '@openai', 'codex-win32-arm64', 'vendor', 'aarch64-pc-windows-msvc', 'bin', 'codex.exe'],
+  ];
+  for (const d of dirs) for (const r of rels) {
+    const f = path.join(d, ...r);
+    try { if (fs.existsSync(f)) return f; } catch { /* ignora */ }
+  }
+  return undefined;
+}
+
 export function commandExists(command: string): boolean {
   const cmd = command.trim();
   if (!cmd) return false;
@@ -248,6 +277,9 @@ export function commandExists(command: string): boolean {
 /** Comando real a executar: o configurado ou, se ausente, um caminho conhecido do app desktop. */
 export function resolveHarnessCommand(cfg: HarnessConfig): { command: string; found: boolean } {
   if (isHttpHarness(cfg)) return { command: cfg.command, found: true };
+  /* Windows + "codex" do npm: o codex.cmd passa pelo cmd.exe (quebra acentos e prompts com várias linhas) e o
+     where.exe lista antes o script "codex" sem extensão (spawn ENOENT). O pacote traz o codex.exe nativo: usa ele. */
+  if (isWin && /^codex(\.cmd|\.exe)?$/i.test(cfg.command.trim())) { const exe = nativeCodexExe(); if (exe) return { command: exe, found: true }; }
   if (commandExists(cfg.command)) return { command: cfg.command, found: true };
   const base = path.basename(cfg.command.trim()).replace(/\.(exe|cmd|bat|ps1)$/i, '').toLowerCase();
   for (const candidate of KNOWN_COMMAND_PATHS[base] ?? []) {
