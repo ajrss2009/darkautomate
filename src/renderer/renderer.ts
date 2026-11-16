@@ -2356,7 +2356,6 @@ function showFinal(file: string) {
   v.addEventListener('error', () => toast('Não foi possível abrir o vídeo final (o arquivo mudou ou está sendo gravado). Tente de novo.', true));
   finalVideo = v;
   box.replaceChildren(v, h('div', { class: 'pv-final-bar' },
-    h('span', { class: 'muted small' }, 'Espaço: tocar/pausar · ←/→: 5 s · Shift+←/→: 1 s · Esc: voltar'),
     h('button', { class: 'small', id: 'pv-final-close', onclick: () => closeFinal() }, '← Voltar às cenas')));
 }
 function closeFinal() {
