@@ -113,6 +113,8 @@ export interface Route {
   id: string;
   name: string;
   description: string;
+  /** favorita do usuário (⭐) — calculado na listagem a partir de Settings.favoriteRoutes */
+  favorite?: boolean;
   videoTypes: VideoTypeId[];
   steps: RouteStep[];
   /**
@@ -246,13 +248,15 @@ export interface Agent {
   skills?: string[];                   // skills para as quais é sugerido
   /** ícone (emoji) mostrado nos cartões da equipe */
   icon?: string;
+  /** nome próprio do agente (persona), ex.: "Marina" — aparece nos cartões e no Novo projeto */
+  persona?: string;
   builtin?: boolean;
 }
 
 /** Skill: instruções do usuário para cada atividade da rota. Chaves de `steps`: id da etapa ou tipo (kind). */
 export interface Skill {
   id: string; name: string; description: string; global: string; steps: Record<string, string>; builtin?: boolean;
-  /** preferida do usuário (⭐) — calculado na listagem a partir de Settings.favoriteSkills */
+  /** favorita do usuário (⭐) — calculado na listagem a partir de Settings.favoriteSkills */
   favorite?: boolean;
   /** Tipo de vídeo = skill: aparência, rota sugerida e padrões do projeto. */
   appearance?: VideoTypeId; routeId?: string; aspect?: Aspect; durationSec?: number; language?: string;
@@ -551,6 +555,8 @@ export interface Project {
   presentation?: 'generated' | 'mixed';
   mediaSources?: StockSource[];
   thumbnailTemplate?: string;          // id do template de thumbnail
+  /** thumbnail de referência (imagem do usuário ou thumbnail de um link de vídeo): copiada para o projeto; vence o template */
+  thumbRef?: { file: string; source?: string; palette?: string[]; note?: string };
   /** thumbnail desenhada no estúdio do editor (vence o design do template) */
   thumbDesign?: import('./thumbdesign').ThumbDesign;
   production?: { totalMs: number; runs: ProductionRun[] };
@@ -605,7 +611,7 @@ export type ApiCategory = 'text' | 'voice' | 'image' | 'video' | 'music';
  * fish = Fish Audio (voz: POST /v1/tts, header `model`, `reference_id` = id da voz).
  */
 export interface ProviderConfig {
-  id: string; kind: 'openai' | 'gemini' | 'seedance' | 'snapgen' | 'fish'; baseUrl: string; apiKey: string; models: string[];
+  id: string; kind: 'openai' | 'gemini' | 'seedance' | 'snapgen' | 'fish' | 'gtts'; baseUrl: string; apiKey: string; models: string[];
   /** Categoria de cada modelo carregado (separa imagem/vídeo nas abas e nas rotas). */
   modelCategories?: Record<string, ApiCategory>;
   /** Modelo padrão por categoria: a rota usa este quando o executor não indica um modelo. */
@@ -636,8 +642,10 @@ export interface Settings {
   harnessFallback?: HarnessId[];
   /** Sem reserva por padrão: a etapa falha com o erro do provedor em vez de passar a outro (para depurar, ex.: Ollama). */
   noFallback?: boolean;
-  /** skills preferidas (⭐): aparecem antes das demais em todas as listas, na ordem em que foram marcadas */
+  /** skills favoritas (⭐): aparecem antes das demais em todas as listas, na ordem em que foram marcadas */
   favoriteSkills?: string[];
+  /** rotas favoritas (⭐): idem, nas listas de rotas */
+  favoriteRoutes?: string[];
   /** Tentativas mínimas de cada modelo (harness/API) numa etapa, mesmo se a rota pede 1 (padrão 2). */
   stepAttempts?: number;
   /** Lote: quantas vezes refazer, no fim da fila, os projetos que falharam (retomando do cache; padrão 1). */
@@ -795,6 +803,8 @@ export interface Channel {
   cloneIds?: string[];
   /** produtos para vender no canal (IA ou importados de um clone) e o CTA deles no roteiro */
   products?: ChannelProducts;
+  /** modelo de thumbnail do canal (id de template): os projetos ligados ao canal usam este por padrão */
+  thumbnailTemplate?: string;
   /** arquivos gerados, relativos a workspace/channels/mine/<id>/ */
   assets?: { banner?: string; avatar?: string; thumb?: string };
   createdAt: string;

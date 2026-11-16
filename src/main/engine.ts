@@ -1,3 +1,4 @@
+import { providerNeedsKey } from './providers';
 import * as fs from 'node:fs';
 import { shotDurations, shotsWanted } from './free-shots';
 import * as path from 'node:path';
@@ -762,7 +763,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       /* API sem chave (ou provedor removido): também não gasta tentativas */
       if (binding.type === 'api') {
         const p = deps.settings.providers.find((x) => x.id === binding.provider);
-        const noKey = !p ? 'não configurado' : !p.apiKey && (/openai\.com/.test(p.baseUrl) || p.kind !== 'openai') ? 'sem chave de API' : '';
+        const noKey = !p ? 'não configurado' : !p.apiKey && providerNeedsKey(p) ? 'sem chave de API' : '';
         if (noKey) {
           lastReason = `provider "${binding.provider}" ${noKey}`;
           emit({ t: 'step.fallback', stepId: step.id, sceneId, from: label, to: chain[bi + 1] ? bindingLabel(chain[bi + 1]!) : '(fim da cadeia)', reason: `${lastReason} — sem novas tentativas` });

@@ -68,6 +68,14 @@ const platOf = (v: { platform?: Platform }) => v.platform ?? 'youtube';
 let form = { query: '', videoType: '', languages: ['pt', 'en', 'es'], period: 'month' as 'week' | 'month' | 'year' | 'any', perLanguage: 12, minViews: 0, maxSubs: 0, format: 'any' as 'any' | 'shorts' | 'long', translate: true };
 let view: 'videos' | 'channels' | 'favorites' | 'clones' = 'videos';
 let favs: Video[] = [];
+/** clone aberto em 🧬 Canais clonados (detalhes) */
+let cloneSel: string | undefined;
+/* ⭐ canais favoritos (aba Favoritos → Canais) */
+interface FavChannel extends Channel { id: string; query?: string; savedAt?: string }
+let favChannels: FavChannel[] = [];
+let favTab: 'videos' | 'channels' = 'videos';
+const chFavId = (ch: Channel) => (ch.channelUrl?.trim().replace(/\/+$/, '').toLowerCase()) || `${ch.platform ?? 'youtube'}:${ch.channel.trim().toLowerCase()}`;
+const isFavCh = (ch: Channel) => favChannels.some((f) => f.id === chFavId(ch));
 const favSel = new Set<string>();
 /* IA da pesquisa (traduzir, analisar resultados) — também é o padrão de "Clonar canal" e "Criar skill deste vídeo" */
 const LOCAL_H = ['ollama', 'lmstudio', 'llamacpp'];
@@ -102,6 +110,7 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
   const site = SITES[tab];
   const yt = tab === 'youtube';
   favs = ((await c.guard(() => c.forge['finderFavorites']())) as Video[] | undefined) ?? [];
+  favChannels = ((await c.guard(() => c.forge['finderChannelFavorites']())) as FavChannel[] | undefined) ?? [];
   const s = (await c.guard(() => c.forge['getSettings']())) as { stock?: { youtube?: { apiKey?: string } } } | undefined;
   const hasKey = !!s?.stock?.youtube?.apiKey;
   const q = h('input', { class: 'vf-q', id: 'vf-query', value: form.query, placeholder: 'Termo da pesquisa (opcional se escolher o tipo): abelhas, finanças pessoais, espaço…' }) as HTMLInputElement;
@@ -164,56 +173,139 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
     const switcher = h('div', { class: 'vf-switch' },
       h('button', { class: view === 'videos' ? 'on' : '', onclick: () => { view = 'videos'; paint(); } }, '🎬 Vídeos'),
       h('button', { class: view === 'channels' ? 'on' : '', onclick: () => { view = 'channels'; paint(); } }, '📺 Canais'),
-      h('button', { class: view === 'favorites' ? 'on' : '', id: 'vf-view-fav', onclick: () => { view = 'favorites'; paint(); } }, `⭐ Favoritos (${favs.length})`),
+      h('button', { class: view === 'favorites' ? 'on' : '', id: 'vf-view-fav', onclick: () => { view = 'favorites'; paint(); } }, `⭐ Favoritos (${favs.length + favChannels.length})`),
       h('button', { class: view === 'clones' ? 'on' : '', id: 'vf-view-clones', onclick: () => { view = 'clones'; paint(); } }, '🧬 Canais clonados'));
+    /* ⭐ favoritar um canal da pesquisa (fica em Favoritos → Canais, com o termo que o achou) */
+    const favChBtn = (ch: Channel) => h('button', { class: `small vf-favch${isFavCh(ch) ? ' on' : ''}`, 'data-favch': ch.channel, title: isFavCh(ch) ? 'Tirar dos canais favoritos' : 'Guardar o canal nos favoritos',
+      onclick: () => void c.guard(async () => {
+        const was = isFavCh(ch);
+        favChannels = (await c.forge['finderChannelFavorite']({ ...ch, id: chFavId(ch), query: [form.query, ytVideoType(form.videoType)?.label].filter(Boolean).join(' · ') || undefined })) as FavChannel[];
+        c.toast(was ? 'Canal tirado dos favoritos' : `⭐ ${ch.channel} nos favoritos`); paint();
+      }) }, isFavCh(ch) ? '⭐' : '☆');
+    const channelCard = (ch: Channel, fav?: FavChannel) => h('div', { class: `card vf-ch ${tone(ch.best)}`, 'data-ch': ch.channel },
+      h('div', { class: 'row' }, h('strong', { class: 'grow' }, ch.channel), favChBtn(ch), h('span', { class: `vf-score ${tone(ch.best)}` }, String(ch.best ?? '—'))),
+      h('div', { class: 'muted small' }, `${SITES[ch.platform ?? 'youtube'].icon} ${fmt(ch.subs)} ${ch.platform && ch.platform !== 'youtube' ? 'seguidores' : 'inscritos'}${ch.channelAgeDays !== undefined ? ` · canal com ${ch.channelAgeDays < 365 ? `${Math.round(ch.channelAgeDays / 30)} meses` : `${(ch.channelAgeDays / 365).toFixed(1)} anos`}` : ''}`),
+      h('div', { class: 'muted small' }, `${ch.hits ?? 0} vídeo(s) na busca · views ≈ ${(ch.avgRatio ?? 0) >= 10 ? Math.round(ch.avgRatio) : (ch.avgRatio ?? 0).toFixed(1)}× os inscritos · ${(ch.languages ?? []).join(', ')}`),
+      fav ? h('div', { class: 'muted small' }, `⭐ guardado em ${fav.savedAt ? new Date(fav.savedAt).toLocaleDateString() : '—'}${fav.query ? ` · pesquisa: ${fav.query}` : ''}`) : null,
+      h('div', { class: 'row' }, ch.channelUrl ? h('button', { class: 'small', onclick: () => void c.forge['openUrl'](ch.channelUrl!) }, ch.platform && ch.platform !== 'youtube' ? '🔗 Abrir perfil' : '🔗 Abrir canal') : null, h('span', { class: 'sp' }),
+        ch.channelUrl ? h('button', { class: 'small primary', 'data-clone': ch.channel, title: 'Analisa os últimos vídeos e cria um canal novo com o mesmo estilo e tipo de vídeo, com dobra de nicho', onclick: () => void openCloneDialog(c, ch.channelUrl!, ch.channel) }, '🧬 Clonar canal') : null));
+    if (view === 'favorites' && favTab === 'channels') {
+      const ftabs = h('div', { class: 'seg', id: 'vf-fav-tabs' }, h('button', { onclick: () => { favTab = 'videos'; paint(); } }, `🎬 Vídeos (${favs.length})`), h('button', { class: 'on' }, `📺 Canais (${favChannels.length})`));
+      results.replaceChildren(h('div', { class: 'vf-summary' }, h('span', { class: 'tag' }, `⭐ ${favChannels.length} canal(is) favorito(s)`), ftabs, h('span', { class: 'sp' }), switcher),
+        favChannels.length ? h('div', { class: 'vf-chgrid', id: 'vf-favch-grid' }, ...favChannels.map((f) => channelCard(f, f)))
+          : h('div', { class: 'card vf-empty' }, h('div', { class: 'vf-big' }, '📺'), h('p', { class: 'muted' }, 'Em 📺 Canais (resultado da pesquisa), clique ☆ no canal para guardar aqui.')));
+      return;
+    }
     if (view === 'favorites') {
       for (const id of [...favSel]) if (!isFav(id)) favSel.delete(id);
       const removeSel = h('button', { class: 'small danger', id: 'vf-fav-remove', disabled: !favSel.size, onclick: () => void c.guard(async () => {
         if (!await askConfirm(`Remover ${favSel.size} vídeo(s) dos favoritos?`)) return;
         favs = (await c.forge['finderFavoritesRemove']([...favSel])) as Video[]; favSel.clear(); c.toast('Removido(s) dos favoritos'); paint(); }) }, `🗑 Remover selecionados${favSel.size ? ` (${favSel.size})` : ''}`);
       const all = h('button', { class: 'small', onclick: () => { if (favSel.size === favs.length) favSel.clear(); else favs.forEach((v) => favSel.add(v.id)); paint(); } }, favSel.size === favs.length && favs.length ? '☐ Desmarcar todos' : '☑ Selecionar todos');
-      results.replaceChildren(h('div', { class: 'vf-summary' }, h('span', { class: 'tag' }, `⭐ ${favs.length} favorito(s)`), favs.length ? all : null, favs.length ? removeSel : null, h('span', { class: 'sp' }), switcher),
+      const ftabs = h('div', { class: 'seg', id: 'vf-fav-tabs' }, h('button', { class: 'on' }, `🎬 Vídeos (${favs.length})`), h('button', { 'data-favtab': 'channels', onclick: () => { favTab = 'channels'; paint(); } }, `📺 Canais (${favChannels.length})`));
+      results.replaceChildren(h('div', { class: 'vf-summary' }, h('span', { class: 'tag' }, `⭐ ${favs.length} favorito(s)`), ftabs, favs.length ? all : null, favs.length ? removeSel : null, h('span', { class: 'sp' }), switcher),
         favs.length ? h('div', { class: 'vf-grid' }, ...favs.map((v) => videoCard(c, v, paint, true))) : h('div', { class: 'card vf-empty' }, h('div', { class: 'vf-big' }, '⭐'), h('p', { class: 'muted' }, 'Marque ☆ nos vídeos para guardar aqui.')));
       return;
     }
     if (view === 'clones') {
+      /* 🧬 CANAIS CLONADOS: só os clones, em cartões; clicar abre os detalhes (canal criado, títulos sugeridos,
+         ângulos/dobras, modelo de thumbnail, marca) com ← voltar e ‹ › entre clones */
       results.replaceChildren(h('div', { class: 'vf-summary' }, h('span', { class: 'sp' }), switcher), h('div', { id: 'vf-clones' }, h('div', { class: 'muted' }, '⏳')));
       void c.guard(async () => {
         const list = (await c.forge['channelList']()) as CloneResult[];
         const pending = ((await c.forge['channelPending']().catch(() => [])) ?? []) as Array<{ dir: string; url: string; name: string; startedAt?: string; ready: string[] }>;
-        const folds = ((await c.forge['listFolds']().catch(() => [])) ?? []) as FoldRow[];
         const box = document.getElementById('vf-clones'); if (!box) return;
-        const foldCard = folds.length ? h('div', { class: 'card', id: 'vf-folds' },
-          h('div', { class: 'row' }, h('strong', { class: 'grow' }, `🧬 Dobras de nicho salvas (${folds.length})`), h('span', { class: 'muted small' }, 'persistentes · library/folds')),
-          h('div', { class: 'muted small' }, 'A dobra é uma entidade do canal: escolher a ativa grava o bloco dela nas diretrizes da skill, e cada projeto criado com ela entra na contagem.'),
-          h('div', { class: 'cl-bends' }, ...folds.map((f) => h('div', { class: `card cl-bend${f.chosen ? ' chosen' : ''}`, 'data-fold': f.id },
-            h('div', { class: 'row' }, h('strong', { class: 'grow' }, f.name),
-              h('span', { class: 'tag' }, f.channelName ?? f.channel), h('span', { class: `tag ${f.status === 'scaling' ? 'done' : f.status === 'retired' ? 'failed' : 'running'}` }, FOLD_STATUS[f.status]),
-              f.chosen ? h('span', { class: 'tag done' }, '⭐ ativa') : null),
-            f.angle ? h('div', { class: 'muted small' }, f.angle) : null,
-            h('div', { class: 'muted small' }, `🎬 ${f.metrics?.projects ?? 0} projeto(s)${f.metrics?.lastUsedAt ? ` · último ${new Date(f.metrics.lastUsedAt).toLocaleDateString()}` : ''}${f.why ? ` · 💡 ${f.why}` : ''}`),
-            h('div', { class: 'row' },
-              h('button', { class: 'small', disabled: !!f.chosen, onclick: () => void c.guard(async () => { await c.forge['chooseFold'](f.id); await c.forge['applyFold'](f.id); c.toast(`Dobra ativa: ${f.name}`); paint(); }) }, '⭐ Ativar'),
-              h('button', { class: 'small', title: 'Grava o bloco da dobra nas diretrizes da skill ligada a ela', onclick: () => void c.guard(async () => { await c.forge['applyFold'](f.id); c.toast(`Dobra "${f.name}" aplicada na skill`); }) }, '🧩 Aplicar na skill'),
-              h('button', { class: 'small primary', onclick: () => void c.guard(async () => { await c.forge['chooseFold'](f.id); await c.forge['applyFold'](f.id); c.newProject(`Canal "${f.channelName ?? f.channel}" — ${f.name}: ${f.angle ?? ''}`, f.skillId, f.id); }) }, '＋ Novo projeto'),
-              h('button', { class: 'small danger', onclick: () => void c.guard(async () => { if (!await askConfirm(`Excluir a dobra "${f.name}"? Ela sai da biblioteca (os projetos continuam existindo).`)) return; await c.forge['deleteFold'](f.id); c.toast('Dobra excluída'); paint(); }) }, '🗑')))))) : null;
-        const pend = pending.length ? h('div', { class: 'card' }, h('strong', {}, '⏸ Clones interrompidos'), h('div', { class: 'muted small' }, 'Os vídeos já foram analisados: retomar não baixa nada de novo e só pede à IA o que faltou.'),
-          ...pending.map((p) => h('div', { class: 'row' }, h('span', { class: 'grow' }, `🧬 ${p.name}`), h('span', { class: 'muted small' }, p.ready.length ? `pronto: ${p.ready.join(', ')}` : 'análise feita'),
-            h('button', { class: 'small primary', 'data-resume': p.dir, onclick: () => void openCloneDialog(c, p.url, p.name, p.dir) }, '↻ Retomar')))) : null;
-        const importBtn = h('div', { class: 'row' }, h('span', { class: 'muted small grow' }, `🧬 ${list.length} canal(is) clonado(s) · salvos no workspace (portáteis)`),
-          h('button', { class: 'small', id: 'vf-clone-import', title: 'Importa um .ffclone exportado de outro Dark Automate (recria skill, rota, dobras e template)', onclick: () => void c.guard(async () => { const r = (await c.forge['channelImport']()) as CloneResult | null; if (r) { c.toast(`Clone importado: ${r.brand.names?.[0] ?? r.skill.name}`); paint(); } }) }, '⬆ Importar canal (.ffclone)'));
-        box.replaceChildren(foldCard ?? '', pend ?? '', importBtn, list.length ? h('div', { class: 'vf-chgrid' }, ...list.map((r) => h('div', { class: 'card vf-ch' },
-          r.files.banner ? h('img', { class: 'vf-clone-banner', src: c.forge.mediaUrl(r.files.banner), alt: '' }) : null,
-          h('div', { class: 'row' }, h('strong', { class: 'grow' }, `🧬 ${r.brand.names?.[0] ?? r.skill.name}`), r.dna ? h('span', { class: 'tag done', title: 'Clone com DNA completo (visual, câmeras, roteiro, títulos, thumbnail, idiomas)' }, 'DNA v2') : h('span', { class: 'tag' }, 'v1')),
-          h('div', { class: 'muted small' }, `formato de ${r.source.name} · dobra: ${r.bends[r.chosenBend]?.title ?? '—'}`),
-          r.languages?.length ? h('div', { class: 'muted small' }, `🌐 ${r.languages.slice(0, 3).map((l) => `${langName(l.code)} ${l.score}/10`).join(' · ')}`) : null,
-          h('div', { class: 'muted small' }, `${new Date(r.createdAt).toLocaleString()}${r.videos?.length ? ` · ${r.videos.length} vídeos analisados` : ''}`),
-          h('div', { class: 'row' },
-            h('button', { class: 'small primary', onclick: () => void openCloneReport(c, r) }, '📊 Ver relatório'),
-            h('button', { class: 'small', title: 'Exportar .ffclone', onclick: () => void c.guard(async () => { const f = (await c.forge['channelExport'](r.id)) as string | null; if (f) c.toast(`Clone exportado: ${f}`); }) }, '📦'),
+        const nameOf = (r: CloneResult) => r.brand.names?.[0] ?? r.skill.name;
+        const sel = list.find((r) => r.id === cloneSel);
+        if (!sel) {
+          cloneSel = undefined;
+          const pend = pending.length ? h('div', { class: 'cl-pending' }, h('span', { class: 'muted small' }, '⏸ Interrompidos (retomar não baixa de novo):'),
+            ...pending.map((p) => h('button', { class: 'small', 'data-resume': p.dir, title: p.ready.length ? `pronto: ${p.ready.join(', ')}` : 'análise feita', onclick: () => void openCloneDialog(c, p.url, p.name, p.dir) }, `↻ ${p.name}`))) : null;
+          const head = h('div', { class: 'row' }, h('strong', { class: 'grow' }, `🧬 ${list.length} canal(is) clonado(s)`), h('span', { class: 'muted small' }, 'clique num canal para ver os detalhes'),
+            h('button', { class: 'small', id: 'vf-clone-import', title: 'Importa um .ffclone exportado de outro Dark Automate (recria skill, rota, dobras e template)', onclick: () => void c.guard(async () => { const r = (await c.forge['channelImport']()) as CloneResult | null; if (r) { c.toast(`Clone importado: ${nameOf(r)}`); paint(); } }) }, '⬆ Importar (.ffclone)'));
+          box.replaceChildren(head, pend ?? '', list.length ? h('div', { class: 'cl-grid', id: 'vf-clone-grid' }, ...list.map((r) => {
+            const cover = r.files.banner ?? r.source.banner;
+            const bend = r.bends[r.chosenBend];
+            return h('button', { class: 'cl-card', 'data-clone-id': r.id, onclick: () => { cloneSel = r.id; paint(); } },
+              h('div', { class: 'cl-cover' }, cover ? h('img', { src: /^https?:/.test(cover) ? cover : c.forge.mediaUrl(cover), alt: '' }) : h('span', {}, '🧬'),
+                r.created ? h('span', { class: 'cl-made', title: r.created.handle ?? r.created.name ?? '' }, '✓ canal criado') : null),
+              h('div', { class: 'cl-body' },
+                h('div', { class: 'row' }, r.source.avatar ? h('img', { class: 'cl-avatar', src: r.source.avatar, alt: '' }) : h('span', { class: 'cl-avatar ph' }, nameOf(r).slice(0, 1).toUpperCase()),
+                  h('div', { class: 'grow' }, h('strong', {}, nameOf(r)), h('div', { class: 'muted small' }, `formato de ${r.source.name}`))),
+                bend ? h('div', { class: 'small cl-angle' }, `🧭 ${bend.title}`) : null,
+                h('div', { class: 'cl-tags' }, r.dna ? h('span', { class: 'tag done' }, 'DNA v2') : h('span', { class: 'tag' }, 'v1'),
+                  h('span', { class: 'tag' }, `${r.bends.length} ângulo(s)`), r.videos?.length ? h('span', { class: 'tag' }, `${r.videos.length} vídeos`) : null,
+                  r.created ? h('span', { class: 'tag done' }, `📺 ${r.created.handle ?? r.created.name ?? 'canal'}`) : h('span', { class: 'tag running' }, 'sem canal ainda')),
+                h('div', { class: 'muted small' }, new Date(r.createdAt).toLocaleDateString()),
+                h('span', { class: 'cl-more' }, 'Ver detalhes →')));
+          })) : h('div', { class: 'card vf-empty' }, h('div', { class: 'vf-big' }, '🧬'), h('p', { class: 'muted' }, 'Nenhum canal clonado ainda. Em 📺 Canais, use "🧬 Clonar canal".')));
+          return;
+        }
+        /* ── detalhes de um clone ── */
+        const r = sel, i = list.indexOf(r);
+        const [folds, pauta] = await Promise.all([
+          (c.forge['listFolds']().catch(() => []) as Promise<FoldRow[]>),
+          (c.forge['pautaList']({ sourceId: r.id }).catch(() => []) as Promise<Array<{ id: string; title: string; hook?: string; status: string; angle?: string }>>)]);
+        const myFolds = folds.filter((f) => f.channel === (r.channelKey ?? r.id) || (r.foldIds ?? []).includes(f.id));
+        const go = (d: number) => { cloneSel = list[(i + d + list.length) % list.length]!.id; paint(); };
+        const nav = h('div', { class: 'ch-nav', id: 'vf-clone-nav' }, h('button', { class: 'small', id: 'vf-clone-back', onclick: () => { cloneSel = undefined; paint(); } }, '← Todos os clones'), h('span', { class: 'sp' }),
+          h('span', { class: 'muted small' }, `${i + 1} de ${list.length}`), h('button', { class: 'small', disabled: list.length < 2, onclick: () => go(-1) }, '‹'), h('button', { class: 'small', disabled: list.length < 2, onclick: () => go(1) }, '›'));
+        const cover = r.files.banner ?? r.source.banner;
+        const newProj = (idea: string, foldId?: string) => c.newProject(`Canal "${nameOf(r)}"${idea ? ` — ${idea}` : ''}`, r.skill.id, foldId ?? myFolds.find((f) => f.chosen)?.id);
+        /* títulos sugeridos: os da pauta (banco), os exemplos de cada ângulo e o esqueleto de títulos do canal de referência */
+        const titles = [...new Map<string, { t: string; from: string; hook?: string }>([
+          ...pauta.map((p) => [p.title.toLowerCase(), { t: p.title, from: `pauta · ${p.status}`, hook: p.hook }] as [string, { t: string; from: string; hook?: string }]),
+          ...r.bends.flatMap((b) => (b.exampleTitles ?? []).map((t) => [t.toLowerCase(), { t, from: `ângulo: ${b.title}` }] as [string, { t: string; from: string; hook?: string }])),
+        ]).values()];
+        const sec = (title: string, ...kids: Array<Node | string | null>) => h('div', { class: 'card cl-sec' }, h('h4', {}, title), ...kids);
+        box.replaceChildren(nav,
+          h('div', { class: 'cl-hero' }, cover ? h('img', { class: 'cl-hero-img', src: /^https?:/.test(cover) ? cover : c.forge.mediaUrl(cover), alt: '' }) : null,
+            h('div', { class: 'cl-hero-txt' }, h('h3', {}, `🧬 ${nameOf(r)}`),
+              h('div', { class: 'muted' }, `formato de `, h('a', { href: '#', onclick: (e: Event) => { e.preventDefault(); void c.forge['openUrl'](r.source.url); } }, r.source.name),
+                ` · ${fmt(r.metrics.subs ?? r.source.subs)} inscritos · média ${fmt(r.metrics.avgViews)} views · ${new Date(r.createdAt).toLocaleDateString()}`),
+              r.brand.tagline ? h('div', {}, r.brand.tagline) : null)),
+          h('div', { class: 'row cl-actions' },
+            h('button', { class: 'primary', id: 'vf-clone-newproj', onclick: () => newProj('') }, '＋ Novo projeto com este canal'),
+            h('button', { id: 'vf-clone-report', onclick: () => void openCloneReport(c, r) }, '📊 Relatório completo (DNA, métricas, produtos, custo)'),
+            h('button', { title: 'Exportar .ffclone', onclick: () => void c.guard(async () => { const f = (await c.forge['channelExport'](r.id)) as string | null; if (f) c.toast(`Clone exportado: ${f}`); }) }, '📦 Exportar'),
             h('span', { class: 'sp' }),
-            h('button', { class: 'small danger', title: 'Excluir o clone (a skill, a rota e as dobras continuam na biblioteca)', onclick: () => void c.guard(async () => { if (!await askConfirm(`Excluir o clone "${r.brand.names?.[0] ?? r.skill.name}"? A skill, a rota e as dobras continuam na biblioteca.`)) return; await c.forge['channelDelete'](r.id); c.toast('Clone excluído'); paint(); }) }, '🗑')))))
-          : h('div', { class: 'card vf-empty' }, h('div', { class: 'vf-big' }, '🧬'), h('p', { class: 'muted' }, 'Nenhum canal clonado ainda. Em 📺 Canais, use "🧬 Clonar canal".')));
+            h('button', { class: 'danger', onclick: () => void c.guard(async () => { if (!await askConfirm(`Excluir o clone "${nameOf(r)}"? A skill, a rota e as dobras continuam na biblioteca.`)) return; await c.forge['channelDelete'](r.id); cloneSel = undefined; c.toast('Clone excluído'); paint(); }) }, '🗑 Excluir')),
+          h('div', { class: 'cl-cols' },
+            sec('📺 Canal criado a partir dele', r.created
+              ? h('div', { class: 'cl-created', id: 'vf-clone-created' }, h('strong', {}, r.created.name ?? r.created.mine?.name ?? 'Canal'),
+                h('div', { class: 'muted small' }, [r.created.handle, r.created.channelId, r.created.at ? `criado em ${new Date(r.created.at).toLocaleDateString()}` : ''].filter(Boolean).join(' · ')),
+                r.created.mine ? h('div', { class: 'small' }, `Em Canais e perfis como ${r.created.mine.id} — projetos com destino nele usam a marca e o modelo de thumbnail do canal.`) : h('div', { class: 'muted small' }, 'Ainda não está em Canais e perfis (abra a aba Canais para cadastrar).'),
+                h('div', { class: 'row' }, r.created.handle || r.created.channelId ? h('button', { class: 'small', onclick: () => void c.forge['openUrl'](r.created!.handle ? `https://www.youtube.com/${r.created!.handle!.startsWith('@') ? '' : '@'}${r.created!.handle}` : `https://www.youtube.com/channel/${r.created!.channelId}`) }, '🔗 Abrir no YouTube') : null,
+                  r.created.studioUrl ? h('button', { class: 'small', onclick: () => void c.forge['openUrl'](r.created!.studioUrl!) }, '🎛 YouTube Studio') : null))
+              : h('div', { class: 'muted small' }, 'Nenhum canal criado deste clone. Em Canais e perfis → ＋ Adicionar → ✨ Criar canal novo no YouTube, escolha esta marca: o canal nasce com nome, banner, avatar e o modelo de thumbnail do clone.')),
+            sec('🖼 Modelo de thumbnail', r.files.thumb ? h('img', { class: 'cl-thumb', src: c.forge.mediaUrl(r.files.thumb), alt: '' }) : null,
+              h('div', {}, h('strong', {}, r.thumbnailTemplate?.name ?? r.thumbnail?.name ?? '—')),
+              r.thumbnail?.rules ? h('div', { class: 'muted small' }, r.thumbnail.rules) : null,
+              h('div', { class: 'muted small' }, 'É o modelo que o canal criado deste clone usa por padrão.')),
+            sec('🎨 Marca', h('div', {}, (r.brand.names ?? []).slice(0, 4).join(' · ') || '—'),
+              r.brand.colors?.length ? h('div', { class: 'row' }, ...r.brand.colors.slice(0, 6).map((col) => { const sw = h('span', { class: 'chip', title: col }, col); sw.style.borderLeft = `14px solid ${col}`; return sw; })) : null,
+              r.brand.tone ? h('div', { class: 'muted small' }, `tom: ${r.brand.tone}`) : null)),
+          sec(`🏷 Títulos sugeridos (${titles.length})`,
+            r.titleStructure?.summary ? h('div', { class: 'muted small' }, `Esqueleto dos títulos de ${r.source.name}: ${r.titleStructure.summary}`) : null,
+            titles.length ? h('div', { class: 'cl-titles2', id: 'vf-clone-titles' }, ...titles.slice(0, 40).map((x) => h('div', { class: 'cl-title' },
+              h('div', { class: 'grow' }, h('strong', {}, x.t), h('div', { class: 'muted small' }, `${x.from}${x.hook ? ` · gancho: ${x.hook}` : ''}`)),
+              h('button', { class: 'small', title: 'Novo projeto com este título', onclick: () => newProj(x.t) }, '＋ Projeto'))))
+              : h('div', { class: 'muted small' }, 'Sem títulos sugeridos (gere a pauta no relatório).'),
+            r.titleStructure?.examples?.length ? h('details', {}, h('summary', { class: 'muted small' }, `títulos reais de ${r.source.name} (referência)`), h('ul', { class: 'cl-titles' }, ...r.titleStructure.examples.slice(0, 12).map((t) => h('li', {}, t)))) : null),
+          sec(`🧭 Ângulos (dobras de nicho) — ${r.bends.length}`,
+            h('div', { class: 'cl-bends' }, ...r.bends.map((b, bi) => {
+              const f = myFolds.find((x) => x.name === b.title);
+              return h('div', { class: `card cl-bend${bi === r.chosenBend || f?.chosen ? ' chosen' : ''}` },
+                h('div', { class: 'row' }, h('strong', { class: 'grow' }, b.title), f ? h('span', { class: `tag ${f.status === 'scaling' ? 'done' : f.status === 'retired' ? 'failed' : 'running'}` }, FOLD_STATUS[f.status]) : null, f?.chosen || bi === r.chosenBend ? h('span', { class: 'tag done' }, '⭐ ativo') : null),
+                h('div', { class: 'small' }, b.angle),
+                b.why ? h('div', { class: 'muted small' }, `💡 ${b.why}`) : null,
+                b.audience ? h('div', { class: 'muted small' }, `👥 ${b.audience}`) : null,
+                b.demand || b.competition || b.cpm ? h('div', { class: 'muted small' }, [b.demand && `demanda: ${b.demand}`, b.competition && `concorrência: ${b.competition}`, b.cpm && `CPM: ${b.cpm}`].filter(Boolean).join(' · ')) : null,
+                f ? h('div', { class: 'muted small' }, `🎬 ${f.metrics?.projects ?? 0} projeto(s)`) : null,
+                h('div', { class: 'row' },
+                  f ? h('button', { class: 'small', disabled: !!f.chosen, onclick: () => void c.guard(async () => { await c.forge['chooseFold'](f.id); await c.forge['applyFold'](f.id); c.toast(`Ângulo ativo: ${f.name}`); paint(); }) }, '⭐ Ativar') : null,
+                  h('button', { class: 'small primary', onclick: () => void c.guard(async () => { if (f) { await c.forge['chooseFold'](f.id); await c.forge['applyFold'](f.id); } newProj(`${b.title}: ${b.angle}`, f?.id); }) }, '＋ Novo projeto')));
+            }))));
       });
       return;
     }
@@ -231,7 +323,12 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
       switcher);
     const listOf = (k: string) => (Array.isArray(insights?.[k]) ? (insights![k] as unknown[]).map(String) : []);
     const insightCard = insights ? h('div', { class: 'card vf-insights', id: 'vf-insights-card' },
-      h('div', { class: 'row' }, h('strong', { class: 'grow' }, '🧠 Análise da IA'), h('span', { class: 'muted small' }, String(insights['binding'] ?? '')), h('button', { class: 'small', onclick: () => { insights = undefined; paint(); } }, '✕')),
+      h('div', { class: 'row' }, h('strong', { class: 'grow' }, '🧠 Análise da IA'), h('span', { class: 'muted small' }, String(insights['binding'] ?? '')),
+        ...(['txt', 'pdf'] as const).map((f) => h('button', { class: 'small', id: `vf-insights-${f}`, title: f === 'pdf' ? 'Salvar a análise em PDF (fica registrada no banco)' : 'Salvar a análise em texto (.txt; fica registrada no banco)', onclick: () => void c.guard(async () => {
+          const file = (await c.forge['finderInsightsSave'](insights, { query: form.query, platform: site.label, videoType: ytVideoType(form.videoType)?.label, videos: last?.videos.length }, f)) as string | null;
+          if (file) c.toast(`Análise salva: ${file}`);
+        }) }, f === 'pdf' ? '📄 Salvar PDF' : '💾 Salvar TXT')),
+        h('button', { class: 'small', onclick: () => { insights = undefined; paint(); } }, '✕')),
       insights['summary'] ? h('p', {}, String(insights['summary'])) : null,
       h('div', { class: 'cl-analysis' }, ...([['trends', '📈 Em alta'], ['titlePatterns', '🏷 Títulos que funcionam'], ['formats', '🎞 Formatos'], ['opportunities', '🎯 Oportunidades']] as Array<[string, string]>)
         .filter(([k]) => listOf(k).length).map(([k, l]) => h('div', { class: 'cl-an' }, h('strong', {}, l), h('ul', { class: 'cl-titles' }, ...listOf(k).map((x) => h('li', {}, x)))))),
@@ -239,12 +336,7 @@ export async function renderVideosPage(c: VideosCtx): Promise<void> {
     const warn = last.warnings.length ? h('div', { class: 'muted small' }, ...last.warnings.map((w) => h('div', {}, `ℹ️ ${w}`))) : null;
     const grid = view === 'videos'
       ? h('div', { class: 'vf-grid' }, ...last.videos.map((v) => videoCard(c, v, paint)))
-      : h('div', { class: 'vf-chgrid' }, ...last.channels.map((ch) => h('div', { class: `card vf-ch ${tone(ch.best)}` },
-        h('div', { class: 'row' }, h('strong', { class: 'grow' }, ch.channel), h('span', { class: `vf-score ${tone(ch.best)}` }, String(ch.best))),
-        h('div', { class: 'muted small' }, `${SITES[ch.platform ?? 'youtube'].icon} ${fmt(ch.subs)} ${ch.platform && ch.platform !== 'youtube' ? 'seguidores' : 'inscritos'}${ch.channelAgeDays !== undefined ? ` · canal com ${ch.channelAgeDays < 365 ? `${Math.round(ch.channelAgeDays / 30)} meses` : `${(ch.channelAgeDays / 365).toFixed(1)} anos`}` : ''}`),
-        h('div', { class: 'muted small' }, `${ch.hits} vídeo(s) na busca · views ≈ ${ch.avgRatio >= 10 ? Math.round(ch.avgRatio) : ch.avgRatio.toFixed(1)}× os inscritos · ${ch.languages.join(', ')}`),
-        h('div', { class: 'row' }, ch.channelUrl ? h('button', { class: 'small', onclick: () => void c.forge['openUrl'](ch.channelUrl!) }, ch.platform && ch.platform !== 'youtube' ? '🔗 Abrir perfil' : '🔗 Abrir canal') : null, h('span', { class: 'sp' }),
-          ch.channelUrl ? h('button', { class: 'small primary', 'data-clone': ch.channel, title: 'Analisa os últimos vídeos e cria um canal novo com o mesmo estilo e tipo de vídeo, com dobra de nicho', onclick: () => void openCloneDialog(c, ch.channelUrl!, ch.channel) }, '🧬 Clonar canal') : null))));
+      : h('div', { class: 'vf-chgrid' }, ...last.channels.map((ch) => channelCard(ch)));
     results.replaceChildren(summary, insightCard ?? '', warn ?? '', grid);
   };
 
@@ -361,6 +453,8 @@ interface CloneResult {
   files: { banner?: string; thumb?: string; demo?: string };
   warnings: string[];
   linked?: { channelId: string; platform: string; name: string; at: string };
+  /** canal criado a partir deste clone (youtube-channel.json / Canais e perfis) */
+  created?: { channelId?: string; handle?: string; name?: string; studioUrl?: string; at?: string; mine?: { id: string; name: string; handle?: string; url?: string; platform: string; thumbnailTemplate?: string } };
   business?: { products?: { info: ProductIdea[]; physical: ProductIdea[]; notes?: string; at: string; by?: string }; cost?: CostEstimate; costInput?: CostInput };
   videos?: AnalyzedVideo[]; measured?: VMetrics; titleStructure?: { summary: string; examples: string[] }; dna?: Dna; languages?: LangPick[];
   meta?: { schemaVersion: number; updatedAt: string; sync?: { rev: number; dirty: boolean; remoteId?: string } };

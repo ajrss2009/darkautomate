@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Channel, ChannelAnalytics, ChannelBrand, ChannelIdentity, ChannelPlatform, PublishRecord, Project, Settings } from '../shared/types';
-import { defaultIdentity, mergeIdentity, normalizePalette, parseChannelLink, pushBrandHistory, restoreBrand, setupStatus } from './channel-setup';
+import { channelType, defaultIdentity, mergeIdentity, normalizePalette, parseChannelLink, pushBrandHistory, restoreBrand, setupStatus } from './channel-setup';
 
 /**
  * CANAIS: a identidade de publicação que o usuário gerencia (YouTube, TikTok, Instagram, Facebook).
@@ -69,7 +69,7 @@ export function getChannel(s: Settings, id: string): Channel {
  * Cadastra um canal. Com `link`, a plataforma e o @handle saem do link (o cadastro guiado exige o link);
  * sem nome, o nome provisório é o @handle (a marca sugere o definitivo).
  */
-export function addChannel(s: Settings, input: { name?: string; platform?: ChannelPlatform; accountId?: string; link?: string; type?: string; language?: string }): Channel {
+export function addChannel(s: Settings, input: { name?: string; platform?: ChannelPlatform; accountId?: string; link?: string; type?: string; language?: string; thumbnailTemplate?: string }): Channel {
   const cfg = config(s);
   if (cfg.length >= MAX_CHANNELS) throw new Error(`limite de ${MAX_CHANNELS} canais`);
   const link = input.link?.trim() ? parseChannelLink(input.link) : undefined;
@@ -86,12 +86,14 @@ export function addChannel(s: Settings, input: { name?: string; platform?: Chann
     type: input.type?.trim() || undefined, language: input.language?.trim() || undefined,
     auth: { status: 'pending' },
   };
+  /* todo canal nasce com um modelo de thumbnail (o do estilo do tipo do canal); o clone troca pelo modelado */
+  ch.thumbnailTemplate = input.thumbnailTemplate?.trim() || defaultThumbTemplateId(ch);
   fs.mkdirSync(channelDir(s, ch.id), { recursive: true });
   cfg.push(ch);
   return ch;
 }
 
-export type ChannelPatch = Partial<Pick<Channel, 'name' | 'platform' | 'accountId' | 'handle' | 'url' | 'type' | 'language' | 'identity'>> & {
+export type ChannelPatch = Partial<Pick<Channel, 'name' | 'platform' | 'accountId' | 'handle' | 'url' | 'type' | 'language' | 'identity' | 'thumbnailTemplate'>> & {
   /** o usuário confirma que fez o login na conta do navegador */
   authConfirmed?: boolean;
 };
@@ -115,7 +117,20 @@ export function updateChannel(s: Settings, id: string, patch: ChannelPatch): Cha
   if (typeof patch.language === 'string') c.language = patch.language.trim() || undefined;
   if (patch.identity && typeof patch.identity === 'object') c.identity = normalizeIdentity(patch.identity);
   if (typeof patch.authConfirmed === 'boolean') c.auth = { status: patch.authConfirmed ? 'confirmed' : 'pending', at: new Date().toISOString() };
+  if (typeof patch.thumbnailTemplate === 'string') c.thumbnailTemplate = patch.thumbnailTemplate.trim().slice(0, 120) || undefined;
+  /* trocar o tipo ou o estilo de thumbnail com o modelo ainda no padrão (ou vazio): o padrão acompanha */
+  const isDefault = !c.thumbnailTemplate || Object.values(THUMB_STYLE_TEMPLATE).includes(c.thumbnailTemplate);
+  if (isDefault && typeof patch.thumbnailTemplate !== 'string') c.thumbnailTemplate = defaultThumbTemplateId(c);
+  if (!c.thumbnailTemplate) c.thumbnailTemplate = defaultThumbTemplateId(c);
   return c;
+}
+
+/** Estilo de thumbnail (THUMB_STYLES) → template visual que vem com o app. */
+export const THUMB_STYLE_TEMPLATE: Record<string, string> = { impacto: 'v-impacto', explicativo: 'v-circulo', documentario: 'v-documentario', minimal: 'v-minimal', split: 'v-split' };
+/** Modelo de thumbnail padrão de um canal: o do estilo da identidade ou o do tipo do canal. */
+export function defaultThumbTemplateId(c: Pick<Channel, 'identity' | 'type'>): string {
+  const style = c.identity?.thumbStyle ?? channelType(c.type)?.thumbStyle ?? 'impacto';
+  return THUMB_STYLE_TEMPLATE[style] ?? 'v-impacto';
 }
 
 /** Identidade vinda da interface: paletas recalculadas (papéis, contraste, modo) e textos aparados. */
@@ -277,11 +292,12 @@ interface CreatedInfo { channelId: string; handle?: string; name?: string; studi
  * Canal CRIADO pelo app na plataforma → cadastrado em Canais e perfis, com a marca e as imagens (banner, avatar,
  * thumbnail) do clone de onde veio. Login confirmado: foi a própria sessão da conta que criou o canal.
  */
-export function registerCreatedChannel(s: Settings, o: { name: string; handle?: string; channelId: string; accountId?: string; platform?: ChannelPlatform; cloneId?: string; cloneDir?: string; brand?: ChannelBrand; type?: string; language?: string }): Channel {
+export function registerCreatedChannel(s: Settings, o: { name: string; handle?: string; channelId: string; accountId?: string; platform?: ChannelPlatform; cloneId?: string; cloneDir?: string; brand?: ChannelBrand; type?: string; language?: string; thumbnailTemplate?: string }): Channel {
   const existing = config(s).find((c) => c.platformId === o.channelId || (!!o.handle && c.platform === (o.platform ?? 'youtube') && c.handle?.replace(/^@/, '').toLowerCase() === o.handle.replace(/^@/, '').toLowerCase()));
   if (existing) return existing;
   const hnd = o.handle?.replace(/^@/, '');
-  const ch = addChannel(s, { name: o.name, platform: o.platform ?? 'youtube', accountId: o.accountId, link: hnd ? `https://www.youtube.com/@${hnd}` : `https://www.youtube.com/channel/${o.channelId}`, type: o.type, language: o.language });
+  /* modelo de thumbnail: o que a clonagem modelou das thumbnails do canal de referência (se houver) */
+  const ch = addChannel(s, { name: o.name, platform: o.platform ?? 'youtube', accountId: o.accountId, link: hnd ? `https://www.youtube.com/@${hnd}` : `https://www.youtube.com/channel/${o.channelId}`, type: o.type, language: o.language, thumbnailTemplate: o.thumbnailTemplate });
   ch.platformId = o.channelId;
   ch.auth = { status: 'confirmed', at: new Date().toISOString() };
   if (o.brand) ch.brand = { ...o.brand, createdAt: o.brand.createdAt ?? new Date().toISOString() };
@@ -313,17 +329,69 @@ export function adoptCreatedChannels(s: Settings, accountIds: string[] = []): Ch
     let info: CreatedInfo;
     try { info = JSON.parse(fs.readFileSync(file, 'utf8')) as CreatedInfo; } catch { continue; }
     if (!info?.channelId || info.registeredAs || config(s).length >= MAX_CHANNELS) continue;
-    let clone: { brand?: ChannelBrand & { names?: string[] }; language?: string } = {};
+    let clone: { brand?: ChannelBrand & { names?: string[] }; language?: string; thumbnailTemplate?: { id?: string } } = {};
     try { clone = JSON.parse(fs.readFileSync(path.join(dir, 'channel.json'), 'utf8')) as typeof clone; } catch { /* sem marca */ }
     try {
       const ch = registerCreatedChannel(s, {
         name: info.name || clone.brand?.names?.[0] || info.handle || info.channelId, handle: info.handle, channelId: info.channelId,
         accountId: info.accountId ?? (accountIds.length === 1 ? accountIds[0] : undefined),
         cloneId: e.name, cloneDir: dir, brand: clone.brand, language: typeof clone.language === 'string' ? clone.language : undefined,
+        thumbnailTemplate: clone.thumbnailTemplate?.id ?? cloneThumbTemplateId(dir),
       });
       fs.writeFileSync(file, JSON.stringify({ ...info, registeredAs: ch.id }, null, 1));
       out.push(ch);
     } catch { /* limite, link inválido: tenta de novo na próxima abertura */ }
+  }
+  return out;
+}
+
+/** Canal criado a partir de um clone: o youtube-channel.json da pasta do clone e o canal em Canais e perfis. */
+export interface CloneCreated { channelId?: string; handle?: string; name?: string; studioUrl?: string; at?: string; mine?: { id: string; name: string; handle?: string; url?: string; platform: string; thumbnailTemplate?: string } }
+export function createdFromClone(s: Settings, clone: { id: string; dir?: string }): CloneCreated | undefined {
+  const dir = clone.dir && fs.existsSync(clone.dir) ? clone.dir : path.join(s.workspace, 'channels', clone.id);
+  let info: CreatedInfo | undefined;
+  try { info = JSON.parse(fs.readFileSync(path.join(dir, CREATED_FILE), 'utf8')) as CreatedInfo; } catch { /* nenhum canal criado deste clone */ }
+  const mine = config(s).find((c) => (info?.registeredAs && c.id === info.registeredAs) || c.fromClone === clone.id || (c.cloneIds ?? []).includes(clone.id));
+  if (!info && !mine) return undefined;
+  return {
+    channelId: info?.channelId ?? mine?.platformId, handle: info?.handle ?? mine?.handle, name: info?.name ?? mine?.name, studioUrl: info?.studioUrl, at: info?.at ?? mine?.createdAt,
+    mine: mine ? { id: mine.id, name: mine.name, handle: mine.handle, url: mine.url, platform: mine.platform, thumbnailTemplate: mine.thumbnailTemplate } : undefined,
+  };
+}
+
+/** Canais de versões anteriores (sem modelo de thumbnail): o do clone de origem, senão o do estilo do canal. Devolve quantos mudaram. */
+export function ensureChannelThumbTemplates(s: Settings): number {
+  let n = 0;
+  for (const c of config(s)) {
+    if (c.thumbnailTemplate) continue;
+    let fromClone: string | undefined;
+    if (c.fromClone) {
+      fromClone = cloneThumbTemplateId(path.join(s.workspace, 'channels', c.fromClone));
+    }
+    c.thumbnailTemplate = fromClone || defaultThumbTemplateId(c);
+    n++;
+  }
+  return n;
+}
+
+/** Template de thumbnail que a clonagem modelou (result.json do clone; channel.json nas versões antigas). */
+export function cloneThumbTemplateId(cloneDir: string): string | undefined {
+  for (const f of ['result.json', 'channel.json']) {
+    try { const id = (JSON.parse(fs.readFileSync(path.join(cloneDir, f), 'utf8')) as { thumbnailTemplate?: { id?: string } }).thumbnailTemplate?.id; if (id) return id; } catch { /* sem arquivo */ }
+  }
+  return undefined;
+}
+
+/** Templates de thumbnail modelados nos clones dos canais que ainda não estão em Configurações → thumbnails (ex.: clone importado). */
+export function missingCloneThumbTemplates(s: Settings): Array<NonNullable<Settings['thumbnails']>[number]> {
+  const have = new Set((s.thumbnails ?? []).map((t) => t.id));
+  const out: Array<NonNullable<Settings['thumbnails']>[number]> = [];
+  for (const c of config(s)) {
+    if (!c.fromClone || !c.thumbnailTemplate || have.has(c.thumbnailTemplate) || c.thumbnailTemplate.startsWith('v-')) continue;
+    try {
+      const t = (JSON.parse(fs.readFileSync(path.join(s.workspace, 'channels', c.fromClone, 'result.json'), 'utf8')) as { thumbnailTemplate?: NonNullable<Settings['thumbnails']>[number] }).thumbnailTemplate;
+      if (t?.id === c.thumbnailTemplate && t.prompt) { out.push(t); have.add(t.id); }
+    } catch { /* clone apagado */ }
   }
   return out;
 }

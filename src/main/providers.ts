@@ -117,7 +117,78 @@ export async function geminiTts(p: ProviderConfig, model: string, voice: string,
   return out;
 }
 
-export async function tts(p: ProviderConfig, model: string, voice: string, text: string, dest: string, signal: AbortSignal, instructions?: string): Promise<string> {
+/* ═════════════════ Google sem chave (voz do Google Tradutor) ═════════════════
+ * O mesmo áudio do botão 🔊 do Google Tradutor: GET translate_tts, sem conta e sem chave. Uma voz por idioma
+ * (o sotaque muda pelo domínio: .co.uk, .com.au, .pt…), até ~200 caracteres por pedido — o texto é dividido em
+ * frases e os MP3 são concatenados. Não aceita instruções de tom. Uso não oficial: pode mudar ou limitar sem aviso. */
+export const GTTS_MODELS = ['google-tradutor', 'google-tradutor-lento'];
+export const GTTS_VOICES: Record<string, { tl: string; host: string; label: string }> = {
+  'pt-BR': { tl: 'pt-BR', host: 'translate.google.com', label: 'Português (Brasil)' },
+  'pt-PT': { tl: 'pt-PT', host: 'translate.google.pt', label: 'Português (Portugal)' },
+  'en-US': { tl: 'en', host: 'translate.google.com', label: 'English (US)' },
+  'en-GB': { tl: 'en', host: 'translate.google.co.uk', label: 'English (UK)' },
+  'en-AU': { tl: 'en', host: 'translate.google.com.au', label: 'English (Australia)' },
+  'en-IN': { tl: 'en', host: 'translate.google.co.in', label: 'English (India)' },
+  'es-ES': { tl: 'es', host: 'translate.google.es', label: 'Español (España)' },
+  'es-MX': { tl: 'es', host: 'translate.google.com.mx', label: 'Español (México)' },
+  'fr-FR': { tl: 'fr', host: 'translate.google.fr', label: 'Français (France)' },
+  'fr-CA': { tl: 'fr', host: 'translate.google.ca', label: 'Français (Canada)' },
+  'de-DE': { tl: 'de', host: 'translate.google.com', label: 'Deutsch' },
+  'it-IT': { tl: 'it', host: 'translate.google.com', label: 'Italiano' },
+  'ja-JP': { tl: 'ja', host: 'translate.google.com', label: '日本語' },
+  'ko-KR': { tl: 'ko', host: 'translate.google.com', label: '한국어' },
+  'zh-CN': { tl: 'zh-CN', host: 'translate.google.com', label: '中文 (普通话)' },
+  'ru-RU': { tl: 'ru', host: 'translate.google.com', label: 'Русский' },
+  'hi-IN': { tl: 'hi', host: 'translate.google.com', label: 'हिन्दी' },
+  'ar': { tl: 'ar', host: 'translate.google.com', label: 'العربية' },
+};
+/** Pedaços de até `max` caracteres, quebrando em frase, depois vírgula, depois palavra (função pura). */
+export function gttsChunks(text: string, max = 190): string[] {
+  const out: string[] = [];
+  const push = (s: string) => { const t = s.trim(); if (t) out.push(t); };
+  for (const sent of text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?…;:])\s+/)) {
+    if (sent.length <= max) { push(sent); continue; }
+    let cur = '';
+    for (const w of sent.split(/(?<=,)\s+|\s+/)) {
+      if ((cur + ' ' + w).trim().length > max) { push(cur); cur = w.length > max ? '' : w; if (w.length > max) for (let i = 0; i < w.length; i += max) push(w.slice(i, i + max)); }
+      else cur = (cur + ' ' + w).trim();
+    }
+    push(cur);
+  }
+  return out;
+}
+/** Voz do Google por idioma: `voice` = 'pt-BR', 'en-GB'…; vazio usa o idioma do texto (`lang`) ou pt-BR. */
+export function gttsVoice(voice?: string, lang?: string) {
+  const v = GTTS_VOICES[voice ?? ''] ?? GTTS_VOICES[lang ?? ''] ?? Object.entries(GTTS_VOICES).find(([k]) => k.split('-')[0] === (voice || lang || '').split('-')[0])?.[1];
+  return v ?? GTTS_VOICES['pt-BR']!;
+}
+export async function googleFreeTts(model: string, voice: string, text: string, dest: string, signal: AbortSignal, lang?: string): Promise<string> {
+  const v = gttsVoice(voice, lang);
+  const parts = gttsChunks(text);
+  if (!parts.length) throw new Error('Google (sem chave): texto vazio');
+  const bufs: Buffer[] = [];
+  for (const [i, q] of parts.entries()) {
+    const u = `https://${v.host}/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(v.tl)}&total=${parts.length}&idx=${i}&textlen=${q.length}${/lento/.test(model) ? '&ttsspeed=0.3' : ''}&q=${encodeURIComponent(q)}`;
+    let r: Response | undefined;
+    for (let t = 0; t < 3; t++) {
+      r = await fetch(u, { signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `https://${v.host}/` } });
+      if (r.ok) break;
+      if (r.status !== 429 && r.status < 500) break;
+      await new Promise((ok) => setTimeout(ok, 1500 * (t + 1)));
+    }
+    if (!r?.ok) throw new Error(`Google (sem chave): HTTP ${r?.status} no trecho ${i + 1}/${parts.length}${r?.status === 429 ? ' — o Google limitou os pedidos, tente de novo em alguns minutos' : ''}`);
+    bufs.push(Buffer.from(await r.arrayBuffer()));
+  }
+  const out = dest.replace(/\.[a-z0-9]+$/i, '') + '.mp3';
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, Buffer.concat(bufs));
+  return out;
+}
+/** O provedor precisa de chave de API? (Google sem chave e servidores OpenAI-compatíveis locais não precisam) */
+export const providerNeedsKey = (p: Pick<ProviderConfig, 'kind' | 'baseUrl'>) => p.kind !== 'gtts' && (p.kind !== 'openai' || /openai\.com/.test(p.baseUrl));
+
+export async function tts(p: ProviderConfig, model: string, voice: string, text: string, dest: string, signal: AbortSignal, instructions?: string, lang?: string): Promise<string> {
+  if (p.kind === 'gtts') return googleFreeTts(model, voice, text, dest, signal, lang);
   if (p.kind === 'gemini') return geminiTts(p, model, voice, text, dest, signal, instructions);
   if (p.kind === 'fish') return fishTts(p, model, voice, text, dest, signal, instructions);
   const withInstr = !!instructions?.trim() && /gpt-4o.*tts/i.test(model);
@@ -468,6 +539,12 @@ export async function snapgenVideo(p: ProviderConfig, model: string, prompt: str
 export async function testProvider(p: ProviderConfig, opts: { language?: string } = {}): Promise<{ ok: boolean; message: string; models?: string[]; modelCategories?: Record<string, ApiCategory>; credits?: SnapgenCredits; voices?: string[]; voiceLabels?: Record<string, string> }> {
   try {
     const sig = AbortSignal.timeout(30000);
+    if (p.kind === 'gtts') {
+      const r = await fetch(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=pt-BR&q=${encodeURIComponent('teste')}`, { signal: sig, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!r.ok) return { ok: false, message: `o Google respondeu HTTP ${r.status}` };
+      const voices = Object.keys(GTTS_VOICES);
+      return { ok: true, message: `ok — sem chave: ${voices.length} vozes (uma por idioma/sotaque)`, models: [...GTTS_MODELS], modelCategories: Object.fromEntries(GTTS_MODELS.map((m) => [m, 'voice' as ApiCategory])), voices, voiceLabels: Object.fromEntries(Object.entries(GTTS_VOICES).map(([k, v]) => [k, v.label])) };
+    }
     if (p.kind === 'fish') {
       if (!p.apiKey) return { ok: false, message: 'sem chave de API' };
       const { voices, voiceLabels, own } = await fishVoices(p, sig, opts.language);

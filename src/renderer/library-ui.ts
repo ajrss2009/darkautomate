@@ -1,3 +1,4 @@
+import { playVoiceSample } from './voice-nowplaying';
 import type { HarnessBinding, ApiCategory, AppLanguage, Binding, CustomVideoType, PluginInfo, Project, ReasoningEffort, Route, RouteStep, Settings, Skill, StockSource } from '../shared/types';
 import { EFFORT_OPTIONS, harnessOffersEffort, modelSupportsEffort } from '../shared/effort';
 import { icon } from './icons';
@@ -147,15 +148,17 @@ export async function renderRoutesLib(c: Ctx) {
     const q = h('input', { placeholder: 'Buscar rota…', value: routeFilter.q, id: 'route-q' }) as HTMLInputElement;
     q.addEventListener('input', () => { routeFilter.q = q.value; paintGrid(); });
     const grid = h('div', { class: 'sgrid', id: 'route-list' });
-    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['f', '⭐ Preferidas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
+    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['f', '⭐ Favoritas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
       h('button', { class: routeFilter.who === v ? 'on' : '', onclick: () => { routeFilter.who = v; again(); } }, l)));
     const paintGrid = () => grid.replaceChildren(...routes.filter((r) => (!routeFilter.q || `${r.name} ${r.description}`.toLowerCase().includes(routeFilter.q.toLowerCase()))
-      && (!routeFilter.who || (routeFilter.who === 'b') === builtin(r))).map((r) => {
+      && (!routeFilter.who || (routeFilter.who === 'f' ? !!r.favorite : (routeFilter.who === 'b') === builtin(r)))).map((r) => {
       const scene = r.steps.filter((s) => s.enabled && s.scope === 'scene').length;
       const pu = purposeIcon(c, r, KIND_ICON[r.steps.find((s) => s.scope === 'scene')?.kind ?? r.steps[0]?.kind ?? 'edit'] ?? '🛣️');
       return h('button', { class: 'scard', 'data-route': r.id, onclick: () => { routeOrigin = r; routeDraft = clone(r); redraw(); } },
         h('div', { class: 'row' }, pu.icon,
-          h('strong', { class: 'grow' }, r.name), builtin(r) ? h('span', { class: 'tag', title: (r as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (r as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
+          h('strong', { class: 'grow' }, r.name),
+          h('span', { class: `np-star${r.favorite ? ' on' : ''}`, role: 'button', 'data-act': 'route-fav', title: r.favorite ? 'Tirar das favoritas' : 'Marcar como favorita (aparece antes das demais)', onclick: (e: Event) => { e.stopPropagation(); void guard(async () => { await forge['routeFavorite'](r.id, !r.favorite); toast(r.favorite ? 'Rota tirada das favoritas' : '⭐ Rota favorita — aparece primeiro'); again(); }); } }, r.favorite ? '⭐' : '☆'),
+          builtin(r) ? h('span', { class: 'tag', title: (r as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (r as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
         h('span', { class: 'muted sdesc' }, r.description || '—'),
         routeStrip(c, r),
         h('span', { class: 'pchips' }, pu.badge, h('span', { class: 'chip' }, `${r.steps.filter((s) => s.enabled).length} tarefas`), scene ? h('span', { class: 'chip' }, `🎬 ${scene} por cena`) : null));
@@ -475,7 +478,7 @@ function voicePanel(c: Ctx, st: RouteStep, cat: Catalog, meta: Meta, redraw: () 
     const old = btn.textContent; btn.textContent = '…'; btn.setAttribute('disabled', '');
     try {
       const f = (await c.forge['voicePreview']({ binding: b, language: previewLang })) as string;
-      audio?.pause(); audio = new Audio(url(f) + '?t=' + Date.now()); await audio.play();
+      audio?.pause(); audio = playVoiceSample(c.forge as never, f, `${b.type === 'api' ? `${b.provider} · ${b.voice ?? 'voz'}` : ((b as { refAudio?: string }).refAudio ? String((b as { refAudio?: string }).refAudio).split(/[\\/]/).pop()! : b.type)} (${previewLang})`, c.toast);
     } finally { btn.textContent = old; btn.removeAttribute('disabled'); }
   });
   const localExec = st.bindings.find((b) => b.type === 'comfyui' || b.type === 'wan2gp');
@@ -830,7 +833,7 @@ export async function renderSkills(c: Ctx) {
     const q = h('input', { placeholder: 'Buscar skill…', value: skillFilter.q, id: 'skill-q' }) as HTMLInputElement;
     const grid = h('div', { class: 'sgrid', id: 'skill-list' });
     q.addEventListener('input', () => { skillFilter.q = q.value; paint(); });
-    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['f', '⭐ Preferidas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
+    const seg = h('div', { class: 'seg' }, ...([['', 'Todas'], ['f', '⭐ Favoritas'], ['b', '🔒 Padrão'], ['m', '★ Minhas']] as Array<[string, string]>).map(([v, l]) =>
       h('button', { class: skillFilter.who === v ? 'on' : '', onclick: () => { skillFilter.who = v; again(); } }, l)));
     const paint = () => grid.replaceChildren(...skills.filter((k) => (!skillFilter.q || `${k.name} ${k.description}`.toLowerCase().includes(skillFilter.q.toLowerCase()))
       && (!skillFilter.who || (skillFilter.who === 'f' ? !!k.favorite : (skillFilter.who === 'b') === !!k.builtin))).map((k) => {
@@ -839,7 +842,7 @@ export async function renderSkills(c: Ctx) {
       const rep = checkSkillRoute(k, r, meta.videoTypes.find((v) => v.id === k.appearance)?.sceneKind as never, r);
       return h('button', { class: 'scard', 'data-skill': k.id, onclick: () => { skillOrigin = k; skillDraft = clone(k); again(); } },
         h('div', { class: 'row' }, pu.icon, h('strong', { class: 'grow' }, k.name),
-          h('span', { class: `np-star${k.favorite ? ' on' : ''}`, role: 'button', 'data-act': 'skill-fav', title: k.favorite ? 'Tirar das preferidas' : 'Marcar como preferida (aparece antes das demais)', onclick: (e: Event) => { e.stopPropagation(); void guard(async () => { await forge['skillFavorite'](k.id, !k.favorite); toast(k.favorite ? 'Skill tirada das preferidas' : '⭐ Skill preferida — aparece primeiro'); again(); }); } }, k.favorite ? '⭐' : '☆'),
+          h('span', { class: `np-star${k.favorite ? ' on' : ''}`, role: 'button', 'data-act': 'skill-fav', title: k.favorite ? 'Tirar das favoritas' : 'Marcar como favorita (aparece antes das demais)', onclick: (e: Event) => { e.stopPropagation(); void guard(async () => { await forge['skillFavorite'](k.id, !k.favorite); toast(k.favorite ? 'Skill tirada das favoritas' : '⭐ Skill favorita — aparece primeiro'); again(); }); } }, k.favorite ? '⭐' : '☆'),
           k.builtin ? h('span', { class: 'tag', title: (k as { customized?: boolean }).customized ? 'Padrão personalizada por você' : 'Padrão' }, (k as { customized?: boolean }).customized ? '✎' : '🔒') : h('span', { class: 'tag done' }, '★ minha')),
         h('span', { class: 'muted sdesc' }, k.description),
         r ? routeStrip(c, r) : null,
@@ -1488,10 +1491,10 @@ export async function renderSettings(c: Ctx, reload = true) {
         try {
           const f = (await forge['voicePreview']({ binding: { type: 'api', provider: p.id, model: voiceModel(), voice: v } as Binding, language: previewLang || 'pt-BR' })) as string;
           audio?.pause();
-          audio = new Audio(mediaUrl(f) + '?t=' + Date.now());
+          audio = playVoiceSample(forge as never, f, `${p.id} · ${p.voiceLabels?.[v] ?? v}`, toast);
           btn.textContent = '⏸';
           audio.onended = () => { btn.textContent = '▶'; };
-          await audio.play();
+          void mediaUrl;
         } catch (e) { btn.textContent = before ?? '▶'; throw e; }
         finally { btn.removeAttribute('disabled'); }
       });
@@ -1507,10 +1510,11 @@ export async function renderSettings(c: Ctx, reload = true) {
       body.append(h('div', { class: 'card', 'data-api': p.id },
         h('div', { class: 'row' }, p.kind === 'snapgen' ? h('span', { class: 'ico', title: 'Snapgen.AI' }, icon('snapgen')) : null,
           field('Id', p.id, (v) => { p.id = v; }, { 'data-field': 'api-id' }),
-          h('label', {}, 'Tipo', sel(c, [['openai', 'OpenAI-compatível'], ['gemini', 'Google Gemini'], ['seedance', 'Seedance (BytePlus)'], ['snapgen', 'Snapgen.AI (imagem/vídeo)'], ['fish', 'Fish Audio (voz)']], p.kind, (v) => { p.kind = v as typeof p.kind; })),
+          h('label', {}, 'Tipo', sel(c, [['openai', 'OpenAI-compatível'], ['gemini', 'Google Gemini'], ['seedance', 'Seedance (BytePlus)'], ['snapgen', 'Snapgen.AI (imagem/vídeo)'], ['fish', 'Fish Audio (voz)'], ['gtts', 'Google (voz sem chave)']], p.kind, (v) => { p.kind = v as typeof p.kind; })),
           field('Base URL', p.baseUrl, (v) => { p.baseUrl = v; }, { class: 'grow', 'data-field': 'api-url' }),
           h('label', {}, 'Chave de API', bind(h('input', { type: 'password', value: p.apiKey, 'data-field': 'api-key' }) as HTMLInputElement, (v) => { p.apiKey = v; }))),
         p.kind === 'snapgen' ? h('div', { class: 'muted' }, 'Snapgen.AI usa o header x-api-key. O botão Testar consulta o saldo (/uapi/v1/account) e carrega os modelos de imagem e vídeo de /api/service-prices, cada um na sua aba. Grok e sd-2 ainda não são suportados no adaptador.') : null,
+        p.kind === 'gtts' ? h('div', { class: 'muted' }, 'Google sem chave: a mesma voz do 🔊 do Google Tradutor, sem conta e sem chave de API. Uma voz por idioma/sotaque (pt-BR, pt-PT, en-US, en-GB…); o texto vai em pedaços de ~200 caracteres. Não aceita tom/emoção e é um uso não oficial (o Google pode limitar). Para vozes do Google com escolha de timbre e tom use "Google Gemini" (precisa de chave grátis do AI Studio). O ▶ de cada voz toca uma amostra e o 💾 da barra que aparece salva a voz.') : null,
         p.kind === 'fish' ? h('div', { class: 'muted' }, 'Fish Audio: a voz é um reference_id (id de um modelo de voz da sua conta ou da biblioteca). O botão Testar valida a chave e carrega as vozes da sua conta + as mais usadas da biblioteca pública (licenciadas pelo Fish) no idioma do app. O ▶ de cada voz gera uma amostra. Também dá para colar o id ou o link fish.audio/m/<id> em "Vozes carregadas". Modelos: s2.1-pro-free (grátis), s2.1-pro, s2-pro, s1, drama-3.') : null,
         h('div', { class: 'row' }, h('div', { class: 'grow' }, h('strong', {}, 'Modelos carregados'), apiMl.el),
           h('label', { title: 'Modelo que as rotas usam nesta categoria quando o executor não escolhe um modelo.' }, 'Modelo padrão', defBox),
@@ -1534,24 +1538,26 @@ export async function renderSettings(c: Ctx, reload = true) {
           }) }, 'Testar'),
           h('button', { class: 'danger', onclick: () => { s.providers.splice(i, 1); redraw(); } }, 'Remover'), out)));
     }
-    const kind = h('select', { 'data-field': 'api-newkind' }, h('option', { value: 'openai' }, 'OpenAI-compatível'), h('option', { value: 'gemini' }, 'Google Gemini'), h('option', { value: 'seedance' }, 'Seedance (BytePlus)'), h('option', { value: 'snapgen' }, 'Snapgen.AI (imagem/vídeo)'), h('option', { value: 'fish' }, 'Fish Audio (voz)')) as HTMLSelectElement;
+    const kind = h('select', { 'data-field': 'api-newkind' }, h('option', { value: 'openai' }, 'OpenAI-compatível'), h('option', { value: 'gemini' }, 'Google Gemini'), h('option', { value: 'seedance' }, 'Seedance (BytePlus)'), h('option', { value: 'snapgen' }, 'Snapgen.AI (imagem/vídeo)'), h('option', { value: 'fish' }, 'Fish Audio (voz)'), h('option', { value: 'gtts' }, 'Google (voz sem chave)')) as HTMLSelectElement;
     body.append(h('div', { class: 'row' }, kind, h('button', { 'data-act': 'api-add', onclick: () => {
-      const k = kind.value as 'openai' | 'gemini' | 'seedance' | 'snapgen' | 'fish';
+      const k = kind.value as 'openai' | 'gemini' | 'seedance' | 'snapgen' | 'fish' | 'gtts';
       const base = k === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta'
         : k === 'seedance' ? 'https://ark.ap-southeast.bytepluses.com/api/v3'
           : k === 'snapgen' ? 'https://api.snapgen.ai'
             : k === 'fish' ? 'https://api.fish.audio'
+              : k === 'gtts' ? 'https://translate.google.com'
               : 'https://api.openai.com/v1';
       const snapImg = ['nano-banana-pro', 'nano-banana-2', 'nano-banana-2-lite'];
       const snapVid = ['veo-3.1-fast', 'veo-3.1', 'veo-2', 'omni-flash'];
-      const models = k === 'snapgen' ? [...snapImg, ...snapVid] : k === 'fish' ? [...FISH_TTS_MODELS] : [];
+      const models = k === 'snapgen' ? [...snapImg, ...snapVid] : k === 'fish' ? [...FISH_TTS_MODELS] : k === 'gtts' ? ['google-tradutor', 'google-tradutor-lento'] : [];
       const modelCategories: Record<string, ApiCategory> = {};
       if (k === 'snapgen') for (const m of snapImg) modelCategories[m] = 'image';
       if (k === 'snapgen') for (const m of snapVid) modelCategories[m] = 'video';
       if (k === 'fish') for (const m of FISH_TTS_MODELS) modelCategories[m] = 'voice';
-      const categories: ApiCategory[] = k === 'snapgen' ? ['image', 'video'] : k === 'fish' ? ['voice'] : [cfgTab as ApiCategory];
+      if (k === 'gtts') for (const m of models) modelCategories[m] = 'voice';
+      const categories: ApiCategory[] = k === 'snapgen' ? ['image', 'video'] : k === 'fish' || k === 'gtts' ? ['voice'] : [cfgTab as ApiCategory];
       let id: string = k; let n = 2; while (s.providers.some((x) => x.id === id)) id = `${k}${n++}`;
-      s.providers.push({ id, kind: k, baseUrl: base, apiKey: '', models, ...(k === 'snapgen' || k === 'fish' ? { modelCategories } : {}), categories }); redraw();
+      s.providers.push({ id, kind: k, baseUrl: base, apiKey: '', models, ...(k === 'snapgen' || k === 'fish' || k === 'gtts' ? { modelCategories } : {}), ...(k === 'gtts' ? { voices: ['pt-BR', 'pt-PT', 'en-US', 'en-GB', 'es-ES', 'es-MX', 'fr-FR', 'de-DE', 'it-IT', 'ja-JP'] } : {}), categories }); redraw();
     } }, '+ Adicionar API')));
   }
 

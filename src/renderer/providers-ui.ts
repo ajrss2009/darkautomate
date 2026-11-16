@@ -1,3 +1,4 @@
+import { playVoiceSample } from './voice-nowplaying';
 import type { Binding, ExecutorCategory, ExecutorProfile, Project, ReasoningEffort, Route, RouteStep, Settings } from '../shared/types';
 import { EFFORT_OPTIONS, harnessOffersEffort } from '../shared/effort';
 import { CATEGORIES, CATEGORY_INFO, CATEGORY_OF, ROLES, ROLE_INFO, ROLE_OF, applyExecutorProfile, applyStepBindings, balanceRoles, downstreamSteps, profileSkips, setStepHead, stepTargets, type StepRole } from '../shared/profiles';
@@ -202,11 +203,9 @@ async function previewApiVoice(ctx: PickerCtx | undefined, b: Binding, btn: HTML
   btn.textContent = '…'; btn.setAttribute('disabled', '');
   try {
     const f = (await ctx.forge['voicePreview']({ binding: b, language: ctx.language ?? 'pt-BR' })) as string;
-    previewAudio?.pause();
-    previewAudio = new Audio((ctx.forge['mediaUrl'] as unknown as (x: string) => string)(f) + '?t=' + Date.now());
+    previewAudio = playVoiceSample(ctx.forge as never, f, `${b.type === 'api' ? b.provider : b.type} · ${(b as { voice?: string }).voice ?? 'voz'}`, ctx.toast);
     btn.textContent = '⏸';
     previewAudio.onended = () => { btn.textContent = '▶'; };
-    await previewAudio.play();
   } catch (e) { btn.textContent = before ?? '▶'; ctx.toast((e as Error).message, true); }
   finally { btn.removeAttribute('disabled'); }
 }

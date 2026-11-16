@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import type { Binding, Settings } from '../shared/types';
 import { bindingLabel } from '../shared/types';
 import { isHttpHarness, resolveHarness, resolveHarnessCommand } from './harness';
+import { providerNeedsKey } from './providers';
 
 /**
  * Por que um provedor NÃO pode ser usado agora (sem chave, não instalado, servidor/pasta não configurados)?
@@ -12,7 +13,7 @@ export async function unusableReason(s: Settings, b: Binding): Promise<string | 
     case 'api': {
       const p = s.providers.find((x) => x.id === b.provider);
       if (!p) return `provedor "${b.provider}" não configurado`;
-      if (!p.apiKey && (/openai\.com/.test(p.baseUrl) || p.kind !== 'openai')) return `"${b.provider}" sem chave de API`;
+      if (!p.apiKey && providerNeedsKey(p)) return `"${b.provider}" sem chave de API`;
       return undefined;
     }
     case 'harness': {

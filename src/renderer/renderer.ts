@@ -1021,12 +1021,15 @@ async function renderNew() {
   const ideaLbl = h('span', {}, 'Ideia / prompt simples (o sistema acrescenta a skill, os estilos, o idioma e as referências)');
   const favs = skills.filter((k) => k.favorite), builtin = skills.filter((k) => k.builtin && !k.favorite), mine = skills.filter((k) => !k.builtin && !k.favorite);
   const skill = h('select', { id: 'np-skill' }, h('option', { value: '' }, '— escolha uma skill (tipo de vídeo) —'),
-    favs.length ? h('optgroup', { label: '⭐ Preferidas' }, ...favs.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))) : null,
+    favs.length ? h('optgroup', { label: '⭐ Favoritas' }, ...favs.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))) : null,
     h('optgroup', { label: '🎬 Tipos de vídeo (padrão)' }, ...builtin.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))),
     mine.length ? h('optgroup', { label: '🧠 Minhas skills' }, ...mine.map((k) => h('option', { value: k.id, title: k.description ?? '' }, withIcon(skillIcon(k), k.name)))) : null) as HTMLSelectElement;
   /* ícone da rota = tipo de vídeo + quem executa (🖥️ GPU local, ☁️ API, 🌊 Google Flow) */
+  const routeOpt = (r: Route) => h('option', { value: r.id, title: r.description ?? '' }, withIcon(routeIcon(r), r.name));
+  const favRoutes = meta.routes.filter((r) => r.favorite);
   const route = h('select', { id: 'np-route', title: 'Ícones: 🖥️ GPU local (ComfyUI/Wan2GP) · ☁️ API na nuvem · 🌊 Google Flow' }, h('option', { value: '' }, '— escolha uma rota —'),
-    ...meta.routes.map((r) => h('option', { value: r.id, title: r.description ?? '' }, withIcon(routeIcon(r), r.name)))) as HTMLSelectElement;
+    favRoutes.length ? h('optgroup', { label: '⭐ Favoritas' }, ...favRoutes.map(routeOpt)) : null,
+    ...(favRoutes.length ? [h('optgroup', { label: 'Todas as rotas' }, ...meta.routes.filter((r) => !r.favorite).map(routeOpt))] : meta.routes.map(routeOpt))) as HTMLSelectElement;
   const scriptStyle = h('textarea', { id: 'np-script-style', rows: '3', placeholder: 'Opcional. Ex.: tom bem-humorado, frases curtas, começar com uma pergunta provocativa, falar em 2ª pessoa ("você")…' });
   const videoStyle = h('textarea', { id: 'np-video-style', rows: '3', placeholder: 'Opcional. Ex.: paleta azul e laranja, traço grosso, câmera sempre em movimento lento, sem texto na tela…' });
   const musicStyle = h('textarea', { id: 'np-music-style', rows: '2', placeholder: 'Opcional (clipes musicais). Ex.: lo-fi, chill, vinil, café, noturno, instrumental.' });
@@ -1323,27 +1326,118 @@ async function renderNew() {
   const paintThumb = () => {
     const all: ThumbnailTemplate[] = [...(meta.thumbnails ?? []), ...THUMB_DESIGN_TEMPLATES];
     const t = all.find((x) => x.id === thumbId) ?? all[0];
-    thumbBox.replaceChildren(t ? (t.preview ? h('img', { class: 'tsketch', src: forge.mediaUrl(t.preview), alt: t.name }) : t.design ? thumbPreview(t.design, { w: 1280, h: 720, text: 'TEXTO DA THUMB' }, 160) : thumbSketch(layoutOf(t))) : h('span', { class: 'muted' }, 'sem templates'),
-      h('div', {}, h('strong', {}, t ? t.name : '—'), h('div', { class: 'muted' }, thumbId ? '' : '(padrão: primeiro template)')),
-      h('button', { id: 'np-thumb-open', onclick: () => void openThumbModal(thumbId || t?.id || '', async (id) => { thumbId = id; meta.thumbnails = (await forge.meta()).thumbnails; paintThumb(); }) }, 'Escolher ou criar…'));
+    thumbBox.replaceChildren(t ? (t.preview ? h('img', { class: 'tsketch', src: forge.mediaUrl(t.preview), alt: '', onerror: (e: Event) => { (e.currentTarget as HTMLElement).replaceWith(t.design ? thumbPreview(t.design, { w: 1280, h: 720, text: 'TEXTO DA THUMB' }, 160) : thumbSketch(layoutOf(t))); } }) : t.design ? thumbPreview(t.design, { w: 1280, h: 720, text: 'TEXTO DA THUMB' }, 160) : thumbSketch(layoutOf(t))) : h('span', { class: 'muted' }, 'sem templates'),
+      h('div', {}, h('strong', {}, t ? t.name : '—'), h('div', { class: 'muted' }, thumbFrom())),
+      h('button', { id: 'np-thumb-open', onclick: () => void openThumbModal(thumbId || t?.id || '', async (id) => { thumbId = id; thumbManual = true; thumbMode = 'template'; meta.thumbnails = (await forge.meta()).thumbnails; paintThumb(); paintThumbSrc(); }) }, 'Escolher, criar ou modelar…'));
   };
-  paintThumb();
+
+  /* ── 🏷 TÍTULO E THUMBNAIL: o que decide o clique ──
+     título com nota ao vivo (6 checagens, sem IA), texto da thumbnail e de onde vem a thumbnail:
+     o modelo do canal de destino (padrão), outro modelo, ou uma REFERÊNCIA (imagem ou link de vídeo) */
+  let thumbManual = false;
+  let thumbMode: 'channel' | 'template' | 'ref' = 'channel';
+  let thumbRefFile: string | undefined;
+  let chList: Array<{ id: string; name: string; thumbnailTemplate?: string }> = [];
+  const chOf = () => chList.find((x) => x.id === chSel.value);
+  const tplName = (id?: string) => [...(meta.thumbnails ?? []), ...THUMB_DESIGN_TEMPLATES].find((x) => x.id === id)?.name;
+  function thumbFrom(): string {
+    const ch = chOf();
+    if (thumbMode === 'ref') return '🔗 a referência vence: este modelo só desenha o texto por cima';
+    if (!thumbManual && ch?.thumbnailTemplate && thumbId === ch.thumbnailTemplate) return `📺 modelo do canal "${ch.name}"`;
+    return thumbId ? 'escolhido por você' : '(padrão: o do canal ou o da skill)';
+  }
+  const thumbText = h('input', { id: 'np-thumb-text', maxlength: '40', placeholder: 'Texto da thumbnail — até 3 palavras (vazio: o SEO escolhe)' }) as HTMLInputElement;
+  const refUrl = h('input', { id: 'np-thumb-ref-url', class: 'grow', placeholder: 'Link de um vídeo (YouTube) ou de uma imagem/página…' }) as HTMLInputElement;
+  const refNote = h('input', { id: 'np-thumb-ref-note', class: 'grow', placeholder: 'O que manter da referência (opcional): ex. rosto à direita, texto amarelo…' }) as HTMLInputElement;
+  const refFileBox = h('span', {});
+  const paintRefFile = () => refFileBox.replaceChildren(thumbRefFile
+    ? h('span', { class: 'tag done', title: thumbRefFile }, '🖼 ' + basename(thumbRefFile), h('button', { class: 'x', title: 'Remover', onclick: () => { thumbRefFile = undefined; paintRefFile(); } }, '×'))
+    : h('span', { class: 'muted small' }, 'nenhuma imagem'));
+  paintRefFile();
+  const refPick = h('button', { class: 'small', id: 'np-thumb-ref-file', onclick: () => void guard(async () => {
+    const f = await forge.openFile({ title: 'Thumbnail de referência', filters: [{ name: 'Imagem', extensions: ['jpg', 'jpeg', 'png', 'webp'] }] });
+    if (f) { thumbRefFile = f; refUrl.value = ''; paintRefFile(); }
+  }) }, 'Imagem…');
+  const refBox = h('div', { class: 'np-thumbref', id: 'np-thumb-ref' },
+    h('div', { class: 'row' }, refPick, refFileBox, h('span', { class: 'muted small' }, 'ou'), refUrl),
+    h('div', { class: 'row' }, refNote),
+    h('div', { class: 'muted small' }, 'A imagem (ou a thumbnail do vídeo do link) vai junto para o projeto; a paleta é medida e a thumbnail segue a composição, o texto e o contraste dela — sem copiar texto, logo ou rosto.'));
+  const srcSeg = h('div', { class: 'seg', id: 'np-thumb-src' });
+  const paintThumbSrc = () => {
+    const ch = chOf();
+    srcSeg.replaceChildren(...([['channel', ch?.thumbnailTemplate ? `📺 Do canal (${tplName(ch.thumbnailTemplate) ?? ch.thumbnailTemplate})` : '📺 Do canal'], ['template', '🖼 Outro modelo'], ['ref', '🔗 Referência (imagem ou link)']] as Array<[typeof thumbMode, string]>).map(([k, l]) =>
+      h('button', { class: thumbMode === k ? 'on' : '', 'data-thumb-src': k, disabled: k === 'channel' && !ch?.thumbnailTemplate,
+        title: k === 'channel' && !ch ? 'Escolha o canal de destino' : k === 'channel' && !ch?.thumbnailTemplate ? 'O canal não tem modelo de thumbnail (Canais e perfis → 🖼 Modelo de thumbnail)' : '',
+        onclick: () => { thumbMode = k; if (k === 'channel' && ch?.thumbnailTemplate) { thumbId = ch.thumbnailTemplate; thumbManual = false; } paintThumb(); paintThumbSrc(); } }, l)));
+    refBox.hidden = thumbMode !== 'ref';
+  };
+  /* canal de destino → modelo de thumbnail do canal (se o usuário não escolheu outro) */
+  const applyChannelThumb = () => {
+    const ch = chOf();
+    if (!thumbManual && thumbMode !== 'ref') { thumbId = ch?.thumbnailTemplate ?? ''; thumbMode = ch?.thumbnailTemplate ? 'channel' : thumbMode === 'channel' ? 'template' : thumbMode; }
+    paintThumb(); paintThumbSrc();
+  };
+  chSel.addEventListener('change', applyChannelThumb);
+  void (xapi()['channelsGet']!() as Promise<{ list?: Array<{ id: string; name: string; thumbnailTemplate?: string }> }>).then((st) => { chList = st.list ?? []; applyChannelThumb(); }).catch(() => {});
+  /* nota do título ao vivo */
+  const titleScore = h('div', { class: 'np-tscore', id: 'np-title-score' });
+  let tsSeq = 0, tsTimer: ReturnType<typeof setTimeout> | undefined;
+  const paintTitleScore = () => {
+    if (tsTimer) clearTimeout(tsTimer);
+    tsTimer = setTimeout(() => void (async () => {
+      const seq = ++tsSeq;
+      const title = (name as HTMLInputElement).value.trim();
+      if (!title) { titleScore.replaceChildren(h('span', { class: 'muted small' }, 'Escreva o título para ver a nota (tamanho, gancho, palavra-chave, promessa, texto da thumbnail).')); return; }
+      const r = (await guard(() => xapi()['titlesScore']!({ title, thumbText: thumbText.value.trim() || titlePick?.thumbText || undefined, promise: (idea as HTMLTextAreaElement).value.slice(0, 800) || undefined }))) as
+        { total: number; verdict: 'aprovado' | 'revisar' | 'reprovado'; checks: Array<{ label: string; ok: boolean; detail: string; applicable?: boolean }> } | undefined;
+      if (seq !== tsSeq || !r) return;
+      titleScore.replaceChildren(
+        h('span', { class: `np-tscore-n ${r.verdict}`, title: 'Nota do título (0–100): mede, não opina' }, String(Math.round(r.total))),
+        h('div', { class: 'grow' }, h('strong', {}, r.verdict === 'aprovado' ? '✓ Título forte' : r.verdict === 'revisar' ? '⚠ Dá para melhorar' : '✗ Título fraco'),
+          h('div', { class: 'np-tchecks' }, ...r.checks.filter((x) => x.applicable !== false).map((x) => h('span', { class: `chip${x.ok ? ' on' : ''}`, title: x.detail }, `${x.ok ? '✓' : '✗'} ${x.label}`)))),
+        h('button', { class: 'small', title: 'Títulos no padrão de um canal clonado, canal ou vídeo (com nota)', onclick: () => void openTitleModal((idea as HTMLTextAreaElement).value || (name as HTMLInputElement).value, lang.value, (p) => { titlePick = p; (name as HTMLInputElement).value = p.title; if (p.thumbText && !thumbText.value) thumbText.value = p.thumbText; paintTitle(); paintTitleScore(); }) }, '💡 Sugerir títulos'));
+    })(), 350);
+  };
+  name.addEventListener('input', paintTitleScore);
+  thumbText.addEventListener('input', paintTitleScore);
+  const chSlot = h('div', { class: 'np-tt-ch' });
+  const titleThumbCard = h('div', { class: 'card np-titlethumb', id: 'np-title-thumb' },
+    h('div', { class: 'row' }, h('strong', { class: 'grow' }, '🏷 Título e thumbnail'), h('span', { class: 'muted small' }, 'é o que decide o clique')),
+    titleScore,
+    h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Texto da thumbnail', thumbText), chSlot),
+    h('div', { class: 'muted small' }, 'Thumbnail a partir de:'), srcSeg, refBox, thumbBox);
+  paintThumb(); paintThumbSrc(); paintTitleScore();
 
   // equipe de agentes
-  const orch = h('select', { id: 'np-orch' }, h('option', { value: '' }, 'Nenhum (sem brief)'), ...agents.filter((a) => a.role === 'orchestrator').map((a) => h('option', { value: a.id }, `${a.icon ?? '🧭'} ${a.name}`))) as HTMLSelectElement;
+  const agentTitle = (a: Agent) => (a.persona ? `${a.persona} · ${a.name}` : a.name);
+  const orch = h('select', { id: 'np-orch' }, h('option', { value: '' }, 'Nenhum (sem brief)'), ...agents.filter((a) => a.role === 'orchestrator').map((a) => h('option', { value: a.id }, `${a.icon ?? '🧭'} ${agentTitle(a)}`))) as HTMLSelectElement;
   const workerBoxes = agents.filter((a) => a.role === 'worker').map((a) => {
     const cb = h('input', { type: 'checkbox', 'data-worker': a.id }) as HTMLInputElement;
     const t = agentType(a);
     const el = h('label', { class: 'np-agent', title: a.description, style: `--c:${AGENT_TYPES[t].color}` }, cb, h('span', { class: 'np-agent-ic' }, a.icon ?? AGENT_TYPES[t].icon),
-      h('span', { class: 'np-agent-txt' }, h('strong', {}, a.name), h('span', { class: 'muted small' }, `${AGENT_TYPES[t].label} · ${(a.handles ?? []).map((k) => KIND_LABEL_NP[k] ?? k).join(', ')}`)));
+      h('span', { class: 'np-agent-txt' }, h('strong', {}, agentTitle(a)), h('span', { class: 'muted small' }, `${AGENT_TYPES[t].label} · ${(a.handles ?? []).map((k) => KIND_LABEL_NP[k] ?? k).join(', ')}`), h('span', { class: 'np-agent-hit small' })));
     cb.addEventListener('change', () => el.classList.toggle('on', cb.checked));
     return { a, cb, el };
   });
   const teamInfo = h('div', { class: 'muted', id: 'np-team-info' });
+  /* o que cada obreiro assume NA rota escolhida (sem etapa = sem efeito) e quem a skill sugere */
+  const paintAgentHits = () => {
+    const r = meta.routes.find((x) => x.id === route.value);
+    const sk = skill.value;
+    for (const x of workerBoxes) {
+      const steps = (r?.steps ?? []).filter((st) => st.enabled && (x.a.handles ?? []).some((k) => k === st.id || k === st.kind));
+      const hit = x.el.querySelector('.np-agent-hit') as HTMLElement | null;
+      if (hit) { hit.textContent = !r ? '' : steps.length ? `→ assume: ${steps.map((st) => st.label).join(', ')}` : '⚠ sem etapa nesta rota'; hit.className = `np-agent-hit small${r && !steps.length ? ' warn' : ''}`; }
+      x.el.classList.toggle('suggested', !!sk && (x.a.skills ?? []).includes(sk));
+      x.el.title = `${x.a.description}${sk && (x.a.skills ?? []).includes(sk) ? '\n⭐ sugerido pela skill escolhida' : ''}`;
+    }
+  };
+  route.addEventListener('change', paintAgentHits); skill.addEventListener('change', paintAgentHits);
+  queueMicrotask(paintAgentHits);
   const paintTeam = () => {
     const o = agents.find((a) => a.id === orch.value);
-    const w = workerBoxes.filter((x) => x.cb.checked).map((x) => x.a.name);
-    teamInfo.textContent = o ? `${o.name} escreve o brief antes de tudo${w.length ? ` · obreiros: ${w.join(', ')}` : ''}.` : w.length ? `Obreiros: ${w.join(', ')} (sem orquestrador, sem brief).` : 'Sem equipe: cada etapa usa o executor da rota.';
+    const w = workerBoxes.filter((x) => x.cb.checked).map((x) => agentTitle(x.a));
+    teamInfo.textContent = o ? `${agentTitle(o)} escreve o brief antes de tudo${w.length ? ` · obreiros: ${w.join(', ')}` : ''}.` : w.length ? `Obreiros: ${w.join(', ')} (sem orquestrador, sem brief).` : 'Sem equipe: cada etapa usa o executor da rota.';
   };
   orch.addEventListener('change', paintTeam); workerBoxes.forEach((x) => x.cb.addEventListener('change', paintTeam));
 
@@ -1597,7 +1691,9 @@ async function renderNew() {
       channelId: chSel.value || undefined,
       foldId: formFold?.id,
       /* título escolhido nas sugestões: se o nome foi editado depois, vale só a estrutura */
-      titleModel: titlePick ? { source: titlePick.source, pattern: titlePick.pattern, chosen: name.value.trim() === titlePick.title ? titlePick.title : undefined, thumbText: titlePick.thumbText } : undefined,
+      titleModel: titlePick ? { source: titlePick.source, pattern: titlePick.pattern, chosen: name.value.trim() === titlePick.title ? titlePick.title : undefined, thumbText: thumbText.value.trim() || titlePick.thumbText }
+        : thumbText.value.trim() ? { source: 'Novo projeto', pattern: '', chosen: name.value.trim() || undefined, thumbText: thumbText.value.trim() } : undefined,
+      thumbRef: thumbMode === 'ref' && (thumbRefFile || refUrl.value.trim()) ? { file: thumbRefFile, url: thumbRefFile ? undefined : refUrl.value.trim(), note: refNote.value.trim() || undefined } : undefined,
     };
   };
   const make = async () => {
@@ -1723,7 +1819,7 @@ async function renderNew() {
           h('div', { class: 'row' }, pickAttachFiles, pickAttachFolder, attachBox))),
       h('h3', {}, 'Formato e thumbnail'),
       h('div', { class: 'row' }, h('label', {}, 'Formato', aspect), h('label', {}, 'Duração (s)', dsec), h('label', {}, 'Idioma do vídeo', lang)),
-      thumbBox,
+      titleThumbCard,
       h('label', { title: 'As etapas com Antigravity deste projeto rodam na sessão desta conta (faça o login dela em Automações → 🪐 Login no Antigravity)' }, '🪐 Conta do Antigravity', agySel),
       h('label', { title: 'Etapas do Google Flow deste projeto usam esta conta (vence a conta escolhida na etapa da rota)' }, '🌊 Conta do Flow', flowSel),
       h('label', { title: 'Canal de destino (aba Canais). Ao publicar, o vídeo vai para ele — a conta e a marca vêm do canal.' }, '📺 Canal de destino', chSel),
@@ -1808,7 +1904,7 @@ async function renderNew() {
   let guided: HTMLElement | null = null;
   let voiceHome: HTMLElement | null = null;
   /* cartão de provedores e reservas: moram na gaveta Produção; o passo "Rota e provedores" do guiado os pega emprestado */
-  const provMark = document.createComment('np-providers'), fbMark = document.createComment('np-fallback');
+  const provMark = document.createComment('np-providers'), fbMark = document.createComment('np-fallback'), ttMark = document.createComment('np-title-thumb');
   function openGuided() {
     guided?.remove();
     let step = 0;
@@ -1860,8 +1956,8 @@ async function renderNew() {
     const skillCard = (k: (typeof skills)[number]) => {
       const media = k.previewMedia ?? previews[k.id];
       const visual = media && !/\.(mp4|webm|mov)$/i.test(media) ? h('img', { src: forge.mediaUrl(media), alt: '' }) : h('div', { class: `skillmedia anim a-${k.appearance ?? 'custom'}` }, h('span', {}, k.name));
-      /* ⭐ preferida: aparece antes das demais (aqui e em todas as listas de skills) */
-      const star = h('span', { class: `np-star${k.favorite ? ' on' : ''}`, role: 'button', title: k.favorite ? 'Tirar das preferidas' : 'Marcar como preferida (aparece primeiro)', onclick: (e: Event) => {
+      /* ⭐ favorita: aparece antes das demais (aqui e em todas as listas de skills) */
+      const star = h('span', { class: `np-star${k.favorite ? ' on' : ''}`, role: 'button', title: k.favorite ? 'Tirar das favoritas' : 'Marcar como favorita (aparece primeiro)', onclick: (e: Event) => {
         e.stopPropagation();
         void guard(async () => { const list = await (forge as unknown as Record<string, (...a: unknown[]) => Promise<typeof skills>>)['skillFavorite']!(k.id, !k.favorite); skills.splice(0, skills.length, ...list); paint(); });
       } }, k.favorite ? '⭐' : '☆');
@@ -1914,7 +2010,7 @@ async function renderNew() {
            de provedor que não pode rodar agora (sem chave, não instalado) — antes de criar o projeto */
         const k2 = skills.find((x) => x.id === skill.value);
         const rSel = h('select', { id: 'np-g-route' }, h('option', { value: '' }, '— escolha uma rota —'),
-          ...meta.routes.map((r) => h('option', { value: r.id, title: r.description ?? '' }, withIcon(routeIcon(r), `${r.name}${k2?.routeId === r.id ? '  (sugerida pela skill)' : ''}`)))) as HTMLSelectElement;
+          ...meta.routes.map((r) => h('option', { value: r.id, title: r.description ?? '' }, withIcon(routeIcon(r), `${r.favorite ? '⭐ ' : ''}${r.name}${k2?.routeId === r.id ? '  (sugerida pela skill)' : ''}`)))) as HTMLSelectElement;
         rSel.value = route.value;
         rSel.addEventListener('change', () => { route.value = rSel.value; route.dispatchEvent(new Event('change', { bubbles: true })); paint(); });
         const rCur = meta.routes.find((x) => x.id === route.value);
@@ -1960,7 +2056,9 @@ async function renderNew() {
             h('label', { title: 'Estilo da legenda (vazio usa o do canal/skill)' }, 'Estilo', mirrorSelect(subsKind, [['', 'estilo do canal/skill'], ...SUB_KINDS as Array<[string, string]>]))),
           h('div', { class: 'muted small' }, `paleta: ${palOn.checked ? 'fixa' : 'automática'} · estilo de imagem: ${styleRef ? 'com referência' : 'sem referência'} (muda na gaveta Estilo e imagem)`));
       } else {
-        body.replaceChildren(h('h3', {}, '06 · Revisão'), h('p', { class: 'muted' }, 'O que vai ser gerado, o custo e o botão de criar.'), review.cloneNode(true) as HTMLElement,
+        if (!ttMark.parentNode && titleThumbCard.parentNode) titleThumbCard.before(ttMark);
+        body.replaceChildren(h('h3', {}, '06 · Revisão'), h('p', { class: 'muted' }, 'O que vai ser gerado, o custo e o botão de criar. Capriche no título e na thumbnail: são eles que decidem o clique.'), review.cloneNode(true) as HTMLElement,
+          titleThumbCard,
           h('div', { class: 'muted small' }, `🎛 Provedores: ${providers?.label ?? 'como a rota define'}`), usaBox);
         paintUsability();
       }
@@ -1986,6 +2084,7 @@ async function renderNew() {
     };
     onProvidersChanged = () => { if (guided && step === 2) void paintUsability(); };
     const restoreProv = () => {
+      if (ttMark.parentNode) { ttMark.after(titleThumbCard); ttMark.remove(); }
       if (provMark.parentNode) { provMark.after(provBox); provMark.remove(); }
       if (fbMark.parentNode) { fbMark.after(npFallbackBox); fbMark.remove(); }
     };
@@ -2026,17 +2125,18 @@ async function renderNew() {
       const iTeam = kids.indexOf(teamInfo);
       const form = h('div', { class: 'np-form', id: 'np-form' },
       h('div', { class: 'card np-essential' },
-        rowOf(name)!, titleBox, idea.closest('label') as HTMLElement, rowOf(skill)!, info, episodeBox, rowOf(aspect)!),
+        rowOf(name)!, titleBox, idea.closest('label') as HTMLElement, rowOf(skill)!, info, episodeBox, rowOf(aspect)!, titleThumbCard),
       drawer('np-g-cast', 'Elenco e voz', castSum, charsBox, castBox, voiceBox, foldBox),
-      drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!, thumbBox),
+      drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
       drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb)),
-      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel), labelOf(chSel)), labelOf(autoUp),
+      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp),
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),
       drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
       review,
       create.closest('.row') as HTMLElement);
     voiceHome = voiceBox.parentElement as HTMLElement | null;
+    { const chl = labelOf(chSel); if (chl) chSlot.replaceChildren(chl); }
     refreshSums = () => { for (const p of sums) p(); };
     form.addEventListener('input', () => { for (const p of sums) p(); });
     form.addEventListener('change', () => { for (const p of sums) p(); });
@@ -4185,7 +4285,7 @@ async function render() {
   else if (tab === 'routes') await renderRoutesLib(ctx);
   else if (tab === 'skills') await renderSkills(ctx);
   else if (tab === 'providers') await renderProvidersPage(main, { forge: forge as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>, toast }, helpButton('providers'));
-  else if (tab === 'channels') await renderChannelsPage({ forge: forge as unknown as ChannelsCtx['forge'], toast, main, guard });
+  else if (tab === 'channels') await renderChannelsPage({ forge: forge as unknown as ChannelsCtx['forge'], toast, main, guard, pickThumb: (cur, onPick) => void openThumbModal(cur, onPick) });
   else if (tab === 'characters') await renderCharactersPage({ forge: forge as unknown as CharactersCtx['forge'], toast, main, guard, openEpisode: (ep) => openEpisodeInNew(ep as never) });
   else if (tab === 'automations') await renderAutomations({ forge: forge as unknown as AutoCtx['forge'], toast, main });
   else if (tab === 'videos') await renderVideosPage({ forge: forge as unknown as VideosCtx['forge'], toast, main, guard, newProject: (idea, skillId, foldId) => { pendingIdea = idea; pendingSkill = skillId; pendingFold = foldId; go('new'); },

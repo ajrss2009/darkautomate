@@ -1,3 +1,5 @@
+import { THUMB_DESIGN_TEMPLATES, type ThumbDesign } from '../shared/thumbdesign';
+import { thumbPreview } from './thumb-studio';
 import { helpButton } from './carousel';
 import { askConfirm, showMessage } from './dialogs';
 
@@ -23,6 +25,8 @@ type Api = Record<string, (...a: any[]) => Promise<any>> & { mediaUrl: (p: strin
 export interface ChannelsCtx {
   forge: Api; toast: (m: string, bad?: boolean) => void; main: HTMLElement;
   guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>;
+  /** abre a galeria de modelos de thumbnail (escolher, criar ou modelar de canal/vídeo/link) */
+  pickThumb?: (currentId: string, onPick: (id: string) => void) => void;
 }
 
 interface Palette { background?: string; text?: string; accent?: string; secondary?: string; extra?: string[]; mode?: 'dark' | 'light'; contrast?: number }
@@ -40,7 +44,7 @@ interface ChannelView {
   id: string; name: string; platform: string; accountId?: string; handle?: string; url?: string;
   brand?: ChannelBrand; brandHistory?: ChannelBrand[]; assets?: { banner?: string; avatar?: string; thumb?: string };
   type?: string; language?: string; auth?: { status: 'pending' | 'opened' | 'confirmed'; at?: string }; identity?: Identity; analytics?: Analytics; cloneIds?: string[];
-  platformId?: string; fromClone?: string;
+  platformId?: string; fromClone?: string; thumbnailTemplate?: string;
   createdAt: string; lastPublishAt?: string;
   dir: string; hasBrand: boolean; hasAssets: { banner: boolean; avatar: boolean; thumb: boolean }; projects: number;
   setup?: { done: SetupStep[]; next?: SetupStep };
@@ -360,6 +364,7 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
       history,
       h('details', {}, h('summary', { class: 'muted small' }, 'registro detalhado'), logPre),
     ),
+    thumbTemplateSection(c, ch, again),
     identitySection(c, ch, st, again),
     analyticsSection(c, ch, st, again),
     productsSection(c, ch, again),
@@ -369,6 +374,32 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
     ),
   );
   return h('div', { class: 'ch-detail' }, body);
+}
+
+/** Modelo de thumbnail do canal: todo projeto ligado ao canal usa este modelo (o Novo projeto pode trocar). */
+function thumbTemplateSection(c: ChannelsCtx, ch: ChannelView, again: () => void): HTMLElement {
+  const { forge, guard, toast } = c;
+  const box = h('div', { class: 'ch-thumbtpl', id: 'ch-thumb-template' }, h('span', { class: 'muted small' }, '⏳'));
+  const save = (id: string) => void guard(async () => { await forge['channelsUpdate'](ch.id, { thumbnailTemplate: id }); toast('Modelo de thumbnail do canal salvo — vale nos próximos projetos dele'); again(); });
+  void guard(async () => {
+    const meta = (await forge['meta']()) as { thumbnails?: Array<{ id: string; name: string; preview?: string; design?: ThumbDesign }> };
+    const all: Array<{ id: string; name: string; preview?: string; design?: ThumbDesign }> = [...(meta.thumbnails ?? []), ...THUMB_DESIGN_TEMPLATES.filter((t) => !(meta.thumbnails ?? []).some((m) => m.id === t.id))];
+    const cur = all.find((t) => t.id === ch.thumbnailTemplate);
+    const sel = h('select', { id: 'ch-thumb-select' }, h('option', { value: '' }, '— padrão do estilo do canal —'), ...all.map((t) => h('option', { value: t.id }, t.name))) as HTMLSelectElement;
+    sel.value = ch.thumbnailTemplate ?? '';
+    sel.addEventListener('change', () => save(sel.value));
+    const prev = cur?.preview ? h('img', { class: 'tsketch', src: forge.mediaUrl(cur.preview), alt: cur.name })
+      : cur?.design ? thumbPreview(cur.design, { w: 1280, h: 720, text: (ch.brand?.names?.[0] ?? ch.name).split(/\s+/).slice(0, 3).join(' ').toUpperCase() }, 200)
+      : ch.hasAssets.thumb && ch.assets?.thumb ? h('img', { class: 'tsketch', src: forge.mediaUrl(`${ch.dir}/${ch.assets.thumb}`), alt: '' }) : h('div', { class: 'muted small' }, 'sem prévia');
+    box.replaceChildren(prev, h('div', { class: 'grow' },
+      h('strong', {}, cur ? cur.name : 'Nenhum modelo escolhido'),
+      h('div', { class: 'muted small' }, cur ? 'Os projetos deste canal usam este modelo; no Novo projeto dá para trocar ou usar uma thumbnail de referência.' : 'Escolha um modelo: os projetos ligados ao canal passam a usá-lo.'),
+      h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Modelo', sel),
+        c.pickThumb ? h('button', { class: 'small primary', id: 'ch-thumb-pick', title: 'Galeria de modelos: escolher, criar, ou 🧬 modelar das thumbnails de um canal, vídeo ou link', onclick: () => c.pickThumb!(ch.thumbnailTemplate ?? '', (id) => save(id)) }, '🖼 Escolher, criar ou modelar…') : null)));
+  });
+  return h('div', { class: 'ch-sec' }, h('h4', {}, '🖼 Modelo de thumbnail do canal'),
+    h('p', { class: 'muted small' }, 'Título e thumbnail decidem o clique. O modelo do canal mantém as thumbnails reconhecíveis: composição, texto e cores iguais em todos os vídeos. Canal criado de um clone já vem com o modelo tirado das thumbnails do canal de referência.'),
+    box);
 }
 
 /** Identidade: estilo de thumbnail, paletas (canal, vídeos, thumbnail) com contraste e tipografia do texto na tela. */

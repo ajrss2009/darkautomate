@@ -10,6 +10,7 @@ import { productCtaPrompt } from './clone-business';
 import { emotionInstruction, h3SpeechScene, isH3Video } from './speech-emotion';
 import { seriesBlock } from './story-import';
 import { styleBlock, styleVisual } from './style-ref';
+import { thumbRefPrompt } from './thumb-ref';
 import type { ExecContext } from './engine';
 import { pluginPrompt, pluginsRoot } from './plugins';
 import { smallModelBudget } from './contract';
@@ -173,7 +174,7 @@ export function workersFor(p: Project, step: { id: string; kind: string }) {
   return (p.agents?.workers ?? []).filter((w) => (w.handles ?? []).some((x) => x === step.id || x === step.kind));
 }
 export function workerText(p: Project, step: { id: string; kind: string }): string {
-  return workersFor(p, step).map((w) => `AGENTE OBREIRO "${w.name}" (você é este agente nesta etapa): ${w.instructions}`).join('\n');
+  return workersFor(p, step).map((w) => `AGENTE OBREIRO "${w.persona ? `${w.persona}, ${w.name}` : w.name}" (você é este agente nesta etapa): ${w.instructions}`).join('\n');
 }
 
 const MIX_LABEL: Record<string, string> = { motion: 'motion graphics por código (cenas "code"/"motion")', stock: 'imagens e vídeos de bancos de mídia (cenas "stock", ou "mixed" = código + mídia de banco)', ai: 'vídeos gerados por IA — MiniMax (cenas "video")' };
@@ -365,7 +366,9 @@ function sceneContext(c: ExecContext): string {
 export function thumbnailPrompt(c: ExecContext): string {
   const p = c.project;
   const list = allThumbTemplates(c.settings);
-  const tpl = list.find((t) => t.id === p.thumbnailTemplate) ?? list[0];
+  /* modelo: o do projeto; sem ele, o do canal de destino; sem canal, o primeiro */
+  const destCh = p.channelId ? (c.settings.channels ?? []).find((x) => x.id === p.channelId) : undefined;
+  const tpl = list.find((t) => t.id === p.thumbnailTemplate) ?? list.find((t) => t.id === destCh?.thumbnailTemplate) ?? list[0];
   /* layout visual: a imagem é só o FUNDO — o título entra depois, desenhado por código */
   const visual = !!(p.thumbDesign ?? tpl?.design);
   const vt = getVideoType(p.videoType);
@@ -386,8 +389,14 @@ export function thumbnailPrompt(c: ExecContext): string {
       .replace(/on the left|on the right/gi, 'in the upper half') + ' Keep the title text inside the central safe area.';
   return base.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => ({ title, thumb_text: thumbText, style: vt?.label ?? '', idea: p.idea, aspect: p.aspect })[k] ?? '') +
     (p.skill?.steps?.['thumbnail'] ? `. ${p.skill.steps['thumbnail']}` : '') + (p.videoStyle ? `. ${p.videoStyle}` : '') +
-    /* paleta da thumbnail escolhida no Novo projeto (vence o template e o canal) */
-    (paletteEnglish(p.palette?.thumbnail ?? p.palette?.video) ? `. Color palette: ${paletteEnglish(p.palette?.thumbnail ?? p.palette?.video)}` : '') +
+    /* paleta da thumbnail escolhida no Novo projeto (vence o template e o canal); sem ela, a da identidade do canal */
+    (paletteEnglish(p.palette?.thumbnail ?? p.palette?.video) ? `. Color palette: ${paletteEnglish(p.palette?.thumbnail ?? p.palette?.video)}`
+      : paletteEnglish(destCh?.identity?.palettes?.thumbnail ?? destCh?.identity?.palettes?.video) ? `. Channel color palette: ${paletteEnglish(destCh?.identity?.palettes?.thumbnail ?? destCh?.identity?.palettes?.video)}` : '') +
+    (destCh?.identity?.thumbRules ? `. Channel thumbnail rules: ${destCh.identity.thumbRules}` : '') +
+    /* referência (imagem ou link de vídeo) escolhida no projeto: composição e estilo dela */
+    thumbRefPrompt(p) +
+    /* título × thumbnail: o texto da imagem COMPLETA o título, não repete */
+    `. The thumbnail must sell the title "${title}": the image shows the promise/curiosity, the overlay text complements the title instead of repeating it` +
     (visual ? '. BACKGROUND ONLY: absolutely NO text, letters, numbers or logos in the image (the title is added later); one clear focal point, leave clean space for the title, 3-color high-contrast palette'
       : '. One clear focal point (40-60% of frame, rule of thirds), max 3 words of bold text with outline, 3-color high-contrast palette, legible at 168x94 px');
 }

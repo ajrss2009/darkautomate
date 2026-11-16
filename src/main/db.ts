@@ -22,7 +22,7 @@ import { projectDirOf, projectsDir } from './settings';
  * (kilo, não giga), a reescrita é barata.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Custo estimado do vídeo (calculado pelo main, que conhece canais/preços); o banco só guarda o JSON. */
 let costProvider: ((p: Project) => unknown) | undefined;
@@ -116,7 +116,7 @@ export class ForgeDb {
         stage TEXT, scenes INTEGER, seconds REAL, indexed_mtime INTEGER, content_hash TEXT,
         type_id TEXT, language TEXT, target_seconds REAL, skill_name TEXT, route_name TEXT, plugins TEXT,
         scenes_with_media INTEGER, has_final INTEGER, runs INTEGER, last_run_at TEXT, last_run_ok INTEGER,
-        total_ms REAL, cost_json TEXT
+        total_ms REAL, cost_json TEXT, title TEXT, thumb_text TEXT, thumbnail_template TEXT, thumb_ref TEXT, agents_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_project_org_updated ON project (org_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_project_deleted ON project (deleted_at);
@@ -150,6 +150,14 @@ export class ForgeDb {
       );
       CREATE INDEX IF NOT EXISTS idx_idea_channel ON video_idea (org_id, channel_key, status);
       CREATE INDEX IF NOT EXISTS idx_idea_source ON video_idea (source_id, idx);
+      /* registros do app que não são projeto: análises da pesquisa salvas, canais favoritos, agentes, canais,
+         modelos de thumbnail… (kind + id; data = JSON). Mesma regra das outras tabelas: soft delete + change_log. */
+      CREATE TABLE IF NOT EXISTS record (
+        kind TEXT NOT NULL, id TEXT NOT NULL, org_id TEXT NOT NULL, title TEXT, data TEXT, file TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT, device_id TEXT NOT NULL,
+        PRIMARY KEY (org_id, kind, id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_record_kind ON record (org_id, kind, updated_at DESC);
     `);
     const v = Number(scalar(this.db, 'PRAGMA user_version') ?? 0);
     if (v < SCHEMA_VERSION) {
@@ -158,10 +166,12 @@ export class ForgeDb {
         ['type_id', 'TEXT'], ['language', 'TEXT'], ['target_seconds', 'REAL'], ['skill_name', 'TEXT'], ['route_name', 'TEXT'],
         ['plugins', 'TEXT'], ['scenes_with_media', 'INTEGER'], ['has_final', 'INTEGER'], ['runs', 'INTEGER'],
         ['last_run_at', 'TEXT'], ['last_run_ok', 'INTEGER'], ['total_ms', 'REAL'], ['cost_json', 'TEXT'],
+        /* v4: título/thumbnail (o que faz o clique) e a equipe de agentes do projeto */
+        ['title', 'TEXT'], ['thumb_text', 'TEXT'], ['thumbnail_template', 'TEXT'], ['thumb_ref', 'TEXT'], ['agents_json', 'TEXT'],
       ]);
       /* v3: o hash passou a incluir cronômetro/vídeo final/mídias — reindexa tudo na próxima varredura
          (antes, o tempo de geração gravado no fim da execução não chegava ao índice: total_ms ficava 0) */
-      if (v < 3) this.db.run('UPDATE project SET indexed_mtime = NULL, content_hash = NULL');
+      if (v < 4) this.db.run('UPDATE project SET indexed_mtime = NULL, content_hash = NULL');
       this.db.run('PRAGMA user_version = ' + SCHEMA_VERSION);
       this.dirty = true;
     }
@@ -190,6 +200,7 @@ export class ForgeDb {
       p.name, p.idea ?? '', p.videoType, p.aspect ?? '', p.foldId ?? '', p.channelId ?? '', p.skill?.id ?? '', p.routeId ?? '',
       (p.scenes ?? []).map((s) => [s.id, s.title, s.narration, s.kind, s.durationSec, s.status]),
       p.production?.totalMs ?? 0, p.production?.runs?.length ?? 0, lastRun?.endedAt ?? '', hasFinal, scenesWithMedia,
+      p.titleModel?.chosen ?? '', p.titleModel?.thumbText ?? '', p.thumbnailTemplate ?? '', p.thumbRef?.file ?? '', agentsJson(p),
     ]));
     const prev = scalar(this.db, `SELECT content_hash FROM project WHERE id = ?`, [p.id]) as string | undefined;
     if (prev === hash) {
@@ -205,8 +216,8 @@ export class ForgeDb {
         INSERT INTO project (id, org_id, name, idea, video_type, aspect, created_at, updated_at, deleted_at, device_id, dir,
           skill_id, route_id, fold_id, channel_id, stage, scenes, seconds, indexed_mtime, content_hash,
           type_id, language, target_seconds, skill_name, route_name, plugins, scenes_with_media, has_final, runs,
-          last_run_at, last_run_ok, total_ms, cost_json)
-        VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          last_run_at, last_run_ok, total_ms, cost_json, title, thumb_text, thumbnail_template, thumb_ref, agents_json)
+        VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, idea = excluded.idea, video_type = excluded.video_type, aspect = excluded.aspect,
           created_at = excluded.created_at, updated_at = excluded.updated_at, deleted_at = NULL, device_id = excluded.device_id,
@@ -216,14 +227,18 @@ export class ForgeDb {
           language = excluded.language, target_seconds = excluded.target_seconds, skill_name = excluded.skill_name,
           route_name = excluded.route_name, plugins = excluded.plugins, scenes_with_media = excluded.scenes_with_media,
           has_final = excluded.has_final, runs = excluded.runs, last_run_at = excluded.last_run_at,
-          last_run_ok = excluded.last_run_ok, total_ms = excluded.total_ms, cost_json = excluded.cost_json
+          last_run_ok = excluded.last_run_ok, total_ms = excluded.total_ms, cost_json = excluded.cost_json,
+          title = excluded.title, thumb_text = excluded.thumb_text, thumbnail_template = excluded.thumbnail_template,
+          thumb_ref = excluded.thumb_ref, agents_json = excluded.agents_json
       `, [p.id, this.orgId, p.name, p.idea ?? '', p.videoType ?? '', p.aspect ?? '', p.createdAt ?? nowIso(), updated,
         this.deviceId, relOrAbs(this.workspace, projectDir), p.skill?.id ?? p.skillId ?? '', p.routeId ?? '', p.foldId ?? '', p.channelId ?? '',
         stage, (p.scenes ?? []).length, seconds, o.mtime ?? Date.now(), hash,
         p.typeId ?? '', p.language ?? '', p.targetDurationSec ?? 0, p.skill?.name ?? '', p.route?.name ?? '',
         JSON.stringify(p.plugins ?? []), scenesWithMedia, hasFinal, p.production?.runs?.length ?? 0,
         lastRun?.endedAt ?? null, lastRun ? (lastRun.ok ? 1 : 0) : null, p.production?.totalMs ?? 0,
-        cost ? JSON.stringify(cost) : null]);
+        cost ? JSON.stringify(cost) : null,
+        p.titleModel?.chosen ?? p.name, p.titleModel?.thumbText ?? null, p.thumbnailTemplate ?? null,
+        p.thumbRef ? JSON.stringify(p.thumbRef) : null, agentsJson(p)]);
       this.db.run(`DELETE FROM scene WHERE project_id = ?`, [p.id]);
       for (const [i, s] of (p.scenes ?? []).entries()) {
         const status = Object.entries(s.status ?? {}).map(([k, v]) => `${k}:${v}`).join(',');
@@ -239,6 +254,47 @@ export class ForgeDb {
       this.log('project', p.id, prev ? 'update' : 'create', { name: p.name, scenes: (p.scenes ?? []).length, hash });
     });
     return true;
+  }
+
+  /** Grava (ou atualiza) um registro do app: kind = 'research_report' | 'favorite_channel' | 'agent' | 'channel' | 'thumb_template'… */
+  upsertRecord(kind: string, id: string, o: { title?: string; data?: unknown; file?: string }) {
+    if (this.closed || !kind || !id) return;
+    const now = nowIso();
+    const prev = scalar(this.db, `SELECT created_at FROM record WHERE org_id = ? AND kind = ? AND id = ?`, [this.orgId, kind, id]) as string | undefined;
+    const data = o.data === undefined ? null : JSON.stringify(o.data);
+    this.db.run(`INSERT INTO record (kind, id, org_id, title, data, file, created_at, updated_at, deleted_at, device_id) VALUES (?,?,?,?,?,?,?,?,NULL,?)
+      ON CONFLICT(org_id, kind, id) DO UPDATE SET title = excluded.title, data = excluded.data, file = COALESCE(excluded.file, record.file),
+        updated_at = excluded.updated_at, deleted_at = NULL, device_id = excluded.device_id`,
+      [kind, id, this.orgId, o.title ?? null, data, o.file ? this.rel(o.file) : null, prev ?? now, now, this.deviceId]);
+    this.log(kind, id, prev ? 'update' : 'create', { title: o.title });
+    this.dirty = true; this.scheduleFlush();
+  }
+  /** Soft delete (o change_log leva a remoção para a sincronização). */
+  deleteRecord(kind: string, id: string) {
+    if (this.closed) return;
+    this.db.run(`UPDATE record SET deleted_at = ?, updated_at = ?, device_id = ? WHERE org_id = ? AND kind = ? AND id = ?`, [nowIso(), nowIso(), this.deviceId, this.orgId, kind, id]);
+    this.log(kind, id, 'delete', {});
+    this.dirty = true; this.scheduleFlush();
+  }
+  /** Registros de um tipo (mais recentes primeiro). */
+  listRecords<T = unknown>(kind: string): Array<{ id: string; title?: string; data?: T; file?: string; createdAt: string; updatedAt: string }> {
+    return this.all<Record<string, unknown>>(`SELECT id, title, data, file, created_at, updated_at FROM record WHERE org_id = ? AND kind = ? AND deleted_at IS NULL ORDER BY updated_at DESC`, [this.orgId, kind])
+      .map((r) => ({ id: String(r['id']), title: (r['title'] as string) || undefined, data: r['data'] ? JSON.parse(String(r['data'])) as T : undefined,
+        file: (r['file'] as string) || undefined, createdAt: String(r['created_at']), updatedAt: String(r['updated_at']) }));
+  }
+  /** Sincroniza um tipo inteiro com a lista atual (cria/atualiza os que existem, remove os que saíram). */
+  syncRecords(kind: string, items: Array<{ id: string; title?: string; data?: unknown; file?: string }>) {
+    if (this.closed) return;
+    this.transaction(() => {
+      const keep = new Set(items.map((x) => x.id));
+      for (const it of items) {
+        const cur = this.first<{ title: string | null; data: string | null }>(`SELECT title, data FROM record WHERE org_id = ? AND kind = ? AND id = ? AND deleted_at IS NULL`, [this.orgId, kind, it.id]);
+        const data = it.data === undefined ? null : JSON.stringify(it.data);
+        if (cur && cur.title === (it.title ?? null) && cur.data === data) continue;
+        this.upsertRecord(kind, it.id, it);
+      }
+      for (const r of this.all<{ id: string }>(`SELECT id FROM record WHERE org_id = ? AND kind = ? AND deleted_at IS NULL`, [this.orgId, kind])) if (!keep.has(r.id)) this.deleteRecord(kind, r.id);
+    });
   }
 
   /** Arquivo por caminho; `sha256` fica nulo até alguém pedir (dedupe por hash em `ensureAsset`). */
@@ -585,4 +641,20 @@ export function indexProjectQuiet(s: Settings, p: Project) {
     const mtime = (() => { try { return fs.statSync(path.join(dir, 'project.json')).mtimeMs; } catch { return Date.now(); } })();
     db.indexProject(p, dir, { mtime });
   } catch (e) { logDb(`índice do projeto ${p.id} falhou: ${(e as Error).message.slice(0, 120)}`); }
+}
+
+/** Equipe do projeto para o índice: orquestrador + obreiros (id, nome e nome próprio). */
+function agentsJson(p: Project): string | null {
+  const a = p.agents;
+  if (!a || (!a.orchestrator && !a.workers?.length)) return null;
+  const one = (x: { id: string; name: string; persona?: string }) => ({ id: x.id, name: x.name, ...(x.persona ? { persona: x.persona } : {}) });
+  return JSON.stringify({ orchestrator: a.orchestrator ? one(a.orchestrator) : undefined, workers: (a.workers ?? []).map(one) });
+}
+
+/** Atalho para quem não tem o banco aberto (testes, CLI): grava se houver banco, senão ignora. */
+export function recordQuiet(kind: string, id: string, o: { title?: string; data?: unknown; file?: string } | null) {
+  try { const d = getDb(); if (!d) return; if (o === null) d.deleteRecord(kind, id); else d.upsertRecord(kind, id, o); } catch { /* o banco é índice: nunca derruba a operação */ }
+}
+export function syncRecordsQuiet(kind: string, items: Array<{ id: string; title?: string; data?: unknown; file?: string }>) {
+  try { getDb()?.syncRecords(kind, items); } catch { /* idem */ }
 }

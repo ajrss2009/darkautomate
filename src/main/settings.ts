@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { FISH_MODELS, GEMINI_TTS_MODELS, GEMINI_TTS_VOICES } from './providers';
+import { FISH_MODELS, GEMINI_TTS_MODELS, GEMINI_TTS_VOICES, GTTS_MODELS, GTTS_VOICES } from './providers';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { Agent, Aspect, CastMember, ExecutorProfile, Project, Route, RouteStep, Settings, Skill, StockSource, SubtitleStyle, VideoTypeId, Binding, HarnessId } from '../shared/types';
@@ -24,6 +24,16 @@ export const DEFAULT_SNAPGEN_PROVIDER: Settings['providers'][number] = {
     'veo-3.1-fast': 'video', 'veo-3.1': 'video', 'veo-2': 'video', 'omni-flash': 'video',
   },
   categories: ['image', 'video'],
+};
+
+/** Voz do Google sem chave (a do Google Tradutor): vem pronta, uma voz por idioma/sotaque. */
+export const DEFAULT_GTTS_PROVIDER: Settings['providers'][number] = {
+  id: 'google-gratis', kind: 'gtts', baseUrl: 'https://translate.google.com', apiKey: '',
+  models: [...GTTS_MODELS],
+  modelCategories: Object.fromEntries(GTTS_MODELS.map((m) => [m, 'voice' as const])),
+  categories: ['voice'],
+  voices: Object.keys(GTTS_VOICES),
+  voiceLabels: Object.fromEntries(Object.entries(GTTS_VOICES).map(([k, v]) => [k, v.label])),
 };
 
 export const DEFAULT_FISH_PROVIDER: Settings['providers'][number] = {
@@ -59,6 +69,7 @@ export function defaultSettings(workspace: string): Settings {
       { id: 'seedance', kind: 'seedance', baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3', apiKey: '', models: ['seedance-1-0-pro-250528'], categories: ['video'] },
       { ...DEFAULT_SNAPGEN_PROVIDER, apiKey: '' },
       { ...DEFAULT_FISH_PROVIDER, apiKey: '' },
+      { ...DEFAULT_GTTS_PROVIDER },
     ],
     memories: [],
     uiLanguage: 'pt-BR',
@@ -300,7 +311,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
       ...(subtitleFontName(input.subtitleFont) ? { font: subtitleFontName(input.subtitleFont) } : {}),
       ...(input.subtitleKind ? { kind: input.subtitleKind, box: input.subtitleKind === 'box' } : {}) },
     audioFirst: typeof input.audioFirst === 'boolean' ? input.audioFirst : undefined,
-    thumbnailTemplate: input.thumbnailTemplate ?? skill?.thumbnailTemplate,
+    thumbnailTemplate: input.thumbnailTemplate ?? (input.channelId ? (s.channels ?? []).find((c) => c.id === input.channelId?.trim())?.thumbnailTemplate : undefined) ?? skill?.thumbnailTemplate,
     pluginStyles: input.pluginStyles && Object.keys(input.pluginStyles).length ? { ...input.pluginStyles } : undefined,
     agyAccount: input.agyAccount?.trim() || undefined,
     flowAccount: input.flowAccount?.trim() || undefined,

@@ -50,7 +50,7 @@ import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginFi
 import { isCodeCharacter, normalizeRig, rigPreviewHtml } from './rig';
 import { drawnByCode, generateRig, makeThumb, makeMissingThumbs, type RigGenInput } from './rig-gen';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
-import { DEFAULT_HARNESSES } from './harness';
+import { DEFAULT_HARNESSES, codexArgs } from './harness';
 import { isHttpHarness, resolveHarnessCommand } from './harness';
 import { ensureWhisper, whisperVenvPython } from './whisper-install';
 import { transcribe } from './whisper';
@@ -63,7 +63,7 @@ import { routeUsability } from './usability';
 import { autoMapWorkflow, guessWorkflowKind, importComfyWorkflow, removeUserWorkflow, type WorkflowKind } from './workflow-import';
 import { generateSkillFromVideos, type SkillGenInput } from './skillgen';
 import { closeBrowser, flowCredits, flowDiagnose, flowGenerate } from './flow';
-import { DEFAULT_FISH_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
+import { DEFAULT_FISH_PROVIDER, DEFAULT_GTTS_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
 import * as ops from './ops';
 import { APP_NAME } from '../shared/brand';
 import * as tle from './timeline-edit';
@@ -78,7 +78,9 @@ import { STOCK_SOURCES } from '../shared/stock-sources';
 import { auditLibrary } from './audit';
 import { findOutliers, type FinderQuery } from './finder';
 import { analyzeGaps, cachedCollection, collectFrontier, depthPlan, gapToProjectInput, listFrontiers, loadGaps, makeFrontier, researchRoot, saveCachedCollection, saveResearch, type Frontier, type Gap } from './research';
-import { closeDb, getDb, listProjectsIndexed, openDb, setProjectCostProvider } from './db';
+import { closeDb, getDb, listProjectsIndexed, openDb, recordQuiet, setProjectCostProvider, syncRecordsQuiet } from './db';
+import { prepareThumbRef } from './thumb-ref';
+import { insightsToHtml, insightsToText, readFavoriteChannels, removeFavoriteChannels, reportBaseName, reportsDir, toggleFavoriteChannel, type FavoriteChannel, type InsightMeta } from './research-report';
 import { h3Options, scanH3Loras } from './h3accel';
 import { scanSpecialModels } from './wan2gp-special';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
@@ -320,6 +322,11 @@ function migrateSettings(s: Settings): boolean {
     oc.note = DEFAULT_HARNESSES.opencode.note;
     changed = true;
   }
+  /* Codex 0.16x: --full-auto não existe mais ("unexpected argument '--full-auto'") → -s workspace-write;
+     e a nota salva com acentos corrompidos (padrÃ£o) volta à original */
+  const cx = s.harnesses?.codex;
+  if (cx && cx.args?.includes('--full-auto')) { cx.args = codexArgs(cx); changed = true; }
+  if (cx && /Ã/.test(cx.note ?? '')) { cx.note = DEFAULT_HARNESSES.codex.note; changed = true; }
   // harnesses HTTP novos (llama.cpp/LM Studio) e protocolo/ferramentas nos antigos
   for (const id of ['llamacpp', 'lmstudio'] as const) {
     const cfg = s.harnesses?.[id];
@@ -363,6 +370,11 @@ function migrateSettings(s: Settings): boolean {
   // Configurações → APIs → Voz; as vozes (reference_id) são carregadas no botão Testar.
   if (!s.providers.some((p) => p.kind === 'fish')) {
     s.providers.push({ ...DEFAULT_FISH_PROVIDER, apiKey: '' });
+    changed = true;
+  }
+  // Google sem chave (voz do Google Tradutor): entra pronto para usar.
+  if (!s.providers.some((p) => p.kind === 'gtts')) {
+    s.providers.push(JSON.parse(JSON.stringify(DEFAULT_GTTS_PROVIDER)));
     changed = true;
   }
   // Fish: todos os modelos são de voz (o header `model` escolhe o modelo de TTS).
@@ -861,15 +873,18 @@ function registerIpc() {
   h('route:delete', (id: string) => { lib.deleteRoute(settings, id); return true; });
   h('route:validate', (r: Route) => lib.validateRoute(r));
   h('skill:list', () => lib.listSkills(settings));
-  h('skill:favorite', (id: string, on: boolean) => { lib.setFavoriteSkill(settings, id, on); saveSettings(settings); return lib.listSkills(settings); });
+  h('skill:favorite', (id: string, on: boolean) => { const f = lib.setFavoriteSkill(settings, id, on); saveSettings(settings); syncRecordsQuiet('favorite_skill', f.map((x, i) => ({ id: x, data: { order: i } }))); return lib.listSkills(settings); });
+  h('route:favorite', (id: string, on: boolean) => { const f = lib.setFavoriteRoute(settings, id, on); saveSettings(settings); syncRecordsQuiet('favorite_route', f.map((x, i) => ({ id: x, data: { order: i } }))); return lib.listRoutes(settings); });
   h('skill:save', (k: Parameters<typeof lib.saveSkill>[1]) => lib.saveSkill(settings, k));
   h('skill:delete', (id: string) => { lib.deleteSkill(settings, id); return true; });
   h('vtype:list', () => lib.listTypes(settings));
   h('vtype:save', (t: Parameters<typeof lib.saveType>[1]) => lib.saveType(settings, t));
   h('vtype:delete', (id: string) => { lib.deleteType(settings, id); return true; });
+  /* agentes do usuário espelhados no banco (record 'agent'): nome, nome próprio, tipo, etapas, provedor */
+  const syncAgentsDb = () => syncRecordsQuiet('agent', lib.listAgents(settings).filter((a) => !a.builtin).map((a) => ({ id: a.id, title: a.persona ? `${a.persona} · ${a.name}` : a.name, data: a })));
   h('agent:list', () => lib.listAgents(settings));
-  h('agent:save', (a: Parameters<typeof lib.saveAgent>[1]) => lib.saveAgent(settings, a));
-  h('agent:delete', (id: string) => { lib.deleteAgent(settings, id); return true; });
+  h('agent:save', (a: Parameters<typeof lib.saveAgent>[1]) => { const r = lib.saveAgent(settings, a); syncAgentsDb(); return r; });
+  h('agent:delete', (id: string) => { lib.deleteAgent(settings, id); syncAgentsDb(); return true; });
 
   // dobras de nicho (persistentes): listar/salvar/escolher/aplicar na skill
   h('fold:list', () => {
@@ -1012,6 +1027,7 @@ function registerIpc() {
     const next = readFavs().filter((x) => !ids.includes(x.id));
     fs.mkdirSync(path.dirname(favFile()), { recursive: true });
     fs.writeFileSync(favFile(), JSON.stringify(next, null, 1));
+    syncRecordsQuiet('favorite_video', next.map((x) => ({ id: x.id, title: String((x as { title?: string }).title ?? x.id), data: x })));
     return next;
   });
   /** IA da pesquisa: lê os resultados (títulos, números, motivos) e aponta tendências, padrões e oportunidades. */
@@ -1031,7 +1047,34 @@ function registerIpc() {
     const next = list.some((x) => x.id === v.id) ? list.filter((x) => x.id !== v.id) : [{ ...v, savedAt: new Date().toISOString() }, ...list];
     fs.mkdirSync(path.dirname(favFile()), { recursive: true });
     fs.writeFileSync(favFile(), JSON.stringify(next, null, 1));
+    syncRecordsQuiet('favorite_video', next.map((x) => ({ id: x.id, title: String((x as { title?: string }).title ?? x.id), data: x })));
     return next;
+  });
+  /* ⭐ canais favoritos da pesquisa (YouTube e redes): arquivo no workspace + banco (record 'favorite_channel') */
+  const syncFavChannels = (list: FavoriteChannel[]) => { syncRecordsQuiet('favorite_channel', list.map((x) => ({ id: x.id, title: x.channel, data: x }))); return list; };
+  h('finder:channel-favorites', () => readFavoriteChannels(settings.workspace));
+  h('finder:channel-favorite', (c: FavoriteChannel) => syncFavChannels(toggleFavoriteChannel(settings.workspace, c)));
+  h('finder:channel-favorites-remove', (ids: string[]) => syncFavChannels(removeFavoriteChannels(settings.workspace, Array.isArray(ids) ? ids.map(String) : [])));
+  /* 🧠 análise da IA → TXT ou PDF (pergunta onde salvar; padrão workspace/finder/analyses) + registro no banco */
+  h('finder:insights-save', async (ins: Record<string, unknown>, meta: InsightMeta, format: 'txt' | 'pdf') => {
+    const fmt = format === 'pdf' ? 'pdf' : 'txt';
+    const m: InsightMeta = { ...meta, at: meta?.at ?? new Date().toISOString() };
+    const dir = reportsDir(settings.workspace); fs.mkdirSync(dir, { recursive: true });
+    const r = await dialog.showSaveDialog(win!, { title: fmt === 'pdf' ? 'Salvar a análise em PDF' : 'Salvar a análise em TXT', defaultPath: path.join(dir, `${reportBaseName(m)}.${fmt}`),
+      filters: [fmt === 'pdf' ? { name: 'PDF', extensions: ['pdf'] } : { name: 'Texto', extensions: ['txt'] }] });
+    if (r.canceled || !r.filePath) return null;
+    if (fmt === 'txt') fs.writeFileSync(r.filePath, '﻿' + insightsToText(ins, m), 'utf8');
+    else {
+      const w = new BrowserWindow({ show: false, webPreferences: { offscreen: true, javascript: false } });
+      try {
+        await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(insightsToHtml(ins, m)));
+        fs.writeFileSync(r.filePath, await w.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'default' } }));
+      } finally { w.destroy(); }
+    }
+    const id = path.basename(r.filePath).replace(/.(txt|pdf)$/i, '');
+    recordQuiet('research_report', id, { title: [m.query, m.platform].filter(Boolean).join(' · ') || 'Análise da IA', data: { meta: m, insights: ins, format: fmt }, file: r.filePath });
+    shell.showItemInFolder(r.filePath);
+    return r.filePath;
   });
   /* clonar canal: skill + rota + template de thumbnail + banner/thumb/vídeo de 10 s */
   let cloneAbort: AbortController | undefined;
@@ -1089,17 +1132,32 @@ function registerIpc() {
   /* pauta de vídeos (ideias da clonagem) no banco: listar e mudar o status (ideia → produzindo → publicado) */
   h('pauta:list', (f?: { channelKey?: string; sourceId?: string; status?: string }) => getDb()?.listPauta(f ?? {}) ?? []);
   h('pauta:status', (id: string, status: 'ideia' | 'produzindo' | 'publicado' | 'descartado', projectId?: string) => { getDb()?.setPautaStatus(id, status, projectId); return true; });
-  h('channel:list', () => listChannelClones(settings));
+  /* clones + o canal criado a partir de cada um (youtube-channel.json / Canais e perfis); espelha no banco (record 'clone') */
+  h('channel:list', () => {
+    const list = listChannelClones(settings).map((r) => ({ ...r, created: myChannels.createdFromClone(settings, r) }));
+    syncRecordsQuiet('clone', list.map((r) => ({ id: r.id, title: r.brand?.names?.[0] ?? r.skill?.name ?? r.id,
+      data: { source: r.source, skillId: r.skill?.id, routeId: r.route?.id, thumbnailTemplate: r.thumbnailTemplate?.id, chosenBend: r.bends?.[r.chosenBend]?.title, bends: (r.bends ?? []).map((b) => b.title), created: r.created, createdAt: r.createdAt } })));
+    return list;
+  });
   /** uso dos harnesses: Claude (sessão/semana), Codex, OpenCode e Antigravity por conta */
   h('usage:report', () => usageReport(settings));
   h('channel:pending', () => listPendingClones(settings));
 
   /* ── Canais (os SEUS: identidade de publicação) — namespace 'channels:' para não colidir com os clones ── */
-  const channelsState = () => ({ list: myChannels.listChannels(settings), platforms: myChannels.PLATFORM_INFO, ready: myChannelPub.readyPlatforms(),
+  /* cada leitura do estado dos canais espelha a lista no banco (record 'channel'): nome, plataforma, handle, modelo de thumbnail, clone */
+  const syncChannelsDb = <T extends { list: Array<{ id: string; name: string }> }>(st: T): T => { syncRecordsQuiet('channel', st.list.map((c) => { const { setup: _s, hasAssets: _a, dir: _d, ...rest } = c as typeof c & { setup?: unknown; hasAssets?: unknown; dir?: unknown }; return { id: c.id, title: c.name, data: rest }; })); return st; };
+  const channelsState = () => syncChannelsDb({ list: myChannels.listChannels(settings), platforms: myChannels.PLATFORM_INFO, ready: myChannelPub.readyPlatforms(),
     max: myChannels.MAX_CHANNELS, accounts: auto.listAccounts(settings).map((a) => ({ id: a.id, label: a.label, email: a.email, hasProfile: a.hasProfile })) });
   h('channels:get', () => {
     /* canais criados pelo app (pasta do clone) entram na lista na primeira vez que ela abre */
     try { if (myChannels.adoptCreatedChannels(settings, auto.listAccounts(settings).map((a) => a.id)).length) saveSettings(settings); } catch { /* ignora */ }
+    /* canais de versões anteriores ganham o modelo de thumbnail (o do clone ou o do estilo) */
+    try {
+      const n = myChannels.ensureChannelThumbTemplates(settings);
+      const miss = myChannels.missingCloneThumbTemplates(settings);
+      if (miss.length) settings.thumbnails = [...(settings.thumbnails ?? []), ...miss];
+      if (n || miss.length) saveSettings(settings);
+    } catch { /* ignora */ }
     return channelsGetState();
   });
   /* Cria um canal NOVO no YouTube (sessão da conta), cadastra em Canais e perfis e envia banner/foto da marca do clone */
@@ -1113,7 +1171,7 @@ function registerIpc() {
     const made = await youtubeCreateChannel({ port, name: input.name.trim(), handle: input.handle?.trim() || input.name, log });
     const info = { ...made, name: input.name.trim(), accountId: input.accountId, at: new Date().toISOString() };
     const ch = myChannels.registerCreatedChannel(settings, { name: info.name, handle: made.handle, channelId: made.channelId, accountId: input.accountId,
-      cloneId: clone?.id, cloneDir, brand: clone?.brand as never, language: typeof clone?.language === 'string' ? clone.language : undefined });
+      cloneId: clone?.id, cloneDir, brand: clone?.brand as never, language: typeof clone?.language === 'string' ? clone.language : undefined, thumbnailTemplate: clone?.thumbnailTemplate?.id });
     if (cloneDir) fs.writeFileSync(path.join(cloneDir, myChannels.CREATED_FILE), JSON.stringify({ ...info, registeredAs: ch.id }, null, 1));
     saveSettings(settings);
     /* marca no YouTube: banner e foto (falha aqui não desfaz o canal — dá para refazer pelo Studio) */
@@ -1754,7 +1812,7 @@ function registerIpc() {
     return r.canceled ? null : r.filePaths[0] ?? null;
   });
   /** Importa um arquivo de áudio como VOZ (pasta voices): vira referência de timbre para OmniVoice/Wan2GP. */
-  h('voices:import', async (src?: string) => {
+  h('voices:import', async (src?: string, wanted?: string) => {
     let file = src?.trim();
     if (!file) {
       const r = await dialog.showOpenDialog(win!, { title: 'Arquivo de áudio da voz (10–30 s de fala limpa funcionam melhor)', properties: ['openFile'], filters: [{ name: 'Áudio', extensions: ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'opus', 'mp4', 'webm'] }] });
@@ -1763,7 +1821,8 @@ function registerIpc() {
     }
     if (!fs.existsSync(file)) throw new Error('arquivo não encontrado');
     fs.mkdirSync(voicesDir(), { recursive: true });
-    const base = path.basename(file).replace(/\.[^.]+$/, '').replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 60) || 'voz';
+    /* amostra tocada pelo ▶ (prévia em library/voice-preview): o nome vem do rótulo da voz, não de "narration" */
+    const base = (wanted?.trim() || path.basename(file).replace(/\.[^.]+$/, '')).replace(/[^\p{L}\p{N} _-]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'voz';
     let name = base, k = 2;
     const ext = /\.(mp3|wav|m4a|flac|ogg)$/i.test(file) ? path.extname(file).toLowerCase() : '.wav';
     while (fs.existsSync(path.join(voicesDir(), name + ext))) name = `${base} (${k++})`;
@@ -1771,6 +1830,7 @@ function registerIpc() {
     /* formatos que o OmniVoice não lê (aac, opus, vídeo): converte para wav mono 24 kHz */
     if (ext === '.wav' && !/\.wav$/i.test(file)) await run(settings.ffmpeg, ['-y', '-i', file, '-vn', '-ac', '1', '-ar', '24000', dest]);
     else fs.copyFileSync(file, dest);
+    recordQuiet('voice', name + ext, { title: name, data: { from: wanted ? 'amostra' : 'arquivo', source: path.basename(file) }, file: dest });
     return { name: name + ext, path: dest };
   });
   h('media:import', (src: string, kind: 'skill' | 'thumb') => {
@@ -1933,11 +1993,16 @@ function registerIpc() {
     }));
   });
   h('project:refresh', (id: string) => projectRow(id));
-  h('project:create', async (input: NewProjectInput & { refScriptFile?: string; refVideoFile?: string; refScriptUse?: boolean; attachFiles?: string[] }) => {
+  h('project:create', async (input: NewProjectInput & { refScriptFile?: string; refVideoFile?: string; refScriptUse?: boolean; attachFiles?: string[]; thumbRef?: { file?: string; url?: string; note?: string } }) => {
     assertSkillAndRoute(input);
     for (const f of [input.refScriptFile, input.refVideoFile]) if (f && !fs.existsSync(f)) throw new Error(`arquivo de referência não encontrado: ${f}`);
     const p = createProject(settings, input);
     if (input.attachFiles?.length) { attachments.addAttachments(p, projectDirOf(settings, p.id), input.attachFiles); ops.saveProjectFile(settings, p); }
+    /* thumbnail de referência (imagem ou link de vídeo): baixa, mede a paleta e anexa; o prompt da thumbnail segue ela */
+    if (input.thumbRef?.file || input.thumbRef?.url) {
+      try { await prepareThumbRef(settings, p, projectDirOf(settings, p.id), input.thumbRef, AbortSignal.timeout(90_000)); ops.saveProjectFile(settings, p); }
+      catch (e) { send({ t: 'log', line: `⚠ thumbnail de referência: ${(e as Error).message}` } as EngineEvent); (p as Project & { warnings?: string[] }).warnings = [`thumbnail de referência: ${(e as Error).message}`]; }
+    }
     if (input.refScriptFile || input.refVideoFile) {
       await prepareReferences(settings, p, projectDirOf(settings, p.id), { scriptFile: input.refScriptFile, videoFile: input.refVideoFile }, toolsDir(), AbortSignal.timeout(20 * 60_000));
       /* roteiro importado = O roteiro do vídeo (não só modelo de estilo) */

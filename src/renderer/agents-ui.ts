@@ -6,7 +6,7 @@ import { askConfirm, showMessage } from './dialogs';
 /* Aba Agentes: orquestradores (escrevem o brief e coordenam), obreiros (assumem etapas da rota)
    e revisores (obreiros que conferem e corrigem uma etapa). Visual: diagrama da equipe + cartões. */
 interface Cat { harnesses: Array<{ id: string; models: string[]; defaultModel?: string }> }
-interface Meta { stepKinds: string[]; harnessIds: string[] }
+interface Meta { stepKinds: string[]; harnessIds: string[]; routes?: Array<{ id: string; name: string; favorite?: boolean; steps: Array<{ id: string; label: string; kind: string; enabled: boolean }> }> }
 let draft: Agent | undefined;
 let origin: Agent | undefined;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -30,6 +30,13 @@ export async function renderAgents(c: Ctx) {
   const blank = (t: AgentType): Agent => ({ id: '', name: t === 'orchestrator' ? 'Novo orquestrador' : t === 'reviewer' ? 'Novo revisor' : 'Novo obreiro', role: t === 'orchestrator' ? 'orchestrator' : 'worker',
     description: '', instructions: '', harness: 'auto', handles: t === 'orchestrator' ? undefined : t === 'reviewer' ? ['script'] : [], skills: [], icon: AGENT_TYPES[t].icon });
   const iconOf = (a: Agent) => a.icon ?? AGENT_TYPES[agentType(a)].icon;
+  const title = (a: Agent) => (a.persona ? `${a.persona} · ${a.name}` : a.name);
+  /* onde o agente entra: etapas de cada rota que ele assume e skills que o pré-escolhem no Novo projeto */
+  const impactOf = (a: Agent) => {
+    const routes = (meta.routes ?? []).map((r) => ({ r, steps: r.steps.filter((st) => st.enabled && (a.handles ?? []).some((x) => x === st.id || x === st.kind)) })).filter((x) => x.steps.length);
+    const sk = skills.filter((k) => (a.skills ?? []).includes(k.id));
+    return { routes, skills: sk };
+  };
 
   /* diagrama: orquestrador → brief → etapas (obreiros) → revisor confere */
   const diagram = h('div', { class: 'ag-flow' },
@@ -40,12 +47,13 @@ export async function renderAgents(c: Ctx) {
   const card = (a: Agent) => {
     const t = agentType(a);
     return h('button', { class: `ag-card${origin?.id === a.id ? ' sel' : ''}`, style: `--c:${AGENT_TYPES[t].color}`, 'data-agent': a.id, onclick: () => { origin = a; draft = clone(a); again(); } },
-      h('div', { class: 'row' }, h('span', { class: 'ag-ic' }, iconOf(a)), h('strong', { class: 'grow' }, a.name),
+      h('div', { class: 'row' }, h('span', { class: 'ag-ic' }, iconOf(a)), h('div', { class: 'grow ag-names' }, a.persona ? h('strong', { class: 'ag-persona' }, a.persona) : null, h(a.persona ? 'span' : 'strong', { class: a.persona ? 'muted small' : '' }, a.name)),
         a.builtin ? h('span', { class: 'tag' }, '🔒 padrão') : h('span', { class: 'tag done' }, 'meu')),
       h('span', { class: 'ag-type' }, `${AGENT_TYPES[t].icon} ${AGENT_TYPES[t].label}`),
       h('div', { class: 'muted small ag-desc' }, a.description),
       a.role === 'worker' && a.handles?.length ? h('div', { class: 'ag-chips' }, ...a.handles.map((k) => h('span', { class: 'tag' }, `${KIND_ICON[k] ?? '•'} ${KIND_LABEL[k] ?? k}`))) : null,
-      a.harness && a.harness !== 'auto' ? h('div', { class: 'muted small' }, `⚙️ ${a.harness}${a.model ? ` · ${a.model}` : ''}`) : null);
+      a.harness && a.harness !== 'auto' ? h('div', { class: 'muted small' }, `⚙️ ${a.harness}${a.model ? ` · ${a.model}` : ''}`) : null,
+      (() => { const im = impactOf(a); return h('div', { class: 'muted small ag-impact-line' }, a.role === 'orchestrator' ? `🧭 brief antes de tudo${im.skills.length ? ` · auto em ${im.skills.length} skill(s)` : ''}` : `🛣️ entra em ${im.routes.length} rota(s)${im.skills.length ? ` · auto em ${im.skills.length} skill(s)` : ''}`); })());
   };
   const group = (t: AgentType, list: Agent[]) => h('div', { class: 'ag-group' },
     h('div', { class: 'row' }, h('h4', {}, `${AGENT_TYPES[t].icon} ${PLURAL[t]}`), h('span', { class: 'sp' }),
@@ -54,7 +62,7 @@ export async function renderAgents(c: Ctx) {
   const byType = (t: AgentType) => agents.filter((a) => agentType(a) === t);
   const board = h('div', { id: 'agent-list' }, group('orchestrator', byType('orchestrator')), group('reviewer', byType('reviewer')), group('worker', byType('worker')));
   const head = h('div', {}, h('h2', {}, '🤝 Agentes'),
-    h('p', { class: 'muted' }, 'Monte a equipe de cada vídeo em Novo projeto → Equipe de agentes: um orquestrador (opcional) + os obreiros e revisores que quiser. Os agentes padrão (🔒) servem de modelo: abra um e use "Salvar como meu agente" para criar uma versão sua.'),
+    h('p', { class: 'muted' }, 'Monte a equipe de cada vídeo em Novo projeto → Equipe de agentes: um orquestrador (opcional) + os obreiros e revisores que quiser. Dê um nome a cada agente (persona) para reconhecê-lo na equipe. Os agentes padrão (🔒) servem de modelo: abra um e use "Salvar como meu agente" para criar uma versão sua.'),
     diagram);
   if (!draft) { main.replaceChildren(head, board); return; }
 
@@ -89,7 +97,9 @@ export async function renderAgents(c: Ctx) {
       h('div', { class: 'row' }, h('span', { class: 'ag-ic big' }, iconOf(d)), h('h3', { class: 'grow' }, d.name || 'Agente'), h('button', { onclick: () => { draft = undefined; origin = undefined; again(); } }, '✕')),
       isB ? h('p', { class: 'muted' }, '🔒 Agente padrão (somente leitura). Use "Salvar como meu agente" para criar uma cópia editável.') : null,
       h('strong', {}, 'Tipo'), typePick,
-      h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Nome', inp(d.name, (v) => { d.name = v; }, { id: 'agent-name' }))),
+      h('div', { class: 'row' },
+        h('label', { class: 'grow', title: 'O nome próprio do agente (persona), ex.: Marina. Aparece nos cartões, no Novo projeto e no pedido às IAs ("você é Marina, Roteirista").' }, 'Nome do agente (persona)', inp(d.persona ?? '', (v) => { d.persona = v || undefined; }, { id: 'agent-persona', placeholder: 'Ex.: Marina, Leo, Dra. Ana…', maxlength: '40' })),
+        h('label', { class: 'grow', title: 'A função dele na equipe' }, 'Função', inp(d.name, (v) => { d.name = v; }, { id: 'agent-name' }))),
       h('div', {}, h('div', { class: 'muted small' }, 'Ícone'), iconPick),
       h('label', {}, 'Descrição (aparece ao montar a equipe)', inp(d.description, (v) => { d.description = v; }, { id: 'agent-desc' })),
       h('label', {}, t === 'orchestrator' ? 'Como coordenar (vai no pedido do brief)' : 'Instruções (vão no pedido das etapas que ele assume)', instr),
@@ -112,5 +122,23 @@ export async function renderAgents(c: Ctx) {
         origin && !origin.builtin ? h('button', { class: 'danger', id: 'agent-del', onclick: () => void guard(async () => {
           if (!await askConfirm(`Excluir o agente "${origin!.name}"?`)) return; await forge['deleteAgent'](origin!.id); draft = undefined; origin = undefined; toast('Agente excluído'); again();
         }) }, 'Excluir') : null)),
-    handles)));
+    handles, impactCard(d))));
+
+  /* como o agente impacta o projeto e como ele é escolhido no Novo projeto */
+  function impactCard(a: Agent): HTMLElement {
+    const im = impactOf(a);
+    const tt = agentType(a);
+    return h('div', { class: 'card ag-impact', id: 'agent-impact' }, h('strong', {}, '🎯 Como este agente entra num projeto'),
+      h('ol', { class: 'ag-how' },
+        h('li', {}, tt === 'orchestrator' ? 'Novo projeto → Equipe de agentes → escolha-o em "Orquestrador" (um por projeto).' : 'Novo projeto → Equipe de agentes → marque o cartão dele em "Obreiros e revisores".'),
+        im.skills.length ? h('li', {}, `Já vem marcado ao escolher a skill: ${im.skills.map((k) => k.name).join(', ')}.`) : h('li', { class: 'muted' }, 'Nenhuma skill o pré-escolhe (use "Sugerido para as skills" acima).'),
+        h('li', {}, tt === 'orchestrator' ? 'Efeito: roda antes de tudo e escreve o brief (conceito, bíblia visual, plano por etapa, critérios de aceite) que todas as etapas seguem.'
+          : `Efeito: as instruções dele entram no pedido das etapas que assume${a.harness && a.harness !== 'auto' ? `, e essas etapas rodam com ${a.harness}${a.model ? `/${a.model}` : ''} no lugar do provedor da rota` : ' (o provedor continua o da rota)'}.`),
+        a.persona ? h('li', {}, `A IA recebe: "você é ${a.persona}, ${a.name}".`) : null),
+      tt !== 'orchestrator' ? (im.routes.length
+        ? h('div', { class: 'ag-routes' }, h('div', { class: 'muted small' }, `Etapas que ele assume em cada rota (${im.routes.length}):`),
+          ...im.routes.slice(0, 12).map((x) => h('div', { class: 'ag-route' }, h('span', { class: 'grow' }, `${x.r.favorite ? '⭐ ' : ''}🛣️ ${x.r.name}`), ...x.steps.map((st) => h('span', { class: 'tag' }, `${KIND_ICON[st.kind] ?? '•'} ${st.label}`)))),
+          im.routes.length > 12 ? h('div', { class: 'muted small' }, `…e mais ${im.routes.length - 12} rota(s).`) : null)
+        : h('div', { class: 'tag running' }, '⚠ Nenhuma rota tem as etapas que ele assume: marque etapas acima ou ele não terá efeito.')) : null);
+  }
 }

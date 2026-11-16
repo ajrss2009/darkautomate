@@ -89,7 +89,7 @@ export function validateRoute(r: Route): string[] {
 
 const builtinRouteIds = ROUTES.map((r) => r.id);
 export const listRoutes = (s: Settings): Array<Route & { builtin?: boolean }> =>
-  merged<Route>(ROUTES, readAll<Route>(s, 'routes'));
+  favoritesFirst(merged<Route>(ROUTES, readAll<Route>(s, 'routes')), s.favoriteRoutes);
 export const getAnyRoute = (s: Settings, id: string): Route | undefined => listRoutes(s).find((r) => r.id === id);
 export function saveRoute(s: Settings, r: Route): Route {
   const errs = validateRoute(r);
@@ -249,14 +249,22 @@ function readSkills(s: Settings): Skill[] {
 
 export const listSkills = (s: Settings): Skill[] => favoritesFirst(merged<Skill>(BUILTIN_SKILLS, readSkills(s)), s.favoriteSkills);
 
-/** Preferidas (⭐) primeiro, na ordem em que foram marcadas; as demais na ordem de sempre. Função pura. */
-export function favoritesFirst(list: Skill[], fav: string[] = []): Skill[] {
+/** Favoritas (⭐) primeiro, na ordem em que foram marcadas; as demais na ordem de sempre. Função pura (skills e rotas). */
+export function favoritesFirst<T extends { id: string; favorite?: boolean }>(list: T[], fav: string[] = []): T[] {
   const rank = new Map(fav.map((id, i) => [id, i]));
   return list.map((k, i) => ({ k: rank.has(k.id) ? { ...k, favorite: true } : k, i }))
     .sort((a, b) => (rank.get(a.k.id) ?? 1e6 + a.i) - (rank.get(b.k.id) ?? 1e6 + b.i)).map((x) => x.k);
 }
 
-/** Marca/desmarca uma skill como preferida (a nova preferida entra no fim das preferidas). */
+/** Marca/desmarca uma rota como favorita (a nova entra no fim das favoritas). */
+export function setFavoriteRoute(s: Settings, id: string, on: boolean): string[] {
+  const cur = (s.favoriteRoutes ?? []).filter((x) => x !== id);
+  s.favoriteRoutes = on ? [...cur, id] : cur;
+  if (!s.favoriteRoutes.length) delete s.favoriteRoutes;
+  return s.favoriteRoutes ?? [];
+}
+
+/** Marca/desmarca uma skill como favorita (a nova favorita entra no fim das favoritas). */
 export function setFavoriteSkill(s: Settings, id: string, on: boolean): string[] {
   const cur = (s.favoriteSkills ?? []).filter((x) => x !== id);
   s.favoriteSkills = on ? [...cur, id] : cur;
@@ -293,7 +301,8 @@ export function saveAgent(s: Settings, a: Agent): Agent {
   if (a.role !== 'orchestrator' && a.role !== 'worker') throw new Error('papel inválido (orquestrador ou obreiro)');
   if (!a.instructions?.trim()) throw new Error('escreva as instruções do agente');
   const handles = (a.handles ?? []).filter((h) => typeof h === 'string' && h.trim());
-  return write(s, 'agents', { ...a, description: a.description ?? '', handles: a.role === 'worker' ? handles : undefined, skills: a.skills ?? [] }, builtinAgentIds);
+  const persona = typeof a.persona === 'string' ? a.persona.trim().slice(0, 40) || undefined : undefined;
+  return write(s, 'agents', { ...a, persona, description: a.description ?? '', handles: a.role === 'worker' ? handles : undefined, skills: a.skills ?? [] }, builtinAgentIds);
 }
 export const deleteAgent = (s: Settings, id: string) => remove(s, 'agents', id, builtinAgentIds);
 

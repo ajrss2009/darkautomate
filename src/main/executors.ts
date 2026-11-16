@@ -641,7 +641,7 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
   const b = c.binding as ApiBinding;
   const p = c.settings.providers.find((x) => x.id === b.provider);
   if (!p) throw new Error(`provider "${b.provider}" não configurado (Configurações → providers)`);
-  if (!p.apiKey && (/openai\.com/.test(p.baseUrl) || p.kind !== 'openai')) throw new Error(`provider "${p.id}" sem chave de API`);
+  if (!p.apiKey && prov.providerNeedsKey(p)) throw new Error(`provider "${p.id}" sem chave de API`);
   const file = primaryFileFor(c);
   const k = c.step.kind;
   /* modelo padrão do provedor (Configurações → APIs): usado quando a etapa não escolhe um modelo */
@@ -692,10 +692,10 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     const projVoice = c.project.narrationVoice?.apiVoice && voiceAccepted(p.kind, model, p.voices, c.project.narrationVoice.apiVoice) ? c.project.narrationVoice.apiVoice : undefined;
     const castVoice = member ? castApiVoice(p.kind, c.project.cast ?? [], member) : undefined;
     const memberVoice = castVoice && voiceAccepted(p.kind, model, p.voices, castVoice) ? castVoice : undefined;
-    const voice = memberVoice || projVoice || b.voice || (p.kind === 'gemini' ? 'Kore' : p.kind === 'fish' ? '' : 'alloy');
+    const voice = memberVoice || projVoice || b.voice || (p.kind === 'gemini' ? 'Kore' : p.kind === 'fish' || p.kind === 'gtts' ? '' : 'alloy');
     if (memberVoice) c.log(`voz de ${member!.speaker}: ${voice}`);
     if (p.kind === 'fish' && !voice) c.log('Fish Audio: nenhuma voz escolhida — usando a voz padrão da conta (escolha a voz na etapa de narração)');
-    const written = await prov.tts(p, model, voice, spokenText(c.scene), file, c.signal, narrationInstructions(c.project, c.scene));
+    const written = await prov.tts(p, model, voice, spokenText(c.scene), file, c.signal, narrationInstructions(c.project, c.scene), c.project.language);
     /* Gemini grava .wav: remove narrações antigas com outra extensão para a cena não ter duas */
     if (written !== file) try { fs.rmSync(file, { force: true }); } catch { /* ok */ }
     await trimNarration(c, written);

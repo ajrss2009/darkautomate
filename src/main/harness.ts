@@ -24,7 +24,8 @@ export const DEFAULT_HARNESSES: Record<HarnessId, HarnessConfig> = {
   },
   codex: {
     command: 'codex',
-    args: ['exec', '--model', '{model}', '--full-auto', '--skip-git-repo-check', '{prompt}'],
+    /* o Codex 0.16x removeu --full-auto ("unexpected argument"): -s workspace-write é o equivalente em `exec` */
+    args: ['exec', '--model', '{model}', '-s', 'workspace-write', '--skip-git-repo-check', '{prompt}'],
     promptVia: 'arg',
     models: [],
     note: 'OpenAI Codex CLI (`codex exec`). Deixe o modelo vazio para usar o padrão.',
@@ -100,14 +101,22 @@ function harnessKindOf(cfg: HarnessConfig): string | undefined {
   return undefined;
 }
 
+/** Codex: configurações salvas com --full-auto (removido no CLI 0.16x) viram -s workspace-write. */
+export function codexArgs(cfg: HarnessConfig): string[] {
+  if (harnessKindOf(cfg) !== 'codex' || !cfg.args.includes('--full-auto')) return cfg.args;
+  const hasSandbox = cfg.args.some((a) => a === '-s' || a === '--sandbox' || /^--sandbox=/.test(a));
+  return cfg.args.flatMap((a) => (a === '--full-auto' ? (hasSandbox ? [] : ['-s', 'workspace-write']) : [a]));
+}
+
 /** Monta argv: remove o par "--flag {model}" quando não há modelo. */
 export function buildArgs(cfg: HarnessConfig, prompt: string, model?: string, effort?: ReasoningEffort): string[] {
   const out: string[] = [];
   const m = model || cfg.defaultModel;
   const e = effort ?? cfg.effort;
   const ev = e ? effortWireValue(harnessKindOf(cfg), e) : '';
-  for (let i = 0; i < cfg.args.length; i++) {
-    const a = cfg.args[i]!;
+  const args = codexArgs(cfg);
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
     if (a === '{model}') {
       if (m) out.push(m);
       else if (out.length > 0 && out[out.length - 1]!.startsWith('-')) out.pop();
