@@ -1,4 +1,5 @@
 import { providerNeedsKey } from './providers';
+import { musicKey, writeMusicSource } from './soundtrack';
 import * as fs from 'node:fs';
 import { shotDurations, shotsWanted } from './free-shots';
 import * as path from 'node:path';
@@ -821,6 +822,7 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
               writeJsonAtomic(cachePath, cache);
             }
             finish(step, scene, res.files);
+            if (step.kind === 'music' && !scene && res.files.length) writeMusicSource(path.join(projectDir, 'out'), { by: 'route', key: musicKey(project) });
             emit({ t: 'step.done', stepId: step.id, sceneId, binding: label, files: res.files });
             return { ok: true };
           } catch (e) {

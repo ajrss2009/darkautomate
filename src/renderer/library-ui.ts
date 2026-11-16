@@ -706,9 +706,18 @@ async function openImportClaudeSkill(c: Ctx, onDone: (k: Skill) => void) {
     go.setAttribute('disabled', ''); log.textContent = ''; out.replaceChildren(h('div', { class: 'muted' }, '⏳ Instalando o plugin e criando a skill e a rota…'));
     off = (forge as unknown as { onEvent: (cb: (e: { t: string; stepId?: string; line?: string }) => void) => () => void }).onEvent((e) => { if (e.t === 'log' && e.stepId === 'skillgen' && e.line) { log.textContent += e.line + '\n'; log.scrollTop = log.scrollHeight; } });
     try {
-      const r = (await forge['importClaudeSkill']({ source: src.value.trim(), routeId: route.value || undefined, language: lang.value, name: name.value.trim() || undefined, harness: harness.value || undefined })) as { plugin: { name: string; displayName?: string }; skills: Skill[]; routes: Route[]; warnings: string[] };
+      const r = (await forge['importClaudeSkill']({ source: src.value.trim(), routeId: route.value || undefined, language: lang.value, name: name.value.trim() || undefined, harness: harness.value || undefined })) as { plugin: { name: string; displayName?: string }; skills: Skill[]; routes: Route[]; warnings: string[];
+        kit?: { name: string; rules: string[]; requirements: string[]; tools: string[]; restricted: Array<{ file: string; reason: string }>; images: number; sounds: number; characters: number; examples: number; sections: number } };
+      const kit = r.kit;
       out.replaceChildren(h('div', { class: 'card svresult' },
-        h('strong', {}, `✓ ${r.skills.length} skill(s) importada(s) — plugin "${r.plugin.displayName ?? r.plugin.name}"`),
+        h('strong', {}, `✓ ${r.skills.length} skill(s) importada(s) — ${kit ? 'kit' : 'plugin'} "${r.plugin.displayName ?? r.plugin.name}"`),
+        kit ? h('div', { class: 'ki-kit', id: 'ci-kit' },
+          h('div', { class: 'row wrap' }, h('span', { class: 'tag done' }, `📏 ${kit.rules.length} regras obrigatórias`), h('span', { class: 'tag' }, `🧩 ${kit.sections} seções por etapa`),
+            h('span', { class: 'tag' }, `🖼 ${kit.images} imagens`), h('span', { class: 'tag' }, `🔊 ${kit.sounds} sons`), h('span', { class: 'tag' }, `🧍 ${kit.characters} personagens`), h('span', { class: 'tag' }, `📜 ${kit.examples} roteiros de exemplo`)),
+          h('details', {}, h('summary', {}, 'Regras do kit (vão em todas as etapas)'), h('ul', { class: 'ki-rules' }, ...kit.rules.slice(0, 40).map((x) => h('li', {}, x)))),
+          kit.requirements.length ? h('details', {}, h('summary', {}, `⚠ Requisitos do kit original (${kit.requirements.length}) — não verificados pelo app`), h('ul', { class: 'ki-rules' }, ...kit.requirements.map((x) => h('li', {}, x)))) : null,
+          kit.tools.length ? h('div', { class: 'muted small' }, `🛠 Ferramentas do kit original (não rodam aqui; o app reproduz o resultado com as etapas dele): ${kit.tools.join(', ')}`) : null,
+          kit.restricted.length ? h('div', { class: 'muted small' }, `🔒 Fora da biblioteca (uso restrito): ${kit.restricted.map((x) => x.file).join(', ')}`) : null) : null,
         ...r.skills.map((k, i) => h('div', {}, h('strong', {}, `🧠 ${k.name}`), h('span', { class: 'muted' }, ` · 🛣️ ${r.routes[i]?.name ?? ''} · etapas: ${Object.keys(k.steps).join(', ') || 'diretriz geral'}`))),
         ...r.warnings.map((w) => h('div', { class: 'tag running' }, '⚠ ' + w)),
         h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { onclick: close }, 'Fechar'), r.skills[0] ? h('button', { class: 'primary', onclick: () => { close(); onDone(r.skills[0]!); } }, 'Abrir a skill') : null)));
@@ -717,8 +726,8 @@ async function openImportClaudeSkill(c: Ctx, onDone: (k: Skill) => void) {
     finally { go.removeAttribute('disabled'); off?.(); off = undefined; }
   })() }, '📥 Importar');
   const bg = h('div', { class: 'modal-bg', id: 'skill-claude-modal' }, h('div', { class: 'modal pmodal' },
-    h('div', { class: 'row' }, h('h3', {}, '📥 Importar skill (SKILL.md do Claude)'), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
-    h('p', { class: 'muted' }, 'A pasta inteira da skill (SKILL.md + sub-skills, referências e modelos) vira um plugin; o Dark Automate cria uma skill ligada a ele — cada etapa aponta para a sub-skill certa (roteiro, gancho, thumbnail, SEO…) — e uma rota própria, cópia da rota-base escolhida, para você ajustar.'),
+    h('div', { class: 'row' }, h('h3', {}, '📥 Importar skill, kit ou plugin (.zip, .plugin, pasta)'), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
+    h('p', { class: 'muted' }, 'Aceita SKILL.md, pasta, .zip/.skill/.plugin ou link do GitHub, do Claude ou do Codex. Um KIT (guias .md + bibliotecas) vira uma skill com as REGRAS dele (cada seção literal na etapa certa + as frases normativas como regras obrigatórias) e as BIBLIOTECAS: imagens, sons (entram nos efeitos), personagens (entram na Biblioteca) e roteiros de exemplo, copiados para cada projeto. Requisitos e itens de uso restrito são listados e ficam fora. Também cria uma rota própria, cópia da rota-base.'),
     h('div', { class: 'row' }, src, pickFile, pickDir),
     h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Rota-base (será copiada)', route), h('label', {}, 'Idioma dos vídeos', lang), name),
     h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Refinar as instruções por etapa com IA (opcional)', harness)),
@@ -857,7 +866,7 @@ export async function renderSkills(c: Ctx) {
       head(h('button', { class: 'primary', id: 'skill-new', onclick: () => { skillOrigin = undefined; skillDraft = { id: '', name: 'Nova skill', description: '', global: '', steps: {}, appearance: 'custom', routeId: routes[0]?.id, aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'generated', mediaSources: [], outputStyle: '' }; again(); } }, '＋ Nova skill'),
         h('button', { class: 'primary', id: 'skill-from-videos', title: 'Analisa vídeos de referência e cria uma skill nova no padrão do app', onclick: () => void openSkillFromVideos(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '🎬 Skill a partir de vídeos'),
         h('button', { class: 'primary', id: 'skill-from-doc', title: 'Converte um documento de prompts/diretrizes de canal (.docx, .md, .txt) numa skill — com o harness e o modelo que você escolher', onclick: () => void openSkillFromDoc(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '📄 Skill a partir de documento'),
-        h('button', { class: 'primary', id: 'skill-import-claude', title: 'SKILL.md do Claude (arquivo, pasta, .zip ou link do GitHub) → plugin + skill + rota', onclick: () => void openImportClaudeSkill(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '📥 Importar SKILL.md'),
+        h('button', { class: 'primary', id: 'skill-import-claude', title: 'Skill, kit ou plugin do Claude/Codex (SKILL.md, pasta, .zip, .plugin ou GitHub) → skill com as regras e as bibliotecas + rota', onclick: () => void openImportClaudeSkill(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '📥 Importar skill / kit (.zip)'),
         h('button', { id: 'skill-import', title: 'Importar skills em Markdown (.md) ou JSON', onclick: () => void guard(async () => {
           const ks = (await forge['importSkills']()) as Skill[] | undefined;
           if (ks?.length) { toast(`${ks.length} skill(s) importada(s)`); again(); }

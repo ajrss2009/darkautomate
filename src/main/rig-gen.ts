@@ -11,6 +11,7 @@ import { detectBins, run } from './ffmpeg';
 import { llmJson } from './editor';
 import { stageThree } from './plugins';
 import { snapHtml } from './render';
+import { blockyThumbPage } from './kit-import';
 import { cartoonSpecOf, cartoonThumbHtml, isCodeCharacter, normalizeRig, rigPrompt, rigPreviewHtml, rigThumbHtml, type Rig } from './rig';
 import { stageCartoon3d } from './plugins';
 
@@ -120,6 +121,12 @@ export async function makeThumb(settings: Settings, id: string, force = false): 
       const html = path.join(dir, 'thumb.html'); png = path.join(dir, 'thumb.png');
       fs.writeFileSync(html, cartoonThumbHtml(spec, kit.importmap), 'utf8');
       await snapHtml(html, png, { w: 480, h: 480 });
+    } else if (ch.blocky) {
+      /* avatar de blocos (kit): desenhado com a própria blocky3d e os rostos do kit, igual às cenas */
+      const page = blockyThumbPage(settings, ch.blocky, dir);
+      if (!page) throw new Error('biblioteca blocky3d ou rostos do kit não encontrados');
+      png = path.join(dir, 'thumb.png');
+      await snapHtml(page, png, { w: 480, h: 480 });
     } else if (rig) {
       const html = path.join(dir, 'thumb.html'); png = path.join(dir, 'thumb.png');
       fs.writeFileSync(html, rigThumbHtml(rig), 'utf8');
@@ -138,11 +145,11 @@ export async function makeThumb(settings: Settings, id: string, force = false): 
 export async function makeMissingThumbs(settings: Settings): Promise<number> {
   let n = 0;
   for (const c of characters.listCharacters(settings)) {
-    if (characters.hasPicture(settings, c) || (!c.rig && !c.models?.length && !cartoonSpecOf(c.look))) continue;
+    if (characters.hasPicture(settings, c) || (!c.rig && !c.models?.length && !cartoonSpecOf(c.look) && !c.blocky)) continue;
     try { if (await makeThumb(settings, c.id)) n++; } catch { /* segue com os outros */ }
   }
   return n;
 }
 
 /** Personagem por código: a imagem é DESENHADA EM CÓDIGO (cartoon3d, rig ou modelo 3D), nunca por um gerador de imagem. */
-export const drawnByCode = (c: { kind?: string; code?: string; rig?: string; look?: string; models?: string[] }) => isCodeCharacter(c) && (!!c.rig || !!cartoonSpecOf(c.look) || !!c.models?.length);
+export const drawnByCode = (c: { kind?: string; code?: string; rig?: string; look?: string; models?: string[]; blocky?: unknown }) => isCodeCharacter(c) && (!!c.rig || !!cartoonSpecOf(c.look) || !!c.models?.length || !!c.blocky);

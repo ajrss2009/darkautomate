@@ -141,6 +141,11 @@ function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
     h('div', { class: 'col' },
       h('button', { class: 'primary', onclick: () => c.useInProject(p.id) }, '＋ Usar em novo projeto'),
       h('button', { onclick: () => void guard(async () => promptModal(p.name, (await forge['pluginPrompt']([p.id])) as string)) }, '👁 Ver o que entra no prompt'),
+      /* não só o visual: as REGRAS e as BIBLIOTECAS do plugin viram uma skill (Skills → 📥 Importar skill / kit) */
+      h('button', { 'data-act': 'plugin-to-skill', title: 'Cria uma skill com as regras do plugin (cada seção literal na etapa certa + regras obrigatórias) e as bibliotecas dele (imagens, sons, personagens, exemplos)', onclick: () => void guard(async () => {
+        const r = (await forge['importClaudeSkill']({ source: (p as { dir?: string }).dir ?? p.id, language: 'pt-BR' })) as { skills: Array<{ name: string }>; kit?: { rules: string[]; images: number; sounds: number; characters: number } };
+        toast(r.kit ? `Skill "${r.skills[0]?.name}" criada: ${r.kit.rules.length} regras, ${r.kit.images} imagens, ${r.kit.sounds} sons, ${r.kit.characters} personagens` : `Skill "${r.skills[0]?.name}" criada`);
+      }) }, '🧰 Virar skill (regras + bibliotecas)'),
       h('button', { title: 'Grava um arquivo .plugin (zip no formato do Claude) para instalar no Claude ou em outro Dark Automate', onclick: () => void guard(async () => { const f = await forge['exportPluginFile'](p.id) as string | null; if (f) toast(`Plugin exportado: ${f}`); }) }, '📦 Exportar .plugin'),
       h('button', { class: 'danger', onclick: () => void guard(async () => { if (!await askConfirm(`Remover o plugin "${p.name}"?`)) return; await forge['removePlugin'](p.id); toast('Plugin removido.'); await renderPluginsPage(c); }) }, 'Remover')));
   const gallery = p.styles?.length ? h('div', { class: 'pl-gallery' }, ...p.styles.map((st) => styleCard(c, p, st))) : null;

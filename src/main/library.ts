@@ -122,7 +122,7 @@ export function skillMarkdown(k: Skill): string {
   const scalar: Array<[string, unknown]> = [
     ['name', k.name], ['description', k.description], ['appearance', k.appearance], ['routeId', k.routeId],
     ['aspect', k.aspect], ['durationSec', k.durationSec], ['language', k.language], ['presentation', k.presentation],
-    ['mediaSources', k.mediaSources], ['mixSources', k.mixSources], ['previewMedia', k.previewMedia], ['thumbnailTemplate', k.thumbnailTemplate],
+    ['mediaSources', k.mediaSources], ['mixSources', k.mixSources], ['previewMedia', k.previewMedia], ['thumbnailTemplate', k.thumbnailTemplate], ['kitId', k.kitId],
     ['freeform', k.freeform ? true : undefined],
     ['scriptEnding', k.scriptEnding], ['multiVoice', k.multiVoice ? true : undefined], ['musicVideo', k.musicVideo ? true : undefined], ['reviewCriteria', k.reviewCriteria],
     ['plugins', k.plugins],
@@ -208,6 +208,7 @@ export function parseSkillMarkdown(text: string, fallbackId?: string): Skill | u
   if (Array.isArray(meta.mixSources) && meta.mixSources.length) k.mixSources = meta.mixSources as Skill['mixSources'];
   if (meta.previewMedia) k.previewMedia = String(meta.previewMedia);
   if (meta.thumbnailTemplate) k.thumbnailTemplate = String(meta.thumbnailTemplate);
+  if (meta.kitId) k.kitId = String(meta.kitId);
   if (meta.outputStyle) k.outputStyle = String(meta.outputStyle);
   if (meta.freeform === true) k.freeform = true;
   if (meta.scriptEnding === 'loop' || meta.scriptEnding === 'next' || meta.scriptEnding === 'conclusion') k.scriptEnding = meta.scriptEnding;

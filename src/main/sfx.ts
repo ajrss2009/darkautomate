@@ -9,7 +9,9 @@ import type { WordTime } from './whisper';
  * Efeitos sonoros GERADOS POR CÓDIGO: cada som é uma expressão matemática (aevalsrc do ffmpeg)
  * mais filtros. Nada é baixado nem precisa de API; o mesmo nome sempre gera o mesmo som.
  */
-export interface SfxDef { id: string; label: string; icon: string; dur: number; expr: string; post?: string; tags: string }
+export interface SfxDef { id: string; label: string; icon: string; dur: number; expr: string; post?: string; tags: string;
+  /** som de ARQUIVO (biblioteca de um kit importado): usado no lugar da expressão; gain em dB */
+  file?: string; gainDb?: number }
 
 const N = '(random(0)*2-1)';               // ruído branco
 export const SFX_LIBRARY: SfxDef[] = [
@@ -53,7 +55,17 @@ const ALIASES: Record<string, string> = {
   coin: 'ding', shimmer: 'sparkle', shimmer_hit: 'sparkle', magic: 'sparkle', bubble: 'pop', boing: 'pop', sproing: 'pop', cork_pop: 'pop', sticker_slap: 'thud',
   stamp: 'thud', paper: 'page', flip: 'page', typewriter: 'typing', camera: 'shutter', laser: 'glitch', data: 'glitch', static: 'glitch', crash: 'impact', gong_hit: 'gong',
 };
-export const sfxDef = (id: string) => { const k = id.trim().toLowerCase(); return SFX_LIBRARY.find((d) => d.id === k) ?? SFX_LIBRARY.find((d) => d.id === ALIASES[k]); };
+/** Sons de arquivo dos kits importados (Biblioteca → kits): registrados ao importar e ao abrir o app. */
+const FILE_SFX = new Map<string, SfxDef>();
+export function registerFileSfx(id: string, file: string, o: { gain?: number; label?: string } = {}): void {
+  const k = id.trim().toLowerCase();
+  if (!k || !fs.existsSync(file)) return;
+  let dur = 1;
+  try { const b = fs.readFileSync(file); if (b.toString('ascii', 0, 4) === 'RIFF') { const rate = b.readUInt32LE(28); dur = rate ? Math.max(0.05, (b.length - 44) / rate) : 1; } } catch { /* duração aproximada */ }
+  FILE_SFX.set(k, { id: k, label: o.label ?? k, icon: '🎧', dur: Math.min(30, dur), expr: '0', tags: 'kit arquivo', file, gainDb: o.gain });
+}
+export const fileSfxList = () => [...FILE_SFX.values()];
+export const sfxDef = (id: string) => { const k = id.trim().toLowerCase(); return SFX_LIBRARY.find((d) => d.id === k) ?? SFX_LIBRARY.find((d) => d.id === ALIASES[k]) ?? FILE_SFX.get(k); };
 
 /** Sons que a própria cena por código declarou (window.__forge.sfx → clips/*.sfx.json), no instante exato da animação. */
 export function codeCues(sceneDir: string): SfxCue[] {
@@ -82,6 +94,11 @@ export function sceneCues(scene: Pick<Scene, 'sfx' | 'sfxCues'>, sceneDir: strin
 export async function renderSfx(ffmpeg: string, id: string, out: string, signal?: AbortSignal): Promise<number> {
   const d = sfxDef(id);
   if (!d) throw new Error(`efeito sonoro desconhecido: ${id}`);
+  if (d.file) {
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    await writeAtomic(out, (tmp) => runSfx(ffmpeg, ['-y', '-i', d.file!, ...(d.gainDb ? ['-af', `volume=${d.gainDb}dB`] : []), '-ac', '1', '-ar', '44100', tmp], signal));
+    return d.dur;
+  }
   const src = `aevalsrc='${d.expr}':s=44100:d=${d.dur}` + (d.post ? `,${d.post}` : '') + `,afade=t=out:st=${Math.max(0, d.dur - 0.05).toFixed(3)}:d=0.05`;
   fs.mkdirSync(path.dirname(out), { recursive: true });
   await writeAtomic(out, (tmp) => runSfx(ffmpeg, ['-y', '-f', 'lavfi', '-i', src, '-ac', '1', '-ar', '44100', tmp], signal));
@@ -193,7 +210,7 @@ export async function applySceneSfx(ffmpeg: string, ffprobe: string, sceneDir: s
 }
 
 /** Lista para os prompts das IAs: "whoosh (transição passagem), impact (...)". */
-export const sfxCatalogText = () => SFX_LIBRARY.map((d) => `${d.id} (${d.tags})`).join(', ');
+export const sfxCatalogText = () => [...SFX_LIBRARY, ...FILE_SFX.values()].map((d) => `${d.id} (${d.tags})`).join(', ');
 
 /**
  * Pedido de efeitos sonoros por IA (Stable Audio 3): os efeitos do plano (nomes da biblioteca ou texto livre) +

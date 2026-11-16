@@ -1539,7 +1539,7 @@ async function renderNew() {
   let npEngine: Binding | undefined;
   let refreshSums: () => void = () => {};
   const voiceBox = voicePicker({ forge: forge as unknown as Parameters<typeof voicePicker>[0]['forge'], guard, route: undefined, language: 'pt-BR', value: npVoice, onChange: (v) => { npVoice = v; refreshSums(); },
-    voices: meta.voices ?? [], apis: npCatalog.apis, onEngine: (b) => { npEngine = b; refreshSums(); } }) as HTMLElement & { repaint: (r?: Route, l?: string) => void; reset?: () => void };
+    voices: meta.voices ?? [], apis: npCatalog.apis, onEngine: (b) => { npEngine = b; refreshSums(); } }) as HTMLElement & { repaint: (r?: Route, l?: string) => void; reset?: () => void; setValue?: (v: NarrationVoice, e?: Binding) => void };
   /* a voz segue a rota JÁ com o perfil/provedores escolhidos (a narração pode ter mudado de motor) */
   const effectiveRoute = (): Route | undefined => {
     const r = meta.routes.find((x) => x.id === route.value);
@@ -1727,6 +1727,19 @@ async function renderNew() {
     characterIds: [...pickedChars], characterVariants: { ...charVariants },
     storyboard: storyCb.checked ? { enabled: true, approval: storyApproveCb.checked, sketches: storyApproveCb.checked && sketchMode.value ? { mode: sketchMode.value, count: Number(sketchCount.value) || 2 } : undefined } : undefined,
     h3Speech: h3SpeechCb.checked, h3SpeechMode: h3SpeechCb.checked ? h3ModeSel.value : undefined,
+    /* v2: TODAS as opções — provedores (perfil, por parte, por etapa), reservas e "sem reserva", voz e motor da narração,
+       elenco, equipe de agentes, produção, contas, canal, envio, mistura de skills, estilo de imagem, título e thumbnail */
+    providers: providers ? JSON.parse(JSON.stringify(providers)) : undefined,
+    harnessFallback: [...npFallback], noFallback: npNoFallback,
+    narrationVoice: { ...npVoice }, narrationEngine: npEngine ? JSON.parse(JSON.stringify(npEngine)) : undefined,
+    cast: JSON.parse(JSON.stringify(cast)),
+    orchestratorId: orch.value || undefined, workerIds: workerBoxes.filter((x) => x.cb.checked).map((x) => x.a.id),
+    sceneConcurrency: Number(conc.value) || undefined, maxProductionMin: Number(maxMin.value) || undefined,
+    agyAccount: agySel.value || undefined, flowAccount: flowSel.value || undefined, channelId: chSel.value || undefined, autoUpload: autoUp.checked || undefined,
+    skillMix: mixRows.length ? { main: Number(mainPct.value) || 60, mode: mixMode.value, items: mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 0 })) } : undefined,
+    styleRef: styleRef ? JSON.parse(JSON.stringify(styleRef)) : undefined,
+    titleModel: titlePick ? JSON.parse(JSON.stringify(titlePick)) : undefined,
+    thumb: { mode: thumbMode, manual: thumbManual, text: thumbText.value.trim() || undefined, refFile: thumbRefFile, refUrl: refUrl.value.trim() || undefined, refNote: refNote.value.trim() || undefined },
   });
   const savePrompt = () => void guard(async () => {
     const lines = [
@@ -1755,6 +1768,9 @@ async function renderNew() {
     let t: Record<string, any>;
     try { t = JSON.parse(r.content) as Record<string, any>; } catch { throw new Error('arquivo não é um template JSON válido'); }
     if (t['kind'] !== 'filmforge-project-template') throw new Error('este arquivo não é um template do Dark Automate');
+    const missing: string[] = [];
+    if (t['skillId'] && !skills.some((k) => k.id === t['skillId'])) missing.push(`skill "${t['skillId']}"`);
+    if (t['routeId'] && !meta.routes.some((x) => x.id === t['routeId'])) missing.push(`rota "${t['routeId']}"`);
     const set = (el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, v: unknown) => { if (v !== undefined && v !== null) el.value = String(v); };
     if (t['skillId']) { skill.value = String(t['skillId']); skill.dispatchEvent(new Event('change')); }
     if (t['routeId']) { route.value = String(t['routeId']); route.dispatchEvent(new Event('change')); }
@@ -1779,7 +1795,38 @@ async function renderNew() {
     if (sb?.sketches?.mode) sketchMode.value = sb.sketches.mode; if (sb?.sketches?.count) sketchCount.value = String(sb.sketches.count); paintSketch();
     h3SpeechCb.checked = !!t['h3Speech']; h3ModeSel.value = String(t['h3SpeechMode'] ?? 'dub');
     if (t['name']) name.value = String(t['name']); if (t['idea']) idea.value = String(t['idea']);
-    sums.forEach((f) => f()); paintReview(); toast('Template importado');
+    /* v2: aplicado DEPOIS da skill e da rota (a troca de rota limpa os provedores por etapa e a skill marca agentes) */
+    if (t['providers'] !== undefined) providers = t['providers'] ? JSON.parse(JSON.stringify(t['providers'])) as ProvidersChoice : undefined;
+    if (Array.isArray(t['harnessFallback']) || typeof t['noFallback'] === 'boolean') (npFallbackBox as HTMLElement & { set?: (l?: string[], o?: boolean) => void }).set?.(Array.isArray(t['harnessFallback']) ? t['harnessFallback'].map(String) : npFallback, typeof t['noFallback'] === 'boolean' ? t['noFallback'] : undefined);
+    paintRoutePlan();
+    if (t['narrationVoice'] || t['narrationEngine']) voiceBox.setValue?.((t['narrationVoice'] ?? {}) as NarrationVoice, t['narrationEngine'] as Binding | undefined);
+    paintVoice();
+    if (Array.isArray(t['cast'])) { cast = JSON.parse(JSON.stringify(t['cast'])) as CastMember[]; paintCast(); }
+    if ('orchestratorId' in t) orch.value = String(t['orchestratorId'] ?? '');
+    if (Array.isArray(t['workerIds'])) { const w = new Set(t['workerIds'].map(String)); for (const x of workerBoxes) { x.cb.checked = w.has(x.a.id); x.el.classList.toggle('on', x.cb.checked); } }
+    paintTeam();
+    if (t['sceneConcurrency']) conc.value = String(t['sceneConcurrency']); if (t['maxProductionMin']) maxMin.value = String(t['maxProductionMin']);
+    if ('agyAccount' in t) agySel.value = String(t['agyAccount'] ?? ''); if ('flowAccount' in t) flowSel.value = String(t['flowAccount'] ?? '');
+    if ('channelId' in t) { chSel.value = String(t['channelId'] ?? ''); chSel.dispatchEvent(new Event('change')); }
+    if ('autoUpload' in t) autoUp.checked = !!t['autoUpload'];
+    const mix = t['skillMix'] as { main?: number; mode?: string; items?: Array<{ skillId: string; pct: number }> } | undefined;
+    if (mix?.items?.length) {
+      while (mixRows.length) { mixRows.pop(); } mixList.replaceChildren();
+      if (mix.main) mainPct.value = String(mix.main); if (mix.mode) mixMode.value = mix.mode;
+      for (const it of mix.items) { addMix(); const row = mixRows[mixRows.length - 1]; if (row) { row.skill.value = it.skillId; row.pct.value = String(it.pct); } }
+      paintMixSum();
+    }
+    if (t['styleRef']) { styleRef = JSON.parse(JSON.stringify(t['styleRef'])) as typeof styleRef; paintStyle(); }
+    if (t['titleModel']) { titlePick = JSON.parse(JSON.stringify(t['titleModel'])) as TitlePick; paintTitle(); }
+    const th = t['thumb'] as { mode?: typeof thumbMode; manual?: boolean; text?: string; refFile?: string; refUrl?: string; refNote?: string } | undefined;
+    if (th) {
+      if (th.mode) thumbMode = th.mode; thumbManual = !!th.manual; thumbText.value = th.text ?? '';
+      thumbRefFile = th.refFile; refUrl.value = th.refUrl ?? ''; refNote.value = th.refNote ?? '';
+      if (t['thumbnailTemplate']) thumbId = String(t['thumbnailTemplate']);
+      paintRefFile(); paintThumb(); paintThumbSrc(); paintTitleScore();
+    }
+    sums.forEach((f) => f()); paintReview();
+    toast(missing.length ? `Template importado — não encontrei neste app: ${missing.join(', ')}` : 'Template importado (todas as opções)', missing.length > 0);
   });
 
   main.replaceChildren(h('h2', {}, 'Novo projeto'),
@@ -2298,8 +2345,29 @@ function watermarkNode(p: Project): HTMLElement | null {
   return el;
 }
 
+/* 🎬 "Ver final": o vídeo final no palco. Enquanto ele está aberto, as teclas controlam ELE (espaço, ←/→ ±5 s,
+   Shift ±1 s, Esc volta às cenas) e os atalhos de cena (trocar cena, R/M/H, S/Q/W, Delete) ficam desligados —
+   antes, a seta trocava de cena e destruía o player, e o espaço tocava a cena por trás. */
+let finalVideo: HTMLVideoElement | undefined;
+function showFinal(file: string) {
+  stopPlay();
+  const box = $('#pv-stage'); if (!box) return;
+  const v = h('video', { id: 'pv-final-video', src: `${forge.mediaUrl(file)}?v=${Date.now()}`, controls: true, autoplay: true, playsinline: true, preload: 'auto' }) as HTMLVideoElement;
+  v.addEventListener('error', () => toast('Não foi possível abrir o vídeo final (o arquivo mudou ou está sendo gravado). Tente de novo.', true));
+  finalVideo = v;
+  box.replaceChildren(v, h('div', { class: 'pv-final-bar' },
+    h('span', { class: 'muted small' }, 'Espaço: tocar/pausar · ←/→: 5 s · Shift+←/→: 1 s · Esc: voltar'),
+    h('button', { class: 'small', id: 'pv-final-close', onclick: () => closeFinal() }, '← Voltar às cenas')));
+}
+function closeFinal() {
+  if (!finalVideo) return;
+  finalVideo.pause(); finalVideo = undefined;
+  showScene(current?.scenes[selIndex()] ?? current?.scenes[0]);
+}
+
 function showScene(sc: Scene | undefined, autoplay = false, enter?: { kind: string; sec: number }) {
   const box = $('#pv-stage'); if (!box || !current) return;
+  finalVideo?.pause(); finalVideo = undefined;
   box.replaceChildren();
   preview = {};
   if (!sc) { box.append(h('div', { class: 'muted pad' }, current.scenes.length ? 'Selecione uma cena na timeline.' : 'Projeto sem cenas.')); return; }
@@ -3116,6 +3184,7 @@ function timeline(p: Project): HTMLElement {
   const onKey = (ev: KeyboardEvent) => {
     const t = ev.target as HTMLElement | null;
     if (t && /INPUT|TEXTAREA|SELECT/.test(t.tagName)) return;
+    if (finalVideo?.isConnected) return;   // vídeo final aberto: R/M/H não mexem nas cenas por trás
     if (!current || current.id !== p.id || !p.scenes.length) return;
     const sc = p.scenes.find((s) => s.id === anchor) ?? p.scenes[0]!;
     const k = ev.key.toLowerCase();
@@ -4097,7 +4166,7 @@ function renderEditor(keepScroll = false) {
     h('span', { class: 'sp' }),
     h('button', { id: 'pv-cc', class: `tbtn pill${showSubs ? ' on' : ''}`, title: showSubs ? 'Esconder legendas da prévia' : 'Mostrar legendas na prévia', onclick: () => { showSubs = !showSubs; renderEditor(true); } }, 'CC'),
     first && !runningIds.has(p.id) ? h('button', { id: 'pv-regen', class: 'tbtn pill regen', title: 'Refazer a(s) cena(s) selecionada(s)', onclick: () => openRegenDialog(p, selected) }, `↻ Regerar ${selected.length > 1 ? `${selected.length} cenas` : 'cena'}`) : null,
-    media.final ? h('button', { id: 'pv-final', class: 'tbtn pill', onclick: () => { stopPlay(); const box = $('#pv-stage')!; box.replaceChildren(h('video', { src: forge.mediaUrl(media.final!), controls: true, autoplay: true })); } }, '🎬 Ver final') : null);
+    media.final ? h('button', { id: 'pv-final', class: 'tbtn pill', onclick: () => showFinal(media.final!) }, '🎬 Ver final') : null);
   main.replaceChildren(
     h('div', { class: 'ed-head' },
       h('span', { class: 'ico' }, icon('editor')), switcher, h('span', { class: 'muted' }, `${p.scenes.length} cenas · ${total.toFixed(1)}s · ${p.aspect}${p.route ? ` · rota: ${p.route.name}` : ''}`),
@@ -4229,6 +4298,15 @@ function edLayout(root: HTMLElement): void {
 document.addEventListener('keydown', (e) => {
   if (tab !== 'editor' || !current) return;
   const t = e.target as HTMLElement; if (/INPUT|TEXTAREA|SELECT/.test(t.tagName)) return;
+  /* vídeo final aberto: as teclas são dele (capturado antes dos atalhos de cena) */
+  if (finalVideo && finalVideo.isConnected) {
+    const v = finalVideo;
+    if (e.key === ' ') { e.preventDefault(); if (v.paused) void v.play().catch(() => {}); else v.pause(); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const d = (e.shiftKey ? 1 : 5) * (e.key === 'ArrowRight' ? 1 : -1); v.currentTime = Math.max(0, Math.min((v.duration || 0) - 0.05, v.currentTime + d)); }
+    else if (e.key === 'Home') { e.preventDefault(); v.currentTime = 0; }
+    else if (e.key === 'Escape') { e.preventDefault(); closeFinal(); }
+    return;
+  }
   if (e.key === 'ArrowRight') jump(1);
   else if (e.key === 'ArrowLeft') jump(-1);
   else if (e.key === ' ') { e.preventDefault(); if (playing) stopPlay(); else void playScene(selIndex()); }

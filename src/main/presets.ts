@@ -259,6 +259,22 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'microdrama-muse', name: 'Microdrama com fala no clipe (Snapgen Muse AI, clipes de 10 s)',
+    description: 'Roteiro com gancho e cliffhanger → bíblia do elenco (Biblioteca) → cenários e clima → storyboard (uma fala por cena, até 10 s) → quadro de cada cena (Snapgen) → clipe no Snapgen Muse AI que FALA a fala da cena (voz, lábios e emoção no próprio vídeo; a voz do clipe vira a narração e as legendas) → trilha por código → montagem. Sem TTS: a voz vem do gerador de vídeo.',
+    videoTypes: ['micro_drama', 'custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro (gancho → pressão → confronto → revelação → cliffhanger)', scope: 'project', bindings: textChain }),
+      step({ id: 'bible', kind: 'asset_design', label: 'Bíblia do elenco (aparência fixa, figurino, cor-assinatura)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'sets', kind: 'asset_design', label: 'Locais e clima (repetidos em cada prompt)', scope: 'project', dependsOn: ['bible'], bindings: textChain, timeoutSec: 900, onFail: 'skip' }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Storyboard: uma fala por cena, até 10 s', scope: 'project', dependsOn: ['script', 'bible', 'sets'], bindings: textChain }),
+      step({ id: 'image', kind: 'image', label: 'Quadro da cena (Snapgen, elenco consistente)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'],
+        bindings: [{ type: 'api', provider: 'snapgen', model: 'nano-banana-2' }, ...imageChain] }),
+      step({ id: 'video', kind: 'video', label: 'Clipe falado (Snapgen Muse AI: voz + lábios no vídeo)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'],
+        bindings: [{ type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, { type: 'api', provider: 'snapgen', model: 'meta-ai-video' }, ...videoChain], timeoutSec: 2400, onFail: 'skip', concurrency: 2 }),
+      ...tail(['video'], { musicVolume: 0.06 }, codeMusicChain),
+    ],
+  },
+  {
     id: 'dorama-elenco', name: 'Dorama / história com elenco (MiniMax H3 ref2video + vozes)',
     description: 'Roteiro em falas "NOME: fala" → bíblia de personagens (aparência + voz) → elenco montado sozinho (uma voz por personagem) → uma fala por cena → quadro da cena → vídeo no MiniMax H3 ref2video com o quadro E os retratos dos personagens como referência (mesmo rosto e figurino em todas as cenas) → montagem.',
     videoTypes: ['micro_drama', 'interactive_story', 'custom'],

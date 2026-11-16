@@ -1,5 +1,6 @@
 import type { MixSource, ScriptEnding, Skill, VideoTypeId } from '../shared/types';
 import { BUILTIN_SKILLS as BASE_SKILLS, MIXED_STOCK_SOURCES, VIDEO_TYPES } from './presets';
+import { DRAMA_SKILLS } from './microdrama';
 
 /**
  * Conteúdo editorial de cada tipo de vídeo. Cada tipo vira uma skill padrão (somente leitura).
@@ -296,6 +297,7 @@ const SPECIAL: Skill[] = [
   MUSIC_VIDEO_PASTA,
   MUSIC_VIDEO_BANCO,
   ...CAST_STORIES,
+  ...DRAMA_SKILLS,
   { id: 'video-livre', name: 'Vídeo livre (só o seu prompt)', builtin: true, freeform: true,
     description: 'Skill vazia: não gera roteiro, cenas nem narração. O que você escrever no prompt vai direto ao harness pela rota "Vídeo livre".',
     global: '', steps: {}, appearance: 'custom', routeId: 'video-livre', aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'generated', mediaSources: [],

@@ -94,6 +94,7 @@ export function normalizeCharacter(raw: Partial<LibraryCharacter>): Omit<Library
     aliases: Array.isArray(raw.aliases) ? raw.aliases.map((t) => String(t).trim()).filter(Boolean).slice(0, 8) : undefined,
     variants: entity === 'character' ? normalizeVariants(raw.variants) : undefined,
     storyId: str(raw.storyId, 64),
+    blocky: raw.blocky && typeof raw.blocky === 'object' && typeof raw.blocky.kitId === 'string' ? JSON.parse(JSON.stringify(raw.blocky)) as LibraryCharacter['blocky'] : undefined,
   };
 }
 

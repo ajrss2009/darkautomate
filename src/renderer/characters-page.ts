@@ -29,7 +29,7 @@ export interface Variant { id: string; label: string; look: string; episodes?: n
 export interface CharRow {
   id: string; name: string; kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro'; description?: string; look: string; gender?: string; age?: string;
   voice?: { refAudio?: string; apiVoice?: string; description?: string }; code?: string; sheet?: string; portrait?: string; images?: string[]; tags?: string[]; dir: string;
-  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string; rig?: string; prefer3d?: boolean; thumb?: string; byCode?: boolean;
+  entity?: Entity; variants?: Variant[]; models?: string[]; aliases?: string[]; storyId?: string; rig?: string; prefer3d?: boolean; thumb?: string; byCode?: boolean; blocky?: unknown;
 }
 export const KIND_LABEL: Record<CharRow['kind'], string> = { pessoa: '🧑 Pessoa (realista)', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Animal / criatura', outro: '✨ Outro' };
 const STYLE_LABEL: Record<CharRow['kind'], string> = { pessoa: '📷 Realista', cartoon: '🎨 Cartoon / animação', codigo: '💻 Desenho por código', animal: '🐾 Criatura', outro: '✨ Outro' };
@@ -63,7 +63,7 @@ export function missingImagesBar(c: Pick<CharactersCtx, 'forge' | 'guard' | 'toa
   const bar = h('div', { class: 'lib-missing', id: 'lib-missing' });
   if (!missing.length) return null;
   /* rig/modelo 3D: miniatura local, sem IA (uma vez por sessão) */
-  if (!thumbsTried && missing.some((x) => x.rig || x.models?.length)) { thumbsTried = true; void guard(async () => { const n = (await forge['charactersMakeThumbs']()) as number; if (n) onDone(); }); }
+  if (!thumbsTried && missing.some((x) => x.rig || x.models?.length || x.blocky)) { thumbsTried = true; void guard(async () => { const n = (await forge['charactersMakeThumbs']()) as number; if (n) onDone(); }); }
   const sel = h('select', { title: 'Executor de imagem usado em cada item' }) as HTMLSelectElement;
   let opts: Array<[string, unknown]> = [];
   void imageExecOptions(forge, guard).then((o) => { opts = o; sel.replaceChildren(...o.map(([l], i) => h('option', { value: String(i) }, l))); });

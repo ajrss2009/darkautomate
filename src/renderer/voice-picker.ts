@@ -166,5 +166,7 @@ export function voicePicker(o: VoicePickerOpts): HTMLElement {
     repaint: (route?: Route, language?: string) => { if (route) o.route = route; if (language) o.language = language; paint(); },
     /* volta ao padrão: sem motor próprio e sem voz escolhida (a da rota/skill) */
     reset: () => { o.engine = undefined; o.onEngine?.(undefined); o.value = {}; o.onChange({}); paint(); },
+    /* template importado: voz e motor da narração */
+    setValue: (v: NarrationVoice, engine?: Binding) => { o.engine = engine; o.onEngine?.(engine); o.value = { ...v }; o.onChange(o.value); paint(); },
   });
 }

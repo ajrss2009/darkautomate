@@ -80,6 +80,8 @@ import { findOutliers, type FinderQuery } from './finder';
 import { analyzeGaps, cachedCollection, collectFrontier, depthPlan, gapToProjectInput, listFrontiers, loadGaps, makeFrontier, researchRoot, saveCachedCollection, saveResearch, type Frontier, type Gap } from './research';
 import { closeDb, getDb, listProjectsIndexed, openDb, recordQuiet, setProjectCostProvider, syncRecordsQuiet } from './db';
 import { prepareThumbRef } from './thumb-ref';
+import { fileResponse } from './media-range';
+import { loadKitSounds } from './kit-import';
 import { insightsToHtml, insightsToText, readFavoriteChannels, removeFavoriteChannels, reportBaseName, reportsDir, toggleFavoriteChannel, type FavoriteChannel, type InsightMeta } from './research-report';
 import { h3Options, scanH3Loras } from './h3accel';
 import { scanSpecialModels } from './wan2gp-special';
@@ -424,7 +426,7 @@ function saveSettings(s: Settings) {
  * Exporta o perfil inteiro (configurações + chaves + skills, rotas, plugins, vozes…) para
  * `<pasta>/FilmForgeData`. Coloque o FilmForge portátil ao lado dessa pasta e tudo abre igual.
  */
-function exportPortableProfile(destParent: string): { root: string; copied: string[] } {
+function exportPortableProfile(destParent: string, o: { keepProjects?: boolean } = {}): { root: string; copied: string[] } {
   const root = path.basename(destParent) === DATA_DIR_NAME ? destParent : path.join(destParent, DATA_DIR_NAME);
   const appData = path.join(root, 'appdata'), ws = path.join(root, 'workspace');
   fs.mkdirSync(appData, { recursive: true }); fs.mkdirSync(ws, { recursive: true });
@@ -432,12 +434,19 @@ function exportPortableProfile(destParent: string): { root: string; copied: stri
   const pr = pluginsRoot(settings);
   if (path.resolve(pr) !== path.resolve(settings.workspace, 'plugins') && fs.existsSync(pr)) { fs.cpSync(pr, path.join(ws, 'plugins'), { recursive: true, force: true }); copied.push('plugins'); }
   relocate([path.join(ws, 'library'), path.join(ws, 'channels')], settings.workspace, ws);
-  const out: Settings = { ...settings, workspace: ws, pluginsDir: '', projectsDir: '',
+  /* banco (índice, registros: skills, rotas, agentes, canais, favoritos…) e as cópias de segurança vão junto */
+  try {
+    const dbSrc = getDb()?.file;
+    if (dbSrc && fs.existsSync(dbSrc)) { getDb()?.flushNow(); fs.copyFileSync(dbSrc, path.join(root, 'filmforge.db')); copied.push('filmforge.db'); }
+  } catch { /* sem banco: ele é recriado pelo índice */ }
+  /* projetos: ficam onde estão (caminho absoluto) quando pedido; senão vão para workspace/projects */
+  const keepProjects = o.keepProjects ? projectsDir(settings) : '';
+  const out: Settings = { ...settings, workspace: ws, pluginsDir: '', projectsDir: keepProjects,
     providers: settings.providers.map((p) => ({ ...p, apiKey: sealPortable(appData, p.apiKey) })),
     stock: Object.fromEntries(Object.entries(settings.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: sealPortable(appData, v?.apiKey ?? '') }])),
     channelApis: mapChannelApis(settings.channelApis, (v) => sealPortable(appData, v)) };
   fs.writeFileSync(path.join(appData, 'settings.json'), JSON.stringify(tokenize(out, root), null, 2));
-  fs.writeFileSync(path.join(appData, 'anchor.json'), JSON.stringify({ workspace: ws, projectsDir: path.join(ws, 'projects') }, null, 2));
+  fs.writeFileSync(path.join(appData, 'anchor.json'), JSON.stringify({ workspace: ws, projectsDir: keepProjects || path.join(ws, 'projects') }, null, 2));
   return { root, copied };
 }
 
@@ -835,13 +844,17 @@ function autoFixPlan(p: Project, dir: string): { score: number; minScore: number
 function finalizeSteps(p: Project, stepIds: string[], finalize: boolean): string[] {
   const out = new Set(stepIds);
   if (finalize) for (const s of p.route?.steps ?? []) if (s.kind === 'subtitles' || s.kind === 'edit') out.add(s.id);
+  /* mudou o estilo/modo/humor da música (e a trilha não foi escolhida à mão): o regerar final refaz a trilha também */
+  if (finalize) { try { if (soundtrack.musicStale(path.join(projectDirOf(settings, p.id), 'out'), p)) for (const s of p.route?.steps ?? []) if (s.kind === 'music' && s.enabled && !s.scope?.startsWith('scene')) out.add(s.id); } catch { /* sem pasta */ } }
   return [...out];
 }
 
 function registerIpc() {
+  /* toda alteração da biblioteca (skills, rotas, tipos, agentes, personagens/cenários/objetos, plugins, kits) espelha no banco */
+  const LIB_CHANGE = /^(skill|route|vtype|agent|characters?|fold|plugins?|workflows|channel):(save|delete|remove|import|import-claude|favorite|install|install-url|install-folder|install-file|choose|apply|add|update|from-videos|from-doc)/;
   const h = (ch: string, fn: (...a: any[]) => unknown) =>
     ipcMain.handle(ch, async (_e: unknown, ...a: any[]) => {
-      try { return { ok: true, data: await fn(...a) }; } catch (e) { return { ok: false, error: (e as Error).message }; }
+      try { const data = await fn(...a); if (LIB_CHANGE.test(ch)) scheduleLibraryDb(); return { ok: true, data }; } catch (e) { return { ok: false, error: (e as Error).message }; }
     });
 
   h('meta:get', () => ({ videoTypes: VIDEO_TYPES, routes: lib.listRoutes(settings), skills: lib.listSkills(settings), types: lib.listTypes(settings), agents: lib.listAgents(settings),
@@ -2014,7 +2027,15 @@ function registerIpc() {
   h('projects:root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return projectsDir(settings); });
   h('projects:open-root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return shell.openPath(projectsDir(settings)); });
   h('project:get', (id: string) => ops.readProject(settings, id));
-  h('project:update', (id: string, patch: Parameters<typeof ops.updateProject>[2]) => { idle(id); return ops.updateProject(settings, id, patch); });
+  h('project:update', (id: string, patch: Parameters<typeof ops.updateProject>[2]) => {
+    idle(id);
+    /* mudou estilo/modo/trilha por código: a trilha da ROTA fica desatualizada (a escolhida à mão não) — o próximo "regerar final" refaz a música */
+    if (patch && ('musicStyle' in patch || 'musicMode' in patch || 'codeMusic' in patch)) {
+      const out = path.join(projectDirOf(settings, id), 'out');
+      if (soundtrack.readMusicSource(out)?.by !== 'user') soundtrack.writeMusicSource(out, { by: 'route', key: 'config-changed' });
+    }
+    return ops.updateProject(settings, id, patch);
+  });
   /** Completa o elenco com todos os falantes do roteiro ("NOME: fala") e distribui vozes (editor → Elenco e voz). */
   h('project:auto-cast', (id: string) => {
     const p = ops.readProject(settings, id);
@@ -2680,7 +2701,21 @@ function useAppPluginsDir(): void {
 
 app.whenReady().then(async () => {
   settings = loadSettings();
+  /* `--export-portable <pasta> [--keep-projects]`: monta <pasta>/FilmForgeData com o perfil inteiro (configurações com as
+     chaves resseladas, biblioteca, skills, rotas, agentes, personagens, plugins, kits, canais e o banco) e sai */
+  const expAt = process.argv.indexOf('--export-portable');
+  if (expAt >= 0) {
+    try {
+      try { await openDb({ root: dataRoot?.root ?? app.getPath('userData'), workspace: settings.workspace }); } catch { /* sem banco */ }
+      const r = exportPortableProfile(path.resolve(process.argv[expAt + 1] ?? '.'), { keepProjects: process.argv.includes('--keep-projects') });
+      console.log(`EXPORT ${JSON.stringify(r)}`);
+      app.exit(0);
+    } catch (e) { console.error(`EXPORT-ERR ${(e as Error).stack ?? e}`); app.exit(1); }
+    return;
+  }
   useAppPluginsDir();
+  /* sons dos kits importados voltam para a biblioteca de efeitos */
+  try { loadKitSounds(settings); } catch (e) { dumpErr('kit-sounds', e); }
   /* `FilmForge.exe --mcp`: roda como servidor MCP por stdio, sem janela.
      O protocolo usa stdout; qualquer diagnóstico vai para stderr. */
   /* `--validate`: valida TODAS as skills/rotas/tipos da biblioteca e as mídias que elas exigem. */
@@ -2770,7 +2805,8 @@ app.whenReady().then(async () => {
         const file = path.resolve(decodeURIComponent(u.pathname.replace(/^\//, '')));
         const roots = [settings.workspace, projectsDir(settings), pluginsRoot(settings)].map((r) => path.resolve(r) + path.sep);
         if (!roots.some((root) => file.startsWith(root))) return new Response('forbidden', { status: 403 });
-        return net.fetch(pathToFileURL(file).toString(), { headers: req.headers });
+        /* com Range (206): sem isso o <video> não deixa escolher o ponto (seek volta a 0) */
+        return fileResponse(file, req.headers.get('range'));
       } catch { return new Response('bad request', { status: 400 }); }
     });
     /* forge-scene://: cenas por código e bibliotecas de plugins copiadas no projeto (módulos ES funcionam) */
@@ -2809,6 +2845,7 @@ app.whenReady().then(async () => {
     setProjectCostProvider((pr) => costOfProject(pr));
     splashProgress(20, 'abrindo o banco');
     const idx = db.syncIndex(settings, { log: (l) => console.log(`[FilmForge] ${l}`) });
+    try { syncLibraryDb(); } catch (e) { dumpErr('library-db', e); }
     console.log(`[FilmForge] banco: ${db.file} · ${idx.total} projeto(s) no índice (${idx.added} novos, ${idx.updated} alterados, ${idx.removed} removidos)`);
     if (db.restoredBackup) console.log(`[FilmForge] banco restaurado do backup ${db.restoredBackup}`);
   } catch (e) { dumpErr('db', e); }
@@ -2850,3 +2887,25 @@ app.on('before-quit', () => { try { closeDb(); } catch { /* já fechou */ } Wan2
 /* No modo headless (--run-project) não há janela: fechar a janela temporária do
    renderizador de cenas NÃO pode encerrar o app no meio da execução. */
 app.on('window-all-closed', () => { if (headless) return; if (process.platform !== 'darwin') app.quit(); });
+
+/**
+ * Biblioteca no BANCO: skills, rotas, tipos de vídeo, agentes (do usuário), personagens/cenários/objetos e kits viram
+ * registros (record) com o JSON completo — o banco do perfil (portátil ou instalado) guarda tudo o que o usuário criou.
+ * Os arquivos continuam sendo a fonte (Markdown/JSON legíveis); o banco é o espelho consultável e sincronizável.
+ */
+function syncLibraryDb(): void {
+  if (!getDb()) return;
+  const mine = <T extends { builtin?: boolean }>(xs: T[]) => xs.filter((x) => !x.builtin);
+  syncRecordsQuiet('skill', mine(lib.listSkills(settings)).map((k) => ({ id: k.id, title: k.name, data: k })));
+  syncRecordsQuiet('route', mine(lib.listRoutes(settings)).map((r) => ({ id: r.id, title: r.name, data: r })));
+  syncRecordsQuiet('video_type', mine(lib.listTypes(settings) as Array<{ id: string; name: string; builtin?: boolean }>).map((t) => ({ id: t.id, title: t.name, data: t })));
+  syncRecordsQuiet('agent', mine(lib.listAgents(settings)).map((a) => ({ id: a.id, title: a.persona ? `${a.persona} · ${a.name}` : a.name, data: a })));
+  syncRecordsQuiet('library_item', characters.listCharacters(settings).map((c) => ({ id: c.id, title: `${c.entity ?? 'character'}: ${c.name}`, data: c })));
+  try {
+    const kroot = path.join(settings.workspace, 'library', 'kits');
+    const kits = fs.existsSync(kroot) ? fs.readdirSync(kroot).flatMap((d) => { try { return [JSON.parse(fs.readFileSync(path.join(kroot, d, 'kit.json'), 'utf8')) as { id: string; name: string }]; } catch { return []; } }) : [];
+    syncRecordsQuiet('kit', kits.map((k) => ({ id: k.id, title: k.name, data: k })));
+  } catch { /* sem kits */ }
+}
+let libraryDbTimer: NodeJS.Timeout | undefined;
+function scheduleLibraryDb(): void { if (libraryDbTimer) clearTimeout(libraryDbTimer); libraryDbTimer = setTimeout(() => { try { syncLibraryDb(); } catch (e) { dumpErr('library-db', e); } }, 800); }

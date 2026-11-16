@@ -2,10 +2,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { HarnessId, PluginInfo, Route, Settings, Skill } from '../shared/types';
-import { deleteSkill, getAnyRoute, getSkill, listRoutes, parseFrontMatter, saveRoute, saveSkill, slugify } from './library';
-import { extractZip, installPluginFolder, installPluginUrl, parseGithubUrl, pluginsRoot } from './plugins';
+import { deleteSkill, getAnyRoute, getSkill, listRoutes, listSkills, parseFrontMatter, saveRoute, saveSkill, slugify } from './library';
+import { extractZip, installPluginFolder, installPluginUrl, listPlugins, parseGithubUrl, pluginsRoot } from './plugins';
 import { VIDEO_TYPES } from './presets';
 import { generateSkillFromDoc } from './skilldoc';
+import { analyzeKit, installKitLibrary, kitSkillContent, type KitManifest } from './kit-import';
+import { detectPythonFilm } from './python-film';
 
 /*
  * Importa uma skill no formato do Claude (SKILL.md com front-matter name/description, opcionalmente com
@@ -27,7 +29,9 @@ export interface SkillImportInput {
   harness?: HarnessId | 'auto';
   model?: string;
 }
-export interface SkillImportResult { plugin: PluginInfo; skills: Skill[]; routes: Route[]; warnings: string[] }
+export interface SkillImportResult { plugin: PluginInfo; skills: Skill[]; routes: Route[]; warnings: string[];
+  /** kit: regras e bibliotecas que viraram parte da skill (zip/pasta/plugin com docs e/ou assets) */
+  kit?: Pick<KitManifest, 'id' | 'name' | 'rules' | 'requirements' | 'tools' | 'restricted' | 'characterIds' | 'soundIds'> & { images: number; sounds: number; characters: number; examples: number; sections: number } }
 
 /** Etapa do FilmForge ← palavras do nome do arquivo/seção da skill do Claude. */
 export const STEP_HINTS: Array<{ kind: string; re: RegExp }> = [
@@ -93,15 +97,31 @@ async function installSource(s: Settings, source: string): Promise<{ plugin: Plu
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-skill-import-'));
   try {
     let plugin: PluginInfo;
-    if (!fs.existsSync(src) && parseGithubUrl(src)) plugin = await installPluginUrl(s, src);
+    /* plugin JÁ instalado (aba Plugins → "Virar skill"): usa a pasta dele, sem copiar sobre ela mesma */
+    const installedHere = fs.existsSync(src) && fs.statSync(src).isDirectory() && path.resolve(path.dirname(src)) === path.resolve(pluginsRoot(s));
+    const already = installedHere ? listPlugins(s).find((p) => p.id === path.basename(src)) : undefined;
+    if (already) plugin = already;
+    else if (!fs.existsSync(src) && parseGithubUrl(src)) plugin = await installPluginUrl(s, src);
     else {
       if (!fs.existsSync(src)) throw new Error(`não encontrei ${src}`);
       let dir = fs.statSync(src).isDirectory() ? src : path.dirname(src);
       if (fs.statSync(src).isFile() && /\.(zip|skill|plugin)$/i.test(src)) { dir = path.join(tmp, 'zip'); extractZip(src, dir); }
       else if (fs.statSync(src).isFile() && !/\.md$/i.test(src)) throw new Error('use um SKILL.md, uma pasta, um .zip/.skill/.plugin ou um link do GitHub');
+      /* zip com uma pasta só dentro: a raiz do kit é ela */
+      const inner = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !e.name.startsWith('.') && e.name !== '__MACOSX');
+      if (inner.length === 1 && inner[0]!.isDirectory()) dir = path.join(dir, inner[0]!.name);
       const isPlugin = ['.claude-plugin', 'plugin.json'].some((f) => fs.existsSync(path.join(dir, f)));
-      const skills = findSkillDirs(dir);
-      if (!isPlugin && !skills.length) throw new Error('não encontrei nenhum SKILL.md nessa origem');
+      let skills = findSkillDirs(dir);
+      /* kit sem SKILL.md (só guias .md + bibliotecas): vira uma skill com o primeiro guia como descrição */
+      if (!isPlugin && !skills.length) {
+        const mds = fs.readdirSync(dir).filter((f) => /\.md$/i.test(f) && !/^(license|changelog)\.md$/i.test(f));
+        if (!mds.length) throw new Error('não encontrei SKILL.md nem guias .md nessa origem');
+        const copy = path.join(tmp, 'kit', slugify(path.basename(dir)) || 'kit');
+        fs.cpSync(dir, copy, { recursive: true, filter: (f) => !/[\\/](node_modules|\.git)([\\/]|$)/.test(f) });
+        const first = read(path.join(dir, mds[0]!));
+        fs.writeFileSync(path.join(copy, 'SKILL.md'), `---\nname: ${slugify(path.basename(dir)) || 'kit'}\ndescription: ${firstParagraph(first).replace(/\n/g, ' ')}\n---\n\n${first}`);
+        skills = [copy];
+      }
       plugin = installPluginFolder(s, isPlugin ? dir : wrapAsPlugin(skills, tmp), src);
     }
     const installed = path.join(pluginsRoot(s), plugin.id);
@@ -152,11 +172,28 @@ const freeId = (exists: (id: string) => boolean, wanted: string) => { const base
 export async function importClaudeSkill(s: Settings, input: SkillImportInput, log: (l: string) => void, signal?: AbortSignal): Promise<SkillImportResult> {
   const { plugin, skillDirs } = await installSource(s, input.source);
   log(`plugin "${plugin.displayName ?? plugin.name}" instalado com ${skillDirs.length} skill(s)`);
+  /* KIT: regras (literais, por etapa) + bibliotecas (imagens, sons, personagens, exemplos) + restrições */
+  const pluginDir = path.join(pluginsRoot(s), plugin.id);
+  const analysis = analyzeKit(pluginDir);
+  const isKit = analysis.sections.length > 0 && (analysis.rules.length >= 3 || analysis.images.length + analysis.sounds.length + analysis.examples.length > 0);
+  let manifest: KitManifest | undefined;
+  if (isKit) {
+    manifest = installKitLibrary(s, pluginDir, analysis, { id: plugin.id, source: input.source.trim() });
+    log(`kit: ${analysis.rules.length} regra(s), ${analysis.sections.length} seção(ões) por etapa, ${analysis.images.length} imagem(ns), ${analysis.sounds.length} som(ns), ${manifest.characterIds.length} personagem(ns), ${analysis.examples.length} roteiro(s) de exemplo${analysis.restricted.length ? `, ${analysis.restricted.length} item(ns) restrito(s) fora da biblioteca` : ''}`);
+  }
   const routes = listRoutes(s);
-  const base = (input.routeId && getAnyRoute(s, input.routeId)) || routes.find((r) => r.id === 'explainer-mixed') || routes.find((r) => r.steps.some((st) => st.kind === 'scene_plan')) || routes[0]!;
+  /* kit de animação (Blender, 3D, animação) sem rota escolhida: cenas por código */
+  const animKit = isKit && (analysis.tools.includes('blender') || /\b(3d|anima|blocky|cartoon)/i.test(`${analysis.name} ${analysis.description}`));
+  const base = (input.routeId && getAnyRoute(s, input.routeId)) || (animKit ? routes.find((r) => r.id === 'stickman-explainer') : undefined) || routes.find((r) => r.id === 'explainer-mixed') || routes.find((r) => r.steps.some((st) => st.kind === 'scene_plan')) || routes[0]!;
   const vt = VIDEO_TYPES.find((v) => v.defaultRoute === base.id);
   const warnings: string[] = [];
   const out: SkillImportResult = { plugin, skills: [], routes: [], warnings };
+  if (manifest) {
+    out.kit = { id: manifest.id, name: manifest.name, rules: manifest.rules, requirements: manifest.requirements, tools: manifest.tools, restricted: manifest.restricted, characterIds: manifest.characterIds, soundIds: manifest.soundIds,
+      images: analysis.images.length, sounds: analysis.sounds.length, characters: analysis.characters.length, examples: analysis.examples.length, sections: analysis.sections.length };
+    if (analysis.requirements.length) warnings.push(`requisitos do kit original (não verificados pelo app): ${analysis.requirements.slice(0, 4).join(' | ')}`);
+    if (analysis.restricted.length) warnings.push(`fora da biblioteca por uso restrito: ${analysis.restricted.map((r) => r.file).join(', ')}`);
+  }
 
   for (const dir of skillDirs.slice(0, 5)) {
     const md = read(path.join(dir, 'SKILL.md'));
@@ -164,11 +201,14 @@ export async function importClaudeSkill(s: Settings, input: SkillImportInput, lo
     const rawName = (skillDirs.length === 1 && input.name?.trim()) || String(meta['name'] ?? path.basename(dir));
     const name = rawName.replace(/[-_]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
     const description = String(meta['description'] ?? firstParagraph(body)).replace(/\s+/g, ' ').replace(/Triggers on:.*$/i, '').trim().slice(0, 400);
-    const id = freeId((x) => !!getSkill(s, x), name);
+    /* kit reimportado: atualiza a MESMA skill e a mesma rota (não cria "-2") */
+    const prevKit = manifest ? listSkills(s).find((k) => k.kitId === manifest!.id && !k.builtin) : undefined;
+    const id = prevKit?.id ?? freeId((x) => !!getSkill(s, x), name);
 
     /* rota própria: cópia da base, para ajustar sem mexer na padrão */
-    const rid = freeId((x) => !!getAnyRoute(s, x), `${id}-rota`);
-    const route = saveRoute(s, { ...JSON.parse(JSON.stringify(base)) as Route, id: rid, name: `${name} — ${base.name}`,
+    const film = manifest ? detectPythonFilm(pluginDir) : undefined;
+    const rid = prevKit?.routeId && getAnyRoute(s, prevKit.routeId) && prevKit.routeId !== base.id ? prevKit.routeId : freeId((x) => !!getAnyRoute(s, x), `${id}-rota`);
+    const route = film ? saveRoute(s, pythonFilmRoute(rid, name, base)) : saveRoute(s, { ...JSON.parse(JSON.stringify(base)) as Route, id: rid, name: `${name} — ${base.name}`,
       description: `Rota da skill importada "${name}" (${plugin.name}). Base: ${base.name}.` });
     out.routes.push(route);
 
@@ -187,6 +227,17 @@ export async function importClaudeSkill(s: Settings, input: SkillImportInput, lo
       outputStyle: `🔗 Importada de ${input.source.trim()} (plugin ${plugin.name}${plugin.license ? `, licença ${plugin.license}` : ''}).\n${description}`,
       plugins: [plugin.id],
     };
+    /* kit: as regras e a biblioteca entram na própria skill (o SKILL.md bruto, com instalação, contas e comandos
+       do kit original, NÃO vai para os prompts — por isso o plugin não fica ligado) */
+    if (manifest && skillDirs.length === 1) {
+      const kc = kitSkillContent(analysis, manifest);
+      skill = { ...skill, global: kc.global, steps: { ...steps, ...kc.steps }, kitId: manifest.id,
+        /* o SKILL.md bruto só sai dos prompts quando traz requisitos/contas/ferramentas externas ou itens restritos */
+        plugins: analysis.requirements.length || analysis.restricted.length || film ? undefined : skill.plugins,
+        outputStyle: `🧰 Kit importado de ${input.source.trim()}: ${analysis.rules.length} regras, ${analysis.images.length} imagens, ${analysis.sounds.length} sons, ${manifest.characterIds.length} personagens.\n${description}`,
+        ...(animKit && !film ? { appearance: 'code_3d' as Skill['appearance'], aspect: '9:16' as Skill['aspect'] } : {}),
+        ...(film ? { aspect: '16:9' as Skill['aspect'], outputStyle: `🎞 Kit com MOTOR PRÓPRIO (${path.basename(film.render)}): a IA escreve o storyboard JSON pelas regras e o schema do kit e o motor do kit renderiza o filme — o visual é o do exemplo do kit.\n${description}` } : {}) };
+    }
     skill = saveSkill(s, skill);
 
     /* refino opcional: a IA reescreve global/etapas a partir do SKILL.md (os ponteiros para as sub-skills ficam) */
@@ -211,4 +262,21 @@ export async function importClaudeSkill(s: Settings, input: SkillImportInput, lo
   }
   if (skillDirs.length > 5) warnings.push(`o plugin tem ${skillDirs.length} skills; foram criadas as 5 primeiras`);
   return out;
+}
+
+/** Rota de kit com motor Python: roteiro → storyboard JSON + motor do kit (vídeo final) → SEO → capa do próprio quadro. */
+export function pythonFilmRoute(id: string, name: string, base: Route): Route {
+  const text = base.steps.find((st) => st.kind === 'script')?.bindings ?? [{ type: 'harness', harness: 'auto' } as Route['steps'][number]['bindings'][number]];
+  const mk = (o: Partial<Route['steps'][number]> & Pick<Route['steps'][number], 'id' | 'kind' | 'label' | 'bindings'>): Route['steps'][number] =>
+    ({ scope: 'project', dependsOn: [], enabled: true, retry: { max: 1, backoffMs: 1000 }, timeoutSec: 900, ...o } as Route['steps'][number]);
+  return {
+    id, name: `${name} — motor do kit`, videoTypes: ['custom'],
+    description: `Kit com motor próprio: roteiro pelas regras do kit → storyboard JSON (schema + exemplo do kit, validado pelo app) → render pelo script do kit → título/SEO → capa a partir de um quadro do filme.`,
+    steps: [
+      mk({ id: 'script', kind: 'script', label: 'Roteiro (beats do kit)', bindings: text }),
+      mk({ id: 'film', kind: 'edit', label: 'Storyboard + motor do kit (vídeo final)', dependsOn: ['script'], bindings: [{ type: 'builtin', tool: 'kit-film' }], timeoutSec: 3600 }),
+      mk({ id: 'metadata', kind: 'metadata', label: 'Título, descrição SEO e tags', dependsOn: ['film'], optional: true, onFail: 'skip', bindings: text }),
+      mk({ id: 'thumbnail', kind: 'thumbnail', label: 'Capa (quadro do filme)', dependsOn: ['film', 'metadata'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] }),
+    ],
+  };
 }

@@ -13,6 +13,7 @@ import { subtitleFontName } from '../shared/subtitle-fonts';
 import { normalizePalette } from './channel-setup';
 import { applyCharacters } from './characters';
 import { userStyleRef } from './style-ref';
+import { copyKitIntoProject } from './kit-import';
 import { normalizeMix } from './skill-mix';
 import { routeSceneKinds } from './prompts';
 
@@ -213,6 +214,8 @@ function reconcileRoute(s: Settings, skill: Skill | undefined, route: Route, app
   if (!skill) return route;
   if (skill.freeform) return routeHasKind(route, 'free') ? route : (getAnyRoute(s, 'video-livre') ?? route);
   if (routeHasKind(route, 'scene_plan')) return route;
+  /* rota de kit com motor próprio: o filme inteiro sai do motor do kit (não há cenas para planejar) */
+  if (route.steps.some((st) => st.enabled && st.bindings.some((b) => b.type === 'builtin' && b.tool === 'kit-film'))) return route;
   const candidates = [skill.routeId, getVideoType(appearance)?.defaultRoute].filter((x): x is string => !!x);
   for (const id of candidates) {
     const candidate = getAnyRoute(s, id);
@@ -346,6 +349,8 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
   }
   const dir = projectDirOf(s, id);
   fs.mkdirSync(dir, { recursive: true });
+  /* skill de KIT importado: a biblioteca do kit (imagens, exemplos) vai para <projeto>/kit/ (as cenas por código usam ../../../kit/...) */
+  if (skill?.kitId) try { copyKitIntoProject(s, skill.kitId, dir); } catch { /* kit apagado: a skill segue só com as regras */ }
   /* personagens da biblioteca: folha como foto de personagem, elenco, bíblia e cópia congelada */
   if (input.characterIds?.length) applyCharacters(s, project, dir, input.characterIds, input.characterVariants ?? {});
   /* estilo de uma imagem: a imagem vai junto como referência e a paleta medida vira a do vídeo (se o usuário não escolheu outra) */

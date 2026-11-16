@@ -89,7 +89,8 @@ export function fallbackChips(id: string, initial: string[] | undefined, onChang
     return b;
   }));
   paint();
-  return box;
+  /* template importado: restaura a ordem das reservas e o "sem reserva" */
+  return Object.assign(box, { set: (list: string[] | undefined, off2?: boolean) => { cur = [...(list ?? [])]; if (off && off2 !== undefined) { none = off2; off.onChange(none); } onChange([...cur]); paint(); } });
 }
 
 export function artIcons(icons: string[], max = 3): HTMLElement {

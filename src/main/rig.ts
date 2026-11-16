@@ -315,8 +315,8 @@ export function cartoonSpecOf(look: string | undefined): { outfit: Record<string
 }
 
 /** O item é desenhado por CÓDIGO (tipo "desenho por código", desenho em código, rig ou especificação cartoon3d)? Função pura. */
-export function isCodeCharacter(c: { kind?: string; code?: string; rig?: string; look?: string }): boolean {
-  return c.kind === 'codigo' || !!c.code?.trim() || !!c.rig || !!cartoonSpecOf(c.look);
+export function isCodeCharacter(c: { kind?: string; code?: string; rig?: string; look?: string; blocky?: unknown }): boolean {
+  return c.kind === 'codigo' || !!c.code?.trim() || !!c.rig || !!cartoonSpecOf(c.look) || !!c.blocky;
 }
 
 /** Página da miniatura de um personagem cartoon3d (o mesmo desenho das cenas por código), 480x480. */

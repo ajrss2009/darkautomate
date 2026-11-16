@@ -80,7 +80,7 @@ export interface ApiBinding { type: 'api'; provider: string; model: string; voic
  * - lyric-words: grava os tempos da letra de cada cena (audio/words.json) para a cena por código;
  * - frame-thumbnail: thumbnail a partir de um quadro real do final.mp4 + texto do SEO.
  */
-export type BuiltinTool = 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'wan2gp-showrunner' | 'viggle-remake';
+export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'wan2gp-showrunner' | 'viggle-remake';
 export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool }
 export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */
@@ -269,6 +269,8 @@ export interface Skill {
   previewMedia?: string;
   /** template de thumbnail padrão dos projetos criados com a skill (id) */
   thumbnailTemplate?: string;
+  /** kit importado (zip/pasta/plugin) de onde vieram regras e bibliotecas: workspace/library/kits/<kitId> — copiado para cada projeto */
+  kitId?: string;
   /** Sem cenas nem narração: o prompt vai direto ao harness (rota vídeo livre). */
   freeform?: boolean;
   /** Videoclipe: sem fala/narração; o plano visual são cortes de 3–5 s sobre a música (pasta do usuário ou banco). */
@@ -866,6 +868,8 @@ export interface LibraryCharacter {
   thumb?: string;
   /** nas cenas por código, usar o modelo 3D como o personagem (em vez do desenho 2D) */
   prefer3d?: boolean;
+  /** avatar de blocos (biblioteca blocky3d de um kit): cores, cabelo, rosto do atlas e o kit de onde vêm os rostos */
+  blocky?: { kitId: string; skin?: string; shirt?: string; pants?: string; hair?: string; hairColor?: string; face?: string; sleeves?: string; bolt?: string; vneck?: string; shirtKind?: string; shirtC2?: string; extras?: string[] };
   /** pessoa (foto-realista), cartoon/animação, desenho por código, animal/criatura, outro */
   kind: 'pessoa' | 'cartoon' | 'codigo' | 'animal' | 'outro';
   /** descrição livre do criador (personalidade, história, papel) */

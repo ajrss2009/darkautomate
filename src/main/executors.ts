@@ -48,6 +48,10 @@ import { ceilSeconds, fillStarts, lipsyncPrompt, minSpanStarts, productLabel, pr
 import { castApiVoice, charactersInScene, injectCastRefs, portraitFile, portraitPrompt, spokenText } from './cast';
 import { addH3Speech, deliveryEnglish, dropRefAudio, h3AudioRef, h3DubRef, h3Language, h3Mode, h3SpokenText, refPadSec, h3SpeechScene, isH3Video, sceneSpeech, speechWindow } from './speech-emotion';
 import { styleNegative } from './style-ref';
+import * as pyFilm from './python-film';
+import * as sceneReview from './scene-review';
+import { llmJson } from './editor';
+import { languageName } from './prompts';
 import { inScene } from './characters';
 import { isPerson, projectThumbDesign, renderThumb, type SnapHtml } from './thumb-render';
 import { THUMB_DESIGN_TEMPLATES } from '../shared/thumbdesign';
@@ -58,6 +62,7 @@ import { cartoon3dBundle } from './plugins';
 
 /** Prefixo do erro do validador da API cartoon3d (o pedido de correção é outro). */
 const C3D_LINT = 'API cartoon3d: ';
+const KIT_LINT = 'Kit de blocos: ';
 let c3dApiCache: { file: string; mtime: number; api: Cartoon3dApi } | undefined;
 /** API real da biblioteca (lida do bundle; recarrega se o arquivo mudar). */
 function loadCartoon3dApi(): Cartoon3dApi | undefined {
@@ -518,7 +523,10 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
      modelo como "Erro: … não está definida em <library_api>" antes de gastar um render */
   const c3dApi = c.step.kind === 'code_scene' && c.project.skill?.codeKit === 'cartoon3d' && /\.html?$/i.test(file) ? loadCartoon3dApi() : undefined;
   const c3dCheck = c3dApi ? (page: string) => { const e = cartoon3dApiProblem(page, c3dApi); return e ? `${C3D_LINT}${e}` : undefined; } : undefined;
-  const preCheck = libCheck || c3dCheck ? (page: string) => libCheck?.(page) ?? c3dCheck?.(page) : undefined;
+  /* skill de KIT de bonecos de blocos: a página TEM de usar a blocky3d do kit (o mesmo boneco e os rostos do kit) */
+  const kitBlocky = c.step.kind === 'code_scene' && !!c.project.skill?.kitId && /\.html?$/i.test(file) && fs.existsSync(path.join(c.projectDir, 'kit', 'blocky3d.js'));
+  const kitCheck = kitBlocky ? (page: string) => { const e = blockyPageProblem(page); return e ? `${KIT_LINT}${e}` : undefined; } : undefined;
+  const preCheck = libCheck || c3dCheck || kitCheck ? (page: string) => kitCheck?.(page) ?? libCheck?.(page) ?? c3dCheck?.(page) : undefined;
   let framingRounds = 0;
   for (let fix = 0; ; fix++) {
     if (fix > 0) repairArrows();
@@ -534,7 +542,26 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
         const libRel = contract?.libFile ? path.relative(path.dirname(file), contract.libFile).split(path.sep).join('/') : '';
         const impLine = libRel ? `import L from '${/^\.\.?\//.test(libRel) ? libRel : './' + libRel}';` : `import L from "../plugins/…/lib/_all.mjs";`;
         /* cartoon 3D: correção pela API real da biblioteca (sem o texto de plugins L.*) */
-        const prompt = lint.startsWith(C3D_LINT) ? [
+        const kitRel = path.relative(path.dirname(file), path.join(c.projectDir, 'kit')).split(path.sep).join('/');
+        const prompt = lint.startsWith(KIT_LINT) ? [
+          `O arquivo ${rel2} é uma cena por código de uma skill de KIT de bonecos de blocos.`,
+          'O VALIDADOR do app recusou a página:', lint.slice(KIT_LINT.length),
+          'REESCREVA O ARQUIVO INTEIRO com a ferramenta de escrita, mantendo a duração, a fala, os tempos, a história e os efeitos sonoros, mas com TODOS os personagens vindos da biblioteca do kit (é o boneco e o rosto oficiais do kit):',
+          [
+            '<script type="importmap">{"imports":{"three":"../../../plugins/_three/three.module.min.js"}}</script>',
+            '<script type="module">',
+            "import * as THREE from 'three';",
+            `import { loadFaces, avatar, studio, baseplate, imageCard, camMove } from '${kitRel}/blocky3d.js';`,
+            `const presets = await (await fetch('${kitRel}/characters.json')).json();`,
+            `const faces = await loadFaces('${kitRel}/faces/', [...new Set(presets.map(p => p.face))]);`,
+            "const P = (n) => avatar(presets.find(p => p.name === n) ?? presets[0], faces);",
+            '// cena: renderer, scene (studio(scene)), camera; personagens = P("Eddie"), P("Teacher")…; texturas do kit com imageCard(scene, "<kit>/…png", w, h, [x,y,z])',
+            'const ready = Promise.resolve();',
+            'window.__forge = { duration: DUR, fps: 30, sfx: [/* { t, name } */], pause() {}, async seek(t) { await ready; /* eddie.update(t, { expr, gesture, gestureAt, walk, talk }); camMove(camera, t, {...}); */ renderer.render(scene, camera); } };',
+            '</script>',
+          ].join('\n'),
+          'REGRAS: NÃO desenhe bonecos, rostos ou cabeças com BoxGeometry/Canvas à mão — só avatar(...) da blocky3d; NÃO rode comandos; NÃO pergunte nada — grave o arquivo e termine.',
+        ].join('\n\n') : lint.startsWith(C3D_LINT) ? [
           `O arquivo ${rel2} é uma cena cartoon 3D (Three.js + biblioteca local cartoon3d, window.__forge = { duration, fps, seek(t), pause(), sfx }).`,
           'O VALIDADOR do app, antes da renderização, recusou o código:', lint.slice(C3D_LINT.length),
           'CORRIJA AGORA: edite o arquivo trocando SÓ essas chamadas por funções que existem (mantenha a duração, os textos, os tempos, o elenco e os efeitos sonoros).',
@@ -571,7 +598,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
     } else if ((c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && /\.html?$/i.test(file)) {
       /* cena Three.js (ex.: personagem da Biblioteca em 3D): "three" e "three/addons/" (GLTFLoader/OBJLoader) apontam para cópias locais */
       const page = fs.readFileSync(file, 'utf8');
-      if (/\bfrom\s*["'](?:three(?:\/addons\/[^"']*)?|https?:[^"']*three[^"']*)["']|\bimport\s*\(\s*["'][^"']*three/i.test(page)) {
+      if (/\bfrom\s*["'](?:three(?:\/addons\/[^"']*)?|https?:[^"']*three[^"']*|[^"']*blocky3d\.js)["']|\bimport\s*\(\s*["'][^"']*three/i.test(page)) {
         const t3 = stageThree(c.projectDir, path.dirname(file));
         if (t3) { const fixed = ensureThreeImport(page, t3.importmap); if (fixed !== page) { fs.writeFileSync(file, fixed); c.log('Three.js e carregadores 3D locais mapeados na página'); } }
       }
@@ -583,15 +610,24 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
          harness (até 2 rodadas) e ficam registrados em code/review.json */
       if (done.files[0] && c.project.skill?.codeKit === 'cartoon3d') await storyboardSheet(c, done.files[0], path.dirname(file));
       const framingFile = done.files[0] && c.project.skill?.codeKit === 'cartoon3d' ? done.files[0].replace(/\.mp4$/i, '') + '.framing.json' : '';
-      if (!framingFile || !fs.existsSync(framingFile)) return done;
+      const measured = !!framingFile && fs.existsSync(framingFile);
       let issues: string[] = [];
-      try { issues = framingIssues(JSON.parse(fs.readFileSync(framingFile, 'utf8')) as FramingReport); } catch { return done; }
+      if (measured) { try { issues = framingIssues(JSON.parse(fs.readFileSync(framingFile, 'utf8')) as FramingReport); } catch { /* medição ilegível */ } }
+      /* TODA cena 3D (Three.js, avatares de blocos, 2D em mundo 3D): agente revisor com visão — oclusão, interpenetração,
+         câmera dentro de objetos, pés afundando/flutuando, enquadramento */
+      const page3d = !!done.files[0] && /\.mp4$/i.test(done.files[0]) && sceneReview.is3dScene(fs.readFileSync(file, 'utf8'));
+      if (page3d) {
+        const v = await sceneReview.reviewScene3d(c.settings, c.binding.type === 'harness' ? [c.binding, ...pyFilm.textBindingsOf(c.project.route)] : pyFilm.textBindingsOf(c.project.route), done.files[0]!, path.dirname(file),
+          [c.scene?.title, c.scene?.visualIntent].filter(Boolean).join(' — '), c.signal, c.log).catch(() => undefined);
+        if (v) issues = [...issues, ...v];
+      }
+      if (!measured && !page3d) return done;
       try {
         const rf = path.join(path.dirname(file), 'review.json');
         const prev = (() => { try { return JSON.parse(fs.readFileSync(rf, 'utf8')) as { rounds?: unknown[] }; } catch { return {}; } })();
         fs.writeFileSync(rf, JSON.stringify({ ok: !issues.length, issues, rounds: [...(framingRounds ? prev.rounds ?? [] : []), { at: new Date().toISOString(), issues }] }, null, 1));
       } catch { /* só registro */ }
-      if (!issues.length) { c.log('agente de revisão de cena: enquadramento, bloqueios, letreiros e cores ok ✓'); return done; }
+      if (!issues.length) { c.log(page3d ? 'agente revisor: sem oclusão, interpenetração, câmera dentro de objetos nem problemas de enquadramento ✓' : 'agente de revisão de cena: enquadramento, bloqueios, letreiros e cores ok ✓'); return done; }
       c.log(`agente de revisão de cena: ${issues.length} problema(s) — ${issues.join('; ').slice(0, 500)}`);
       if (framingRounds >= 2 || c.signal.aborted) { c.log('⚠ revisão de cena ainda com problemas depois de 2 correções — cena mantida assim'); return done; }
       /* orçamento: a correção + o render novo têm que caber no prazo da etapa; sem tempo, fica o render que já passou */
@@ -602,7 +638,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       const stop = watchOutputs(cwd, c.log);
       let r: Awaited<ReturnType<typeof runHarness>>;
       const beforeFraming = (() => { try { return fs.statSync(file).mtimeMs; } catch { return 0; } })();
-      try { r = await runHarness(cfg, { cwd, prompt: framingFixPrompt(path.relative(cwd, file).split(path.sep).join('/'), issues), model, effort, signal: c.signal, onLine: c.log, timeoutSec: Math.max(120, Math.floor((left - renderMs) / 1000)), env,
+      try { r = await runHarness(cfg, { cwd, prompt: (measured ? framingFixPrompt : sceneReview.reviewFixPrompt)(path.relative(cwd, file).split(path.sep).join('/'), issues), model, effort, signal: c.signal, onLine: c.log, timeoutSec: Math.max(120, Math.floor((left - renderMs) / 1000)), env,
         tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
       finally { stop(); }
       const wroteFraming = (() => { try { return fs.statSync(file).mtimeMs > beforeFraming; } catch { return false; } })();
@@ -1949,6 +1985,7 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
   const tool = (c.binding as Extract<Binding, { type: 'builtin' }>).tool;
   if (tool === 'clip-musical') return clipMusical(c, o);
   if (tool === 'viggle-remake') return viggleRemake(c, o);
+  if (tool === 'kit-film') return kitFilm(c);
   const scenes = c.project.scenes;
   const dirOf = (s: Scene) => path.join(c.projectDir, 'scenes', s.id);
   if (tool === 'whisper' || tool === 'estimate-words') {
@@ -2661,4 +2698,47 @@ function userFiles(c: ExecContext): Promise<ExecResult> | undefined {
     c.log(`${k === 'image' ? 'quadro' : 'clipe'} da cena = arquivo do usuário (${path.basename(um.file)})`);
     return { files: [out] };
   })();
+}
+
+/** Cena de skill de kit de blocos: tem de importar a blocky3d do kit e criar os personagens com avatar(). Função pura. */
+export function blockyPageProblem(page: string): string | undefined {
+  if (!/from\s*["'][^"']*blocky3d\.js["']/.test(page)) return 'a página não importa a biblioteca do kit (kit/blocky3d.js): os personagens têm de ser os avatares de blocos do kit, com os rostos do kit.';
+  if (!/\bavatar\s*\(/.test(page)) return 'a página importa a blocky3d mas não cria nenhum personagem com avatar(preset, faces).';
+  if (!/loadFaces\s*\(/.test(page)) return 'a página não carrega os rostos do kit com loadFaces(...) — sem eles o rosto sai genérico.';
+  return undefined;
+}
+
+/**
+ * Filme de KIT COM MOTOR PYTHON (ex.: kaz-short-films): a IA escreve o storyboard JSON pelas regras/schema/exemplo do
+ * kit, o app valida (devolve o erro à IA uma vez) e o motor do próprio kit (scripts/render.py) renderiza out/final.mp4.
+ */
+async function kitFilm(c: ExecContext): Promise<ExecResult> {
+  const kitId = c.project.skill?.kitId ?? c.project.skill?.plugins?.[0];
+  if (!kitId) throw new Error('a skill não veio de um kit (kitId)');
+  const k = pyFilm.detectPythonFilm(path.join(pluginsRoot(c.settings), kitId));
+  if (!k) throw new Error(`o kit "${kitId}" não tem motor (scripts/render.py + examples/*.json)`);
+  fs.mkdirSync(c.outDir, { recursive: true });
+  const story = path.join(c.outDir, 'story.json');
+  const script = (() => { try { return fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8'); } catch { return ''; } })();
+  const vocab = pyFilm.schemaVocab(k.schema ? fs.readFileSync(k.schema, 'utf8') : '');
+  const target = Math.max(2, Math.round(c.project.targetDurationSec || 30));
+  let prompt = pyFilm.storyboardPrompt(k, { idea: c.project.idea, script, targetSec: target, language: languageName(c.project.language), out: story, rules: c.project.skill?.global?.slice(0, 6000) });
+  let json: unknown;
+  for (let round = 0; round < 3; round++) {
+    const r = await llmJson(pyFilm.textBindingsOf(c.project.route), c.settings, c.outDir, prompt, c.signal, c.log);
+    json = r.json;
+    const bad = pyFilm.storyboardProblem(json, vocab, target);
+    if (!bad) break;
+    if (round === 2) throw new Error(`storyboard inválido para o motor do kit: ${bad}`);
+    c.log(`storyboard recusado pelo validador: ${bad.slice(0, 240)} — pedindo correção`);
+    prompt = `${prompt}\n\nO VALIDADOR recusou o JSON anterior: ${bad}\nJSON anterior:\n${JSON.stringify(json).slice(0, 6000)}\nDevolva o JSON CORRIGIDO inteiro.`;
+  }
+  fs.writeFileSync(story, JSON.stringify(json, null, 1));
+  const py = pyFilm.pythonOf(c.settings);
+  pyFilm.ensurePythonDeps(py, c.log);
+  const file = path.join(c.outDir, 'final.mp4');
+  c.log(`motor do kit: ${path.relative(k.root, k.render)} → ${path.basename(file)}`);
+  await pyFilm.runPythonFilm(py, k, story, file, { ffmpeg: c.settings.ffmpeg, res: c.project.aspect === '16:9' ? 1080 : 720, sheet: path.join(c.outDir, 'storyboard-sheet.jpg'), signal: c.signal, log: c.log });
+  if (!fs.existsSync(file)) throw new Error('o motor do kit não gravou o vídeo');
+  return { files: [file] };
 }
