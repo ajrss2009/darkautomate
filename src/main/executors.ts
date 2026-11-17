@@ -2482,6 +2482,32 @@ async function listenMusic(c: ExecContext, file: string, seconds: number, o: Exe
   }
 }
 
+/** Título da canção do projeto (primeira linha `TITLE:` do script, ou o nome do projeto). */
+function parsedTitleOf(c: ExecContext): string {
+  try { return parseLyricScript(fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8')).title || c.project.name; } catch { return c.project.name; }
+}
+
+/** Tempos da letra para a música DO PROJETO: monta out/lyrics-timing.json a partir das palavras transcritas
+ *  (o passo "lyrics" das cenas e as legendas leem esse arquivo; sem ele o clipe não monta). */
+function writeLyricsTiming(c: ExecContext, wordsJson: string, duration: number, title: string): string | undefined {
+  try {
+    const j = JSON.parse(fs.readFileSync(wordsJson, 'utf8')) as { words?: Array<{ w: string; start: number; end: number }> };
+    const words = (j.words ?? []).filter((x) => Number.isFinite(Number(x.start)) && String(x.w ?? '').trim());
+    if (!words.length) return undefined;
+    const per = 8;
+    const lines: Array<{ text: string; start: number; end: number }> = [];
+    for (let i = 0; i < words.length; i += per) {
+      const ch = words.slice(i, i + per);
+      lines.push({ text: ch.map((x) => String(x.w).trim()).join(' '), start: +Number(ch[0]!.start).toFixed(2), end: +Number(ch[ch.length - 1]!.end).toFixed(2) });
+    }
+    const timing = { title, duration: +duration.toFixed(2), source: 'whisper', blocks: [{ label: 'song', start: 0, end: +duration.toFixed(2), lines }] };
+    const f = path.join(c.outDir, 'lyrics-timing.json');
+    fs.writeFileSync(f, JSON.stringify(timing, null, 1));
+    c.log(`tempos da letra da música (whisper): ${lines.length} linha(s) até ${duration.toFixed(1)} s`);
+    return f;
+  } catch { return undefined; }
+}
+
 async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult> {
   const seconds0 = clamp(Math.round(c.project.targetDurationSec || 120), 20, 360);
   /* MÚSICA DO PROJETO (anexo/arquivo/pasta de músicas): a canção é ELA — não precisa de letra no script.md.
@@ -2495,7 +2521,9 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
     const dur = (await ff.duration(c.settings.ffprobe, dest).catch(() => 0)) || seconds0;
     c.log(`música do projeto: ${path.basename(attached)} (${dur.toFixed(1)} s) — ouvindo a faixa para o clipe`);
     const lyrics = await listenMusic(c, dest, dur, o);
-    return { files: [dest, ...(lyrics ? [lyrics] : [])] };
+    /* tempos da letra para as cenas/legendas (o passo "lyrics" lê out/lyrics-timing.json) */
+    const timing = writeLyricsTiming(c, path.join(c.outDir, 'music.words.json'), dur, parsedTitleOf(c));
+    return { files: [dest, ...(lyrics ? [lyrics] : []), ...(timing ? [timing] : [])] };
   }
   const md = fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8');
   const parsed = parseLyricScript(md);
