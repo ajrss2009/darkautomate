@@ -52,6 +52,43 @@ Exemplos:
 - `clipe-musical-loop`, `clipe-musical-loop-codigo`.
 - `coletanea-lo-fi-codigo`.
 
+### Plugin
+
+Um plugin (formato do Claude) é uma pasta com `.claude-plugin/plugin.json` e `skills/`, `commands/`, `agents/` — o
+FilmForge lê o conteúdo e injeta nas etapas. Formatos aceitos na aba **Plugins**:
+
+- **arquivo** `.plugin`, `.zip` ou `.skill` (inclusive um zip com só o `SKILL.md`: vira plugin automaticamente);
+- **pasta** do plugin ou da skill solta;
+- **link** do GitHub (repositório inteiro, subpasta `…/tree/main/plugins/nome` ou `dono/repositorio`).
+
+Instalar de novo atualiza por cima; `.ffplugins` leva todos os plugins + dependências para outro computador.
+
+#### Gerar a skill do ESTILO a partir do plugin (IA)
+
+O plugin é tratado como um **harness de estilo**: a IA lê o que ele entrega em texto — `SKILL.md` de cada estilo,
+referências, `STANDARDS.md`, `PLAN.md`, `README` — lista as ferramentas/bibliotecas e escreve uma skill do FilmForge
+com:
+
+- **visual**: tipo de imagem, traço, paleta, fundo, sombras, textura, granulação;
+- **personagens e cenários**: como são construídos e como manter a consistência;
+- **câmera e movimento**: enquadramentos, parallax, easing, transições;
+- **ritmo**: duração de plano, planos por minuto, gancho e final;
+- **texto na tela**: fonte, tamanho, posição, legendas palavra a palavra, cartelas;
+- **som**: voz, música e efeitos, com os níveis que o plugin manda;
+- **minúcias**: números exatos, listas de obrigatório/proibido, checklists;
+- **cada etapa** do app (roteiro, cenas, cena por código, thumbnail, SEO) com o que consultar do plugin.
+
+A skill sai **ligada ao plugin** (`plugins: [id]`), então toda produção com ela usa as regras e as bibliotecas do
+plugin. Copia-se o MÉTODO e o estilo, nunca o conteúdo (histórias, personagens, marcas).
+
+Dois caminhos na aba Plugins:
+
+- **Automaticamente**: a opção “🎨 Criar a skill do estilo com IA depois de instalar” já abre a janela ao terminar;
+- **Depois**: botão **🧠 Skill de estilo (IA)** no cartão do plugin (escolhe a IA/modelo, o nome, o formato, a duração e o idioma, e mostra o log da análise).
+
+O botão **🧰 Virar skill (regras + bibliotecas)** é o caminho sem IA: cada seção literal do plugin vai para a etapa
+certa e as bibliotecas (imagens, sons, personagens, exemplos) vêm junto.
+
 ### Rota
 
 A rota é o pipeline executável: lista de etapas, dependências, escopos e executores.

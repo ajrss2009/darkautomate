@@ -37,11 +37,11 @@ const STEP_PT: Record<string, string> = {
   code_scene: '💻 cena por código', motion_graphics: '📊 motion', narration: '🎙 narração', music: '🎵 trilha', thumbnail: '🖼 thumbnail', metadata: '🔎 SEO/metadados', review: '✅ revisão',
 };
 
-/** Seletor "quem adapta": sem IA (heurística) ou um harness/modelo. */
-async function adaptPicker(c: PluginsCtx, prefix: string): Promise<{ el: HTMLElement; value: () => { harness: string; model?: string } }> {
+/** Seletor "quem adapta": sem IA (heurística) ou um harness/modelo. `withNone = false` esconde a opção sem IA. */
+async function adaptPicker(c: PluginsCtx, prefix: string, withNone = true): Promise<{ el: HTMLElement; value: () => { harness: string; model?: string } }> {
   const cat = ((await c.guard(() => c.forge['catalog']())) ?? { harnesses: [] }) as { harnesses: Array<{ id: string; models?: string[] }> };
   const hs = ['auto', ...cat.harnesses.map((x) => x.id)];
-  const sel = h('select', { id: `${prefix}-harness` }, h('option', { value: '' }, 'sem IA (pelos nomes dos arquivos)'), ...hs.map((x) => h('option', { value: x }, x === 'auto' ? 'IA: auto (primeiro disponível)' : `IA: ${x}`))) as HTMLSelectElement;
+  const sel = h('select', { id: `${prefix}-harness` }, ...(withNone ? [h('option', { value: '' }, 'sem IA (pelos nomes dos arquivos)')] : []), ...hs.map((x) => h('option', { value: x }, x === 'auto' ? 'IA: auto (primeiro disponível)' : `IA: ${x}`))) as HTMLSelectElement;
   sel.value = 'auto';
   const model = h('select', { id: `${prefix}-model` }) as HTMLSelectElement;
   const paint = () => { model.style.display = sel.value && sel.value !== 'auto' ? '' : 'none'; model.replaceChildren(h('option', { value: '' }, 'modelo padrão'), ...(cat.harnesses.find((x) => x.id === sel.value)?.models ?? []).map((m) => h('option', { value: m }, m))); };
@@ -57,11 +57,15 @@ export async function renderPluginsPage(c: PluginsCtx): Promise<void> {
   const busy = h('span', { class: 'muted', id: 'pl-busy' });
   /* instalar com IA: depois de instalar, a IA adapta o plugin ao Dark Automate (o que entra em cada etapa) */
   const adaptAfter = h('input', { type: 'checkbox', id: 'pl-adapt-after' }) as HTMLInputElement; adaptAfter.checked = true;
+  /* ...e pode já criar a SKILL DO ESTILO do plugin (o plugin entra como harness: visual, ritmo, texto, som, minúcias) */
+  const skillAfter = h('input', { type: 'checkbox', id: 'pl-skill-after' }) as HTMLInputElement; skillAfter.checked = true;
   const who = await adaptPicker(c, 'pl-install');
   const install = (fn: () => Promise<(PluginInfo & { also?: string[] }) | null>) => void guard(async () => {
     busy.textContent = '⏳ baixando e convertendo… repositórios grandes podem levar alguns minutos';
+    let installed: (PluginInfo & { also?: string[] }) | null = null;
     try {
       const p = await fn();
+      installed = p;
       if (p) {
         toast(`Plugin "${p.name}" instalado${p.styles?.length ? ` com ${p.styles.length} estilos` : p.items?.length ? ` (${p.items.length} skills/comandos/agentes)` : ''}${p.also?.length ? ` + ${p.also.length} outro(s) do mesmo repositório: ${p.also.join(', ')}` : ''}. Já pode marcar no Novo projeto.`);
         if (adaptAfter.checked && !p.kit && !p.styles?.length) {
@@ -73,6 +77,8 @@ export async function renderPluginsPage(c: PluginsCtx): Promise<void> {
     }
     finally { busy.textContent = ''; }
     await renderPluginsPage(c);
+    /* plugin comum (regras em .md): já abre a criação da skill do ESTILO com IA */
+    if (installed && skillAfter.checked && !installed.kit && !installed.styles?.length) void openPluginSkillDialog(c, installed);
   });
 
   const steps = h('div', { class: 'pl-steps' },
@@ -109,12 +115,13 @@ export async function renderPluginsPage(c: PluginsCtx): Promise<void> {
       h('button', { onclick: () => void forge['openPluginsFolder']() }, 'Abrir pasta dos plugins')),
     steps,
     h('div', { class: 'card' },
-      h('div', { class: 'muted small' }, 'Aceita: repositório inteiro (instala todos os plugins que ele tiver), uma subpasta (…/tree/main/plugins/nome) ou dono/repositorio. Instalar de novo = atualizar.'),
+      h('div', { class: 'muted small' }, 'Aceita: arquivo .plugin, .zip ou .skill (plugin do Claude ou skill solta), pasta (do plugin ou da skill), repositório inteiro ou uma subpasta (…/tree/main/plugins/nome). Instalar de novo = atualizar.'),
       h('div', { class: 'row' }, url,
         h('button', { class: 'primary', id: 'pl-install-url', onclick: () => { if (!url.value.trim()) return toast('Cole a URL do repositório.', true); install(() => forge['installPluginUrl'](url.value.trim())); } }, '⬇ Instalar do GitHub'),
-        h('button', { id: 'pl-install-dir', onclick: () => install(async () => { const d = await forge['openDir']({ title: 'Pasta do plugin' }); return d ? forge['installPluginFolder'](d) : null; }) }, '📁 De uma pasta'),
-        h('button', { id: 'pl-install-file', title: 'Arquivo .plugin do Claude (zip com .claude-plugin/plugin.json)', onclick: () => install(() => forge['installPluginFile']()) }, '📦 Arquivo .plugin')),
-      h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Sem adaptar, o plugin inteiro entra em todas as etapas. Adaptado, cada skill/comando entra só nas etapas em que serve, com o formato de saída traduzido e a lista do que não roda aqui.' }, adaptAfter, '🧠 Adaptar ao Dark Automate depois de instalar'), who.el),
+        h('button', { id: 'pl-install-dir', onclick: () => install(async () => { const d = await forge['openDir']({ title: 'Pasta do plugin (ou da skill)' }); return d ? forge['installPluginFolder'](d) : null; }) }, '📁 De uma pasta'),
+        h('button', { id: 'pl-install-file', title: 'Arquivo .plugin/.zip do Claude, pacote de skill ou .skill — ou um zip com só o SKILL.md (vira plugin)', onclick: () => install(() => forge['installPluginFile']()) }, '📦 Arquivo .plugin/.zip')),
+      h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Sem adaptar, o plugin inteiro entra em todas as etapas. Adaptado, cada skill/comando entra só nas etapas em que serve, com o formato de saída traduzido e a lista do que não roda aqui.' }, adaptAfter, '🧠 Adaptar ao Dark Automate'), who.el),
+      h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Depois de instalar, a IA lê o plugin inteiro (SKILL.md de cada estilo, referências, STANDARDS/PLAN) e escreve uma skill com o estilo de vídeo: visual, câmera, ritmo, texto na tela, som e as minúcias' }, skillAfter, '🎨 Criar a skill do estilo com IA depois de instalar')),
       busy),
     audioCard,
     ...(cards.length ? cards : [h('p', { class: 'muted' }, 'Nenhum plugin instalado ainda. Experimente: https://github.com/Vincentwei1021/mg-styles-15')]));
@@ -146,6 +153,7 @@ function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
         const r = (await forge['importClaudeSkill']({ source: (p as { dir?: string }).dir ?? p.id, language: 'pt-BR' })) as { skills: Array<{ name: string }>; kit?: { rules: string[]; images: number; sounds: number; characters: number } };
         toast(r.kit ? `Skill "${r.skills[0]?.name}" criada: ${r.kit.rules.length} regras, ${r.kit.images} imagens, ${r.kit.sounds} sons, ${r.kit.characters} personagens` : `Skill "${r.skills[0]?.name}" criada`);
       }) }, '🧰 Virar skill (regras + bibliotecas)'),
+      h('button', { 'data-act': 'plugin-skill-ai', title: 'A IA lê o plugin inteiro (SKILL.md de cada estilo, referências, STANDARDS/PLAN) e escreve uma skill com o ESTILO: traço, paleta, câmera, ritmo, texto na tela, som e as minúcias', onclick: () => void openPluginSkillDialog(c, p) }, '🧠 Skill de estilo (IA)'),
       h('button', { title: 'Grava um arquivo .plugin (zip no formato do Claude) para instalar no Claude ou em outro Dark Automate', onclick: () => void guard(async () => { const f = await forge['exportPluginFile'](p.id) as string | null; if (f) toast(`Plugin exportado: ${f}`); }) }, '📦 Exportar .plugin'),
       h('button', { class: 'danger', onclick: () => void guard(async () => { if (!await askConfirm(`Remover o plugin "${p.name}"?`)) return; await forge['removePlugin'](p.id); toast('Plugin removido.'); await renderPluginsPage(c); }) }, 'Remover')));
   const gallery = p.styles?.length ? h('div', { class: 'pl-gallery' }, ...p.styles.map((st) => styleCard(c, p, st))) : null;
@@ -175,6 +183,54 @@ function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
       h('button', { class: 'small', 'data-regen': p.id, onclick: (e) => void c.guard(async () => { const b = e.currentTarget as HTMLButtonElement; b.disabled = true; b.textContent = '⏳ renderizando 3 s…'; await c.forge['pluginPreview'](p.id, true); await renderPluginsPage(c); }) }, p.preview ? '↻ Refazer prévia (3 s)' : '🎬 Gerar prévia (3 s)'))) : null;
   return h('div', { class: 'card pl-card', 'data-plugin': p.id }, head, adaptBox(c, p), kitBox, pics, gallery, readme, plain, ...files, how, ex, req, res,
     p.source ? h('div', { class: 'muted small' }, `origem: ${p.source}`) : null);
+}
+
+/** Skill do ESTILO do plugin com IA: o plugin é o harness — a IA lê SKILL.md/referências/padrões e escreve a skill. */
+async function openPluginSkillDialog(c: PluginsCtx, p: PluginInfo) {
+  const { forge } = c;
+  const who = await adaptPicker(c, `pl-sk-${p.id}`, false);
+  const name = h('input', { class: 'wide', placeholder: `deixe vazio para a IA escolher (ou "${p.displayName ?? p.name}")` }) as HTMLInputElement;
+  const aspect = h('select', {}, ...['9:16', '16:9', '1:1', '4:5'].map((a) => h('option', { value: a }, a))) as HTMLSelectElement;
+  aspect.value = '9:16';
+  const dur = h('input', { type: 'number', min: '5', max: '600', step: '5', value: '60', class: 'num' }) as HTMLInputElement;
+  const lang = h('select', {}, ...[['pt-BR', 'Português (BR)'], ['en', 'English'], ['es', 'Español']].map(([v, l]) => h('option', { value: v! }, l!))) as HTMLSelectElement;
+  const log = h('pre', { class: 'pl-skilllog' }, '');
+  const go = h('button', { class: 'primary', id: 'pl-skill-go' }, '✨ Gerar skill do estilo') as HTMLButtonElement;
+  let off: (() => void) | undefined;
+  const close = () => { off?.(); bg.remove(); };
+  const gen = async () => {
+    if (go.disabled) return;
+    const old = go.textContent;
+    go.disabled = true; go.textContent = '⏳ lendo o plugin com a IA… (1–3 min)';
+    log.textContent = ''; log.style.display = 'block';
+    try {
+      const r = (await forge['skillFromPlugin']({
+        pluginId: p.id, harness: who.value().harness || 'auto', model: who.value().model, name: name.value.trim() || undefined,
+        language: lang.value, aspect: aspect.value, durationSec: Number(dur.value) || undefined,
+      })) as { skill: { name: string }; routeName: string };
+      c.toast(`Skill "${r.skill.name}" criada (rota ${r.routeName}) — já sai com o plugin ${p.name} marcado.`);
+      close();
+      await renderPluginsPage(c);
+    } catch (e) {
+      log.textContent += `\n✗ ${(e as Error).message}`;
+      log.scrollTop = log.scrollHeight;
+    } finally { go.disabled = false; go.textContent = old; }
+  };
+  const bg = h('div', { class: 'modal-bg', id: 'pl-skill-modal', onclick: (e) => { if (e.target === bg) close(); } },
+    h('div', { class: 'modal pl-modal' },
+      h('div', { class: 'row' }, h('h3', {}, `🧠 Skill de estilo — ${p.displayName ?? p.name}`), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
+      h('p', { class: 'muted' }, 'A IA lê o plugin inteiro (SKILL.md de cada estilo, referências, STANDARDS/PLAN) e escreve uma skill com o estilo de vídeo: traço, paleta, câmera, ritmo, texto na tela, som e as minúcias. A skill sai ligada ao plugin — toda produção com ela usa as regras e as bibliotecas dele, como se fosse o harness.'),
+      h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Quem escreve', who.el)),
+      h('label', {}, 'Nome da skill', name),
+      h('div', { class: 'row' }, h('label', {}, 'Formato', aspect), h('label', {}, 'Duração (s)', dur), h('label', {}, 'Idioma', lang)),
+      log,
+      h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { onclick: close }, 'Cancelar'), go)));
+  document.body.append(bg);
+  off = (forge['onEvent'] as unknown as ((cb: (e: unknown) => void) => () => void) | undefined)?.((e) => {
+    const ev = e as { t?: string; stepId?: string; line?: string };
+    if (ev?.t === 'log' && ev.stepId === 'skillgen' && ev.line) { log.textContent += `${ev.line}\n`; log.scrollTop = log.scrollHeight; }
+  });
+  go.addEventListener('click', () => void gen());
 }
 
 /** Adaptação ao Dark Automate: o que entra em cada etapa, o que não roda, e os botões adaptar/desfazer/ver por etapa. */

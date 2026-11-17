@@ -65,7 +65,7 @@ function findSkillDirs(root: string): string[] {
 }
 
 /** Monta uma pasta de plugin do Claude em volta de uma (ou mais) skills soltas. */
-function wrapAsPlugin(skillDirs: string[], tmp: string): string {
+export function wrapAsPlugin(skillDirs: string[], tmp: string): string {
   const first = parseFrontMatter(read(path.join(skillDirs[0]!, fs.readdirSync(skillDirs[0]!).find((f) => /^skill\.md$/i.test(f))!))).meta;
   const name = slugify(String(first['name'] ?? path.basename(skillDirs[0]!))) || 'skill-importada';
   const root = path.join(tmp, name);

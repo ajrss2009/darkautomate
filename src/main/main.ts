@@ -46,7 +46,8 @@ import { detectKit, ensureLibrary, kitPreview, previewFile, projectKit } from '.
 import { kitRerender } from './kit-exec';
 import { generateSkillFromDoc, type SkillDocInput } from './skilldoc';
 import { TOOL_SPECS } from './tools';
-import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginFile, installPluginFolder, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
+import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
+import { generateSkillFromPlugin, installPluginAny, type PluginSkillInput } from './plugin-skill';
 import { isCodeCharacter, normalizeRig, rigPreviewHtml } from './rig';
 import { drawnByCode, generateRig, makeThumb, makeMissingThumbs, type RigGenInput } from './rig-gen';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
@@ -944,11 +945,11 @@ function registerIpc() {
   h('plugins:install-folder', async (src?: string) => {
     let dir = src?.trim();
     if (!dir) {
-      const r = await dialog.showOpenDialog(win!, { title: 'Pasta do plugin (formato Claude)', properties: ['openDirectory'] });
+      const r = await dialog.showOpenDialog(win!, { title: 'Pasta do plugin (formato Claude) — ou de uma skill solta', properties: ['openDirectory'] });
       if (r.canceled || !r.filePaths[0]) return null;
       dir = r.filePaths[0];
     }
-    return withPreview(installPluginFolder(settings, dir));
+    return withPreview(installPluginAny(settings, dir));
   });
   h('plugins:install-url', async (url: string) => withPreview(await installPluginUrl(settings, url)));
   /** prévia de 2–3 s do plugin, renderizada pelo motor dele (kit) — sem IA */
@@ -1004,11 +1005,11 @@ function registerIpc() {
     if (r.canceled || !r.filePath) return null;
     return exportPluginFile(settings, id, r.filePath);
   });
-  /** Instala de um arquivo .plugin/.zip escolhido pelo usuário. */
+  /** Instala de um arquivo .plugin/.zip escolhido pelo usuário (ou de uma skill solta, .skill). */
   h('plugins:install-file', async () => {
-    const r = await dialog.showOpenDialog(win!, { title: 'Instalar plugin (.plugin)', properties: ['openFile'], filters: [{ name: 'Plugin do Claude', extensions: ['plugin', 'zip'] }] });
+    const r = await dialog.showOpenDialog(win!, { title: 'Instalar plugin (.plugin, .zip) ou skill (.skill)', properties: ['openFile'], filters: [{ name: 'Plugin ou skill (.plugin, .zip, .skill)', extensions: ['plugin', 'zip', 'skill'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
-    return withPreview(installPluginFile(settings, r.filePaths[0]));
+    return withPreview(installPluginAny(settings, r.filePaths[0]));
   });
   h('plugins:open-folder', () => { const d = pluginsRoot(settings); fs.mkdirSync(d, { recursive: true }); return shell.openPath(d); });
   /* pacote portátil com TODOS os plugins + dependências (.ffplugins): leva os plugins para outro computador */
@@ -1702,6 +1703,12 @@ function registerIpc() {
     skillGenAbort?.abort(); skillGenAbort = new AbortController();
     return generateSkillFromDoc(settings, input, (line) => send({ t: 'log', stepId: 'skillgen', line } as EngineEvent), skillGenAbort.signal);
   });
+  /** Skill de ESTILO a partir de um plugin (o plugin é o harness): lê tudo e escreve a skill do FilmForge. */
+  h('skill:from-plugin', async (input: PluginSkillInput) => {
+    skillGenAbort?.abort(); skillGenAbort = new AbortController();
+    return generateSkillFromPlugin(settings, input, (line) => send({ t: 'log', stepId: 'skillgen', line } as EngineEvent), skillGenAbort.signal);
+  });
+  h('skill:from-plugin-cancel', () => { skillGenAbort?.abort(); return true; });
   /* títulos no padrão de um canal clonado, canal ou vídeo */
   h('titles:suggest', (input: TitleSuggestInput) => suggestTitles(settings, input, (line) => send({ t: 'log', stepId: 'craft', line } as EngineEvent)));
   /* nota de um título antes de publicar: as seis checagens, sem IA (mede, não opina) */

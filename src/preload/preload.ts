@@ -294,6 +294,9 @@ contextBridge.exposeInMainWorld('forge', {
   skillFromVideosCancel: () => call('skill:from-videos-cancel'),
   skillFromDoc: (input: unknown) => call('skill:from-doc', input),
   importClaudeSkill: (input: unknown) => call('skill:import-claude', input),
+  /** skill de ESTILO a partir de um plugin: a IA lê o plugin (SKILL.md, referências, padrões) e escreve a skill */
+  skillFromPlugin: (input: unknown) => call('skill:from-plugin', input),
+  skillFromPluginCancel: () => call('skill:from-plugin-cancel'),
   importVoice: (src?: string, name?: string) => call('voices:import', src, name),
   replanProject: (id: string, o?: unknown) => call('project:replan', id, o),
   bypassTargets: (id: string, bp: unknown) => call('project:bypass-targets', id, bp),
