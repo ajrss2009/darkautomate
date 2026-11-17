@@ -141,35 +141,48 @@ const SYNTHS: Record<Mood, Synth> = {
   future_bass: { bpm: 140, chords: [[196, 246.94, 293.66], [220, 277.18, 329.63], [185, 220, 277.18], [246.94, 293.66, 369.99]], kick: true, hat: true, arp: true },
 };
 
-/** Expressão do aevalsrc: acordes (pad), baixo, bombo, chimbal e arpejo, trocando de acorde a cada compasso. */
-export function synthExpr(m: Synth): string {
-  const B = (60 / m.bpm).toFixed(5), BAR = ((60 / m.bpm) * 4).toFixed(5);
-  const pick = (k: number) => m.chords.reduceRight((acc, ch, i) => (i === m.chords.length - 1 ? ch[k]!.toFixed(2) : `if(eq(ld(0),${i}),${ch[k]!.toFixed(2)},${acc})`), '');
-  const osc = (f: string) => (m.square ? `0.6*sgn(sin(2*PI*${f}*t))` : `sin(2*PI*${f}*t)`);
+/** Variação da trilha por código: gira a progressão, transpõe até ±3 semitons e mexe o andamento até ±3%.
+ *  `variant` 0 (o de sempre) devolve o clima intacto — a produção continua determinística. */
+function variation(m: Synth, variant: number): Synth {
+  const v = Math.abs(Math.trunc(variant));
+  if (!v) return m;
+  const rot = v % m.chords.length, semis = ((v * 5) % 7) - 3, bpm = Math.round(m.bpm * (1 + (((v * 3) % 7) - 3) / 100));
+  const chords = [...m.chords.slice(rot), ...m.chords.slice(0, rot)].map((ch) => ch.map((f) => f * Math.pow(2, semis / 12)));
+  return { ...m, bpm: Math.min(190, Math.max(56, bpm)), chords };
+}
+
+/** Expressão do aevalsrc: acordes (pad), baixo, bombo, chimbal e arpejo, trocando de acorde a cada compasso.
+ *  `variant` 1, 2, 3… gera OUTRA trilha do mesmo clima ("gerar outra" no editor); 0 = a de sempre. */
+export function synthExpr(m: Synth, variant = 0): string {
+  const s = variation(m, variant);
+  const B = (60 / s.bpm).toFixed(5), BAR = ((60 / s.bpm) * 4).toFixed(5);
+  const pick = (k: number) => s.chords.reduceRight((acc, ch, i) => (i === s.chords.length - 1 ? ch[k]!.toFixed(2) : `if(eq(ld(0),${i}),${ch[k]!.toFixed(2)},${acc})`), '');
+  const osc = (f: string) => (s.square ? `0.6*sgn(sin(2*PI*${f}*t))` : `sin(2*PI*${f}*t)`);
   const parts = [
-    `st(0,mod(floor(t/${BAR}),${m.chords.length}))`,
+    `st(0,mod(floor(t/${BAR}),${s.chords.length}))`,
     `st(1,mod(t,${B}))`,
     `st(2,(${[0, 1, 2].map((k) => osc(pick(k))).join('+')})*0.07*(0.75+0.25*sin(2*PI*0.2*t)))`,
     `st(3,0.16*sin(2*PI*${pick(0)}/2*t)*(0.5+0.5*exp(-3*ld(1))))`,
-    m.kick ? `st(4,0.45*sin(2*PI*(45+70*exp(-28*ld(1)))*ld(1))*exp(-8*ld(1)))` : 'st(4,0)',
-    m.hat ? `st(5,0.035*(random(0)*2-1)*exp(-70*mod(t+${B}/2,${B})))` : 'st(5,0)',
-    m.arp ? `st(6,0.06*${osc(`if(eq(mod(floor(t/(${B}/2)),3),0),${pick(0)},if(eq(mod(floor(t/(${B}/2)),3),1),${pick(1)},${pick(2)}))*2`)}*exp(-5*mod(t,${B}/2)))` : 'st(6,0)',
+    s.kick ? `st(4,0.45*sin(2*PI*(45+70*exp(-28*ld(1)))*ld(1))*exp(-8*ld(1)))` : 'st(4,0)',
+    s.hat ? `st(5,0.035*(random(0)*2-1)*exp(-70*mod(t+${B}/2,${B})))` : 'st(5,0)',
+    s.arp ? `st(6,0.06*${osc(`if(eq(mod(floor(t/(${B}/2)),3),0),${pick(0)},if(eq(mod(floor(t/(${B}/2)),3),1),${pick(1)},${pick(2)}))*2`)}*exp(-5*mod(t,${B}/2)))` : 'st(6,0)',
     'ld(2)+ld(3)+ld(4)+ld(5)+ld(6)',
   ];
   return parts.join(';');
 }
 
-async function renderSynth(ffmpeg: string, mood: Mood, duration: number, out: string, signal?: AbortSignal): Promise<void> {
+async function renderSynth(ffmpeg: string, mood: Mood, duration: number, out: string, variant = 0, signal?: AbortSignal): Promise<void> {
   const d = duration.toFixed(2);
-  const src = `aevalsrc='${synthExpr(SYNTHS[mood])}':s=22050:d=${d}`;
+  const src = `aevalsrc='${synthExpr(SYNTHS[mood], variant)}':s=22050:d=${d}`;
   const af = `aresample=44100,lowpass=f=7000,aecho=0.8:0.6:60|120:0.25|0.15,afade=t=in:d=1.5,afade=t=out:st=${Math.max(0, duration - 3).toFixed(2)}:d=3,loudnorm=I=-16:TP=-1.5`;
   await ff.run(ffmpeg, ['-y', '-f', 'lavfi', '-i', src, '-af', af, '-ac', '2', '-ar', '44100', out], signal);
 }
 
 export interface CodeMusicResult { engine: 'mgaudio' | 'interno'; mood: string; file: string }
 
-/** Gera a trilha programática com a duração do vídeo. `engine`: auto (mgaudio se houver o plugin), mgaudio ou interno. */
-export async function renderCodeMusic(s: Settings, o: { mood: Mood | string; duration: number; out: string; engine?: 'auto' | 'mgaudio' | 'interno'; signal?: AbortSignal; log: (l: string) => void }): Promise<CodeMusicResult> {
+/** Gera a trilha programática com a duração do vídeo. `engine`: auto (mgaudio se houver o plugin), mgaudio ou interno.
+ *  `variant` (1, 2, 3…) é outra trilha do mesmo clima — "Gerar outra" no editor; sem ele a trilha é a de sempre. */
+export async function renderCodeMusic(s: Settings, o: { mood: Mood | string; duration: number; out: string; engine?: 'auto' | 'mgaudio' | 'interno'; variant?: number; signal?: AbortSignal; log: (l: string) => void }): Promise<CodeMusicResult> {
   fs.mkdirSync(path.dirname(o.out), { recursive: true });
   const wav = o.out.replace(/\.[a-z0-9]+$/i, '') + '.wav';
   const lib = o.engine === 'interno' ? undefined : findMgAudio(s);
@@ -185,6 +198,6 @@ export async function renderCodeMusic(s: Settings, o: { mood: Mood | string; dur
   } else if (o.engine === 'mgaudio') throw new Error('instale o plugin mg-styles-15 (traz o mgaudio)');
   o.log(`trilha programática: sintetizador interno "${o.mood}" (${o.duration.toFixed(0)} s)`);
   const mood: Mood = (MOODS as readonly string[]).includes(o.mood) ? o.mood as Mood : 'explainer';
-  await renderSynth(s.ffmpeg, mood, o.duration, wav, o.signal);
+  await renderSynth(s.ffmpeg, mood, o.duration, wav, o.variant ?? 0, o.signal);
   return { engine: 'interno', mood: o.mood, file: wav };
 }

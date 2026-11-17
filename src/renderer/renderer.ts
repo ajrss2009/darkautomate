@@ -75,7 +75,7 @@ interface Forge {
   musicPick(id: string): Promise<string | null>;
   musicClear(id: string): Promise<boolean>;
   musicMoods(): Promise<Array<{ id: string; label: string }>>;
-  musicCode(id: string, mood: string): Promise<string>;
+  musicCode(id: string, mood: string, variant?: number): Promise<string>;
   applyMusic(id: string): Promise<{ ok: boolean; error?: string; message?: string }>;
   attachPick(mode: 'files' | 'folder'): Promise<string[]>;
   attach(id: string, o: { mode?: 'files' | 'folder'; paths?: string[] }): Promise<Project>;
@@ -2633,39 +2633,64 @@ async function exportTo(p: Project, target: 'davinci' | 'capcut' | 'premiere') {
     finally { busy = ''; renderEditor(true); }
   });
 }
-/** Trilha sonora: escolher um arquivo, gerar por código ou remover — e aplicar no vídeo final. */
+/** Rótulo da barra da trilha: o filme do kit traz a trilha do próprio motor (não fica em out/music.*). */
+const musicBarLabel = (p: Project) => media.music ? `♪ ${basename(media.music)}`
+  : media.final && (p.route?.steps ?? []).some((s) => s.bindings.some((b) => b.type === 'builtin' && b.tool === 'kit-film'))
+    ? '♪ trilha do motor — clique para trocar' : '+ trilha sonora';
+
+/** Trilha sonora: ouvir a atual, escolher um arquivo, gerar por código (ou outra variação) — e aplicar no vídeo final. */
 async function openMusicDialog(p: Project) {
   const moods = (await guard(() => forge.musicMoods())) ?? [];
   const mood = h('select', { id: 'mus-mood' }, ...moods.map((m) => h('option', { value: m.id }, m.label))) as HTMLSelectElement;
-  const cur = h('p', { class: 'muted', id: 'mus-cur' }, media.music ? `Trilha atual: ♪ ${basename(media.music)}` : 'Sem trilha sonora.');
-  const close = () => bg.remove();
-  const refresh = async (msg: string) => { media = await forge.projectMedia(p.id); cur.textContent = media.music ? `Trilha atual: ♪ ${basename(media.music)}` : 'Sem trilha sonora.'; toast(msg); renderEditor(true); };
+  const label = () => (media.music ? `Trilha atual: ♪ ${basename(media.music)}` : 'Sem trilha sonora ainda — escolha um arquivo ou gere por código.');
+  const cur = h('p', { class: 'muted', id: 'mus-cur' }, label());
+  const player = h('audio', { id: 'mus-player', controls: true, preload: 'metadata', class: 'mus-player' }) as HTMLAudioElement;
+  const clear = h('button', { id: 'mus-clear', class: 'danger', onclick: () => void guard(async () => { player.pause(); await forge.musicClear(p.id); await refresh('Trilha removida'); }) }, '✕ Remover trilha');
+  const close = () => { player.pause(); bg.remove(); };
+  const paint = () => {
+    cur.textContent = label();
+    if (media.music) { player.style.display = ''; player.src = `${forge.mediaUrl(media.music)}?v=${Date.now()}`; }
+    else { player.pause(); player.style.display = 'none'; player.removeAttribute('src'); }
+    clear.style.display = media.music ? '' : 'none';
+  };
+  const refresh = async (msg: string) => { media = await forge.projectMedia(p.id); paint(); toast(msg); renderEditor(true); };
+  const gen = (variant: number) => void guard(async () => {
+    busy = variant ? 'Gerando outra trilha…' : 'Gerando trilha por código…'; renderEditor(true);
+    try {
+      const f = await forge.musicCode(p.id, mood.value, variant);
+      await refresh(variant ? `Outra trilha (${mood.value}): ${basename(f)} — ouça antes de aplicar` : `Trilha gerada: ${basename(f)} — ouça antes de aplicar`);
+      player.play().catch(() => undefined);
+    } finally { busy = ''; renderEditor(true); }
+  });
   const apply = () => void guard(async () => {
     close(); busy = 'Aplicando a trilha no vídeo final…'; renderEditor(true);
     try { const r = await forge.applyMusic(p.id); if (!r.ok) toast(r.error ?? 'falhou', true); else toast(r.message ? `Vídeo final atualizado: ${r.message}` : 'Vídeo final renderizado com a trilha'); }
     finally { busy = ''; current = await forge.getProject(p.id); media = await forge.projectMedia(p.id); renderEditor(true); }
   });
+  const applyNote = !p.scenes.length && (p.route?.steps ?? []).some((s) => s.bindings.some((b) => b.type === 'builtin' && b.tool === 'kit-film'))
+    ? 'Aplicar regera o filme com a trilha escolhida a partir do storyboard já escrito: o storyboard e os efeitos sonoros das cenas não mudam (pode levar alguns minutos, o tempo do render).'
+    : p.scenes.length ? 'Aplicar remonta o vídeo final com a trilha (as cenas não são refeitas).'
+      : 'Aplicar remixa o vídeo final na hora: a animação fica como está (se o vídeo não tem narração, o áudio antigo do motor sai e entra só esta trilha).';
   const bg = h('div', { class: 'modal-bg', id: 'music-modal', onclick: (e) => { if (e.target === bg) close(); } },
     h('div', { class: 'modal regenbox' },
       h('div', { class: 'row' }, h('h3', {}, '🎵 Trilha sonora'), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
-      cur,
+      cur, player,
       h('div', { class: 'row' },
-        h('button', { id: 'mus-pick', title: 'mp3, wav, m4a, ogg, flac ou aac — a cópia fica na pasta do projeto', onclick: () => void guard(async () => { const f = await forge.musicPick(p.id); if (f) await refresh(`Trilha trocada: ${basename(f)}`); }) }, '📁 Escolher arquivo…'),
-        media.music ? h('button', { id: 'mus-clear', class: 'danger', onclick: () => void guard(async () => { await forge.musicClear(p.id); await refresh('Trilha removida'); }) }, '✕ Remover trilha') : null),
+        h('button', { id: 'mus-pick', title: 'mp3, wav, m4a, ogg, flac ou aac — a cópia fica na pasta do projeto', onclick: () => void guard(async () => { const f = await forge.musicPick(p.id); if (f) await refresh(`Trilha trocada: ${basename(f)} — ouça antes de aplicar`); }) }, '📁 Escolher arquivo…'),
+        clear),
       h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Gerar por código (sem internet, duração do vídeo)', mood),
-        h('button', { id: 'mus-gen', onclick: () => void guard(async () => {
-          busy = 'Gerando trilha por código…'; renderEditor(true);
-          try { const f = await forge.musicCode(p.id, mood.value); await refresh(`Trilha gerada: ${basename(f)}`); } finally { busy = ''; renderEditor(true); }
-        }) }, '🎼 Gerar')),
+        h('button', { id: 'mus-gen', onclick: () => gen(0) }, '🎼 Gerar'),
+        h('button', { id: 'mus-gen2', title: 'Outra trilha do mesmo clima (progressão e andamento diferentes)', onclick: () => gen(1 + Math.floor(Math.random() * 24)) }, '🎲 Gerar outra')),
       h('label', { class: 'inline chk', title: 'Ao produzir (ou refazer a etapa de trilha), a trilha sai por código em vez da IA/biblioteca da rota' },
         h('input', { type: 'checkbox', id: 'mus-code-auto', checked: !!p.codeMusic, onchange: (e: Event) => void guard(async () => {
           current = await forge.updateProject(p.id, { codeMusic: (e.target as HTMLInputElement).checked });
           toast((e.target as HTMLInputElement).checked ? 'A produção vai gerar a trilha por código' : 'A produção volta a usar a trilha da rota');
         }) }), '🎼 Sempre gerar a trilha por código neste projeto'),
-      h('p', { class: 'muted' }, p.scenes.length ? 'Aplicar remonta o vídeo final com a trilha (as cenas não são refeitas).' : 'Aplicar remixa o vídeo final na hora: a animação e os efeitos sonoros ficam como estão.'),
+      h('p', { class: 'muted' }, applyNote),
       h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { onclick: close }, 'Fechar'),
         h('button', { class: 'primary', id: 'mus-apply', disabled: !media.final && !p.scenes.length, onclick: apply }, '✔ Aplicar no vídeo final'))));
   document.body.append(bg);
+  paint();
 }
 
 /** Variação: novo projeto a partir deste, trocando skill/estilo, rota, formato, idioma ou duração. */
@@ -2940,7 +2965,7 @@ function timelineLegacy(p: Project): HTMLElement {
   });
   {
     const span = (p.scenes.length ? total : p.targetDurationSec || 10) * pxPerSec;
-    const m = h('div', { class: `bar m${media.music ? '' : ' empty'}`, 'data-act': 'music-bar', title: 'Clique para adicionar, trocar ou gerar a trilha sonora', onclick: () => void openMusicDialog(p) }, media.music ? '♪ ' + basename(media.music) : '+ trilha sonora');
+    const m = h('div', { class: `bar m${media.music ? '' : ' empty'}`, 'data-act': 'music-bar', title: 'Clique para ouvir, adicionar, trocar ou gerar a trilha sonora', onclick: () => void openMusicDialog(p) }, musicBarLabel(p));
     m.style.left = '0px'; m.style.width = `${Math.max(160, span)}px`; mTrack.append(m);
   }
   const ph = h('div', { id: 'playhead', class: 'playhead' }, h('span', { class: 'ph-knob' }));
@@ -3112,7 +3137,7 @@ function timeline(p: Project): HTMLElement {
   });
   {
     const span = (p.scenes.length ? total : p.targetDurationSec || 10) * pxPerSec;
-    const m = h('div', { class: `bar m${media.music ? '' : ' empty'}`, 'data-act': 'music-bar', title: 'Clique para adicionar, trocar ou gerar a trilha sonora', onclick: () => void openMusicDialog(p) }, media.music ? '♪ ' + basename(media.music) : '+ trilha sonora');
+    const m = h('div', { class: `bar m${media.music ? '' : ' empty'}`, 'data-act': 'music-bar', title: 'Clique para ouvir, adicionar, trocar ou gerar a trilha sonora', onclick: () => void openMusicDialog(p) }, musicBarLabel(p));
     m.style.left = '0px'; m.style.width = `${Math.max(160, span)}px`; mTrack.append(m);
   }
   const ph = h('div', { id: 'playhead', class: 'playhead' }, h('span', { class: 'ph-knob' }));

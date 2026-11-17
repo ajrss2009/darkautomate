@@ -18,7 +18,7 @@ import { decodeMono, hexColor, isAppVisualizer, visualizerBox, writeVisualizer }
 import { applyH3Choice, h3Family } from './h3accel';
 import { frameEditPrompt, prepareViggleSource, VIGGLE_MODEL, viggleInputs, viggleMode, viggleprompt } from './viggle';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
-import { buildFreeBase, applyFreeSoundtrack } from './soundtrack';
+import { buildFreeBase, applyFreeSoundtrack, musicFile } from './soundtrack';
 import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, primaryFileFor, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
 import { fetchForScene } from './stock';
 import { orderStockSources } from '../shared/stock-sources';
@@ -2775,8 +2775,11 @@ async function kitFilm(c: ExecContext): Promise<ExecResult> {
   const py = pyFilm.pythonOf(c.settings);
   pyFilm.ensurePythonDeps(py, c.log);
   const file = path.join(c.outDir, 'final.mp4');
+  /* trilha escolhida/gerada no editor: o motor usa ela (e mantém os efeitos sonoros das cenas) */
+  const chosen = musicFile(c.outDir);
+  if (chosen) c.log(`trilha do editor: ${path.basename(chosen)} (no lugar do score do motor)`);
   c.log(`motor do kit: ${path.relative(k.root, k.render)} → ${path.basename(file)}`);
-  await pyFilm.runPythonFilm(py, k, story, file, { ffmpeg: c.settings.ffmpeg, res: c.project.aspect === '16:9' ? 1080 : 720, sheet: path.join(c.outDir, 'storyboard-sheet.jpg'), signal: c.signal, log: c.log });
+  await pyFilm.runPythonFilm(py, k, story, file, { ffmpeg: c.settings.ffmpeg, res: c.project.aspect === '16:9' ? 1080 : 720, sheet: path.join(c.outDir, 'storyboard-sheet.jpg'), music: chosen, signal: c.signal, log: c.log });
   if (!fs.existsSync(file)) throw new Error('o motor do kit não gravou o vídeo');
   return { files: [file] };
 }

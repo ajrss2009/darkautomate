@@ -188,7 +188,7 @@ contextBridge.exposeInMainWorld('forge', {
   musicPick: (id: string) => call('project:music-pick', id),
   musicClear: (id: string) => call('project:music-clear', id),
   musicMoods: () => call('project:music-moods'),
-  musicCode: (id: string, mood: string) => call('project:music-code', id, mood),
+  musicCode: (id: string, mood: string, variant?: number) => call('project:music-code', id, mood, variant ?? 0),
   applyMusic: (id: string) => call('project:apply-music', id),
   attachPick: (mode: 'files' | 'folder') => call('attach:pick', mode),
   /** caminho real de um arquivo arrastado para a janela (arrastar e soltar no Novo projeto) */

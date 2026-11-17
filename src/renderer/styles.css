@@ -454,6 +454,8 @@ main.ed .ed-top .inspector { overflow:auto; min-height:0; padding-right:4px; }
 .vigdot { background:radial-gradient(circle, #ddd 30%, #222 95%); }
 .tadd { padding:0 6px; height:16px; line-height:14px; font-size:12px; border-radius:6px; margin-left:4px; }
 .regenbox { width:min(620px, 94vw); }
+/* trilha sonora no editor: o player da faixa atual (ouvir antes de aplicar) */
+.mus-player { width:100%; height:36px; margin:2px 0 8px; }
 .regensteps { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
 #pv-play.tbtn.play { min-width:28px; width:28px; padding:0; border-color:transparent; }
 

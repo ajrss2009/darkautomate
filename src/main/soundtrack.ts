@@ -84,13 +84,21 @@ export async function buildFreeBase(s: Settings, outDir: string, seconds: number
 /**
  * final.mp4 = final.base.mp4 + trilha (out/music.*) no volume do projeto. Sem trilha (ou no mudo), a base.
  * Projeto livre antigo, sem base: a base passa a ser o final.mp4 atual (com faixa de silêncio se for mudo).
+ * `replaceAudio`: o vídeo já tem áudio (trilha embutida pelo motor, sem narração) — esse áudio SAI e entra só a
+ * trilha escolhida, senão a nova trilha ficaria misturada com a antiga e o vídeo pareceria "não mudar".
  */
-export async function applyFreeSoundtrack(s: Settings, p: Pick<Project, 'musicVolume'>, outDir: string, signal?: AbortSignal): Promise<string> {
+export async function applyFreeSoundtrack(s: Settings, p: Pick<Project, 'musicVolume'>, outDir: string, signal?: AbortSignal, o: { replaceAudio?: boolean } = {}): Promise<string> {
   const final = path.join(outDir, 'final.mp4'), base = baseFile(outDir);
+  let replaced = false;
   if (!fs.existsSync(base)) {
     if (!fs.existsSync(final)) throw new Error('o projeto ainda não tem vídeo final — execute a rota primeiro');
     const tmp = path.join(outDir, 'final.base.part.mp4');
-    if (await hasAudio(s.ffprobe, final)) fs.copyFileSync(final, tmp);
+    const withAudio = await hasAudio(s.ffprobe, final);
+    /* áudio antigo embutido (trilha do motor do kit, sem narração): vira base sem áudio */
+    if (withAudio && o.replaceAudio) {
+      await ff.run(s.ffmpeg, ['-y', '-i', final, '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', tmp], signal);
+      replaced = true;
+    } else if (withAudio) fs.copyFileSync(final, tmp);
     else await ff.run(s.ffmpeg, ['-y', '-i', final, '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', tmp], signal);
     replace(tmp, base);
   }
@@ -100,15 +108,16 @@ export async function applyFreeSoundtrack(s: Settings, p: Pick<Project, 'musicVo
   if (music && vol > 0) {
     await ff.mixMusic(s.ffmpeg, base, music, tmp, signal, vol);
     replace(tmp, final);
-    return `trilha ${path.basename(music)} a ${Math.round(vol * 100)}%`;
+    return `trilha ${path.basename(music)} a ${Math.round(vol * 100)}%${replaced ? ' (o áudio antigo do vídeo saiu)' : ''}`;
   }
   fs.copyFileSync(base, final);
   return music ? 'trilha no mudo' : 'sem trilha';
 }
 
-/** Trilha gerada por código (mgaudio ou sintetizador interno) com a duração do vídeo; substitui a atual. */
-export async function generateMusic(s: Settings, outDir: string, mood: Mood | string, seconds: number, log: (l: string) => void, signal?: AbortSignal): Promise<string> {
-  const r = await renderCodeMusic(s, { mood, duration: Math.round((seconds + 0.5) * 100) / 100, out: path.join(outDir, 'music.next.wav'), signal, log });
+/** Trilha gerada por código (mgaudio ou sintetizador interno) com a duração do vídeo; substitui a atual.
+ *  `variant` (1, 2, 3…) é outra trilha do mesmo clima — "Gerar outra" no editor; sem ele, a de sempre. */
+export async function generateMusic(s: Settings, outDir: string, mood: Mood | string, seconds: number, log: (l: string) => void, signal?: AbortSignal, variant = 0): Promise<string> {
+  const r = await renderCodeMusic(s, { mood, duration: Math.round((seconds + 0.5) * 100) / 100, out: path.join(outDir, 'music.next.wav'), variant, signal, log });
   const f = setMusic(outDir, r.file)!;
   fs.rmSync(r.file, { force: true });
   return f;

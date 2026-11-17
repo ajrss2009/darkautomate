@@ -344,6 +344,26 @@ library/music/
 
 A etapa `music` aceita `params.file` para escolher um arquivo específico. O volume padrão é `0.15` (15%).
 
+#### Trocar a trilha no editor
+
+Na linha do tempo, clique na faixa **A2 música** (ou na barra da trilha) — abre a janela da trilha com:
+
+- **player da trilha atual** (ouça antes de decidir; o arquivo é `out/music.*` do projeto);
+- **📁 Escolher arquivo…** (mp3, wav, m4a, ogg, flac, aac — a cópia fica na pasta do projeto);
+- **🎼 Gerar** (trilha por código, offline, com a duração do vídeo) e **🎲 Gerar outra** (outra trilha do mesmo
+  clima: a progressão, o tom e o andamento mudam — sem isso o sintetizador devolvia sempre a mesma música);
+- **✕ Remover trilha** e **✔ Aplicar no vídeo final**.
+
+O que o **Aplicar** faz depende do projeto:
+
+| projeto | o que acontece |
+| --- | --- |
+| com cenas (etapa `music` + `edit`) | remonta o vídeo final com a trilha nova — as cenas não são refeitas |
+| filme de kit com motor Python (ex.: `kaz-short-films`) | o motor regera o MP4 a partir do storyboard já escrito usando `--music` (o storyboard não muda e os efeitos sonoros das cenas continuam) |
+| vídeo livre, sem cenas | remixa na hora; se o vídeo não tem narração, o áudio que o motor havia embutido sai e entra só a trilha escolhida |
+
+A trilha escolhida no editor fica marcada em `out/music-source.json` (`by: "user"`): regerar o vídeo não a substitui.
+
 ### Relatório
 
 - `projects/RELATORIO-GTA6-QUALITY.md`

@@ -7,6 +7,7 @@ import * as st from '../main/soundtrack';
 import { defaultSettings } from '../main/settings';
 import { dedupeDestructuring, importBareLibNames, preferLibRigs, rigRule, ensureForgeContract, ensureSfxExport, extractHtmlPage, freeSkeleton, FREE_SFX_RULE, mergeShortCodeScenes, codeSceneCount } from '../main/prompts';
 import { adoptPlugins, autoStyle, pluginsRoot, setAppPluginsDir } from '../main/plugins';
+import { synthExpr } from '../main/codemusic';
 
 const audioStreams = (f: string) => execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', f]).toString().trim();
 const volumeOf = (f: string) => Number(/mean_volume: (-?[\d.]+) dB/.exec(spawnSync('ffmpeg', ['-hide_banner', '-i', f, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' }).stderr)?.[1] ?? NaN);
@@ -85,6 +86,24 @@ async function main() {
   assert.match(await st.applyFreeSoundtrack(s, {}, old), /trilha/);
   assert.ok(fs.existsSync(st.baseFile(old)) && audioStreams(path.join(old, 'final.mp4')));
   await assert.rejects(st.applyFreeSoundtrack(s, {}, path.join(dir, 'vazio')), /ainda não tem vídeo final/);
+  /* filme do kit (trilha embutida no vídeo, sem narração): applyFreeSoundtrack com replaceAudio TROCA o áudio
+     antigo pela trilha — sem isso a trilha nova ficava misturada com a antiga e o vídeo não mudava */
+  const kit = path.join(dir, 'kit'); fs.mkdirSync(kit);
+  execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'testsrc=s=320x180:r=30:d=2', '-f', 'lavfi', '-i', 'sine=f=220:d=2', '-pix_fmt', 'yuv420p', '-shortest', path.join(kit, 'final.mp4')], { stdio: 'ignore' });
+  st.setMusic(kit, song);
+  const replaced = await st.applyFreeSoundtrack(s, {}, kit, undefined, { replaceAudio: true });
+  assert.match(replaced, /trilha music\.mp3 a 5% \(o áudio antigo do vídeo saiu\)/);
+  assert.ok(audioStreams(path.join(kit, 'final.mp4')) && fs.existsSync(st.baseFile(kit)), 'base sem o áudio antigo + trilha no final');
+  /* sem replaceAudio (vídeo com narração): o áudio atual vira a base e a trilha é somada */
+  const keep = path.join(dir, 'keep'); fs.mkdirSync(keep);
+  fs.copyFileSync(path.join(kit, 'final.mp4'), path.join(keep, 'final.mp4'));
+  st.setMusic(keep, song);
+  assert.equal(await st.applyFreeSoundtrack(s, {}, keep), 'trilha music.mp3 a 5%');
+  /* "Gerar outra": a variação muda a trilha por código; sem variação, a mesma de sempre */
+  const synth = { bpm: 100, chords: [[220, 261.63, 329.63], [174.61, 220, 261.63]], kick: true, hat: true, arp: true };
+  assert.equal(synthExpr(synth, 0), synthExpr(synth), 'sem variação: determinística');
+  assert.notEqual(synthExpr(synth, 1), synthExpr(synth, 0), 'variação 1 é outra trilha');
+  assert.notEqual(synthExpr(synth, 2), synthExpr(synth, 1), 'variação 2 é outra trilha');
 
   /* plugins na pasta do app: cópia do que falta, a pasta antiga fica */
   const oldP = path.join(dir, 'ws', 'plugins'), appP = path.join(dir, 'app', 'plugins');

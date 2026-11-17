@@ -89,6 +89,7 @@ import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPending
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
 import { ensureMgAudio, findMgAudio, mgVenvPython, renderCodeMusic, MOODS, MOOD_LABEL } from './codemusic';
+import { detectPythonFilm, ensurePythonDeps, pythonOf, runPythonFilm } from './python-film';
 import { deriveProject, type DeriveInput } from './derive';
 import { voicePreview, type VoicePreviewInput } from './voice-preview';
 import { languageName } from './prompts';
@@ -2434,19 +2435,46 @@ function registerIpc() {
   h('project:attachment', (id: string, file: string, patch: Parameters<typeof attachments.updateAttachment>[2]) => withProject(id, (p) => { attachments.updateAttachment(p, file, patch); }));
   h('project:music-clear',(id: string) => { idle(id); soundtrack.setMusic(path.join(projectDirOf(settings, id), 'out'), null); return true; });
   h('project:music-moods', () => MOODS.map((m) => ({ id: m, label: MOOD_LABEL[m] })));
-  h('project:music-code', async (id: string, mood: string) => {
+  /* `variant` (1, 2, 3…) = outra trilha do mesmo clima: "Gerar outra" no editor não devolve a mesma música */
+  h('project:music-code', async (id: string, mood: string, variant = 0) => {
     idle(id);
     const p = ops.readProject(settings, id), out = path.join(projectDirOf(settings, id), 'out');
     const final = path.join(out, 'final.mp4');
     const secs = fs.existsSync(final) ? await ff.duration(settings.ffprobe, final).catch(() => 0) : 0;
-    return soundtrack.generateMusic(settings, out, mood, secs > 0 ? secs : p.targetDurationSec || 60, (l) => console.log(l));
+    return soundtrack.generateMusic(settings, out, mood, secs > 0 ? secs : p.targetDurationSec || 60, (l) => console.log(l), undefined, Math.max(0, Math.trunc(Number(variant) || 0)));
   });
-  /** Vídeo livre (sem cenas): remixa final.base.mp4 + trilha na hora. Com cenas: a montagem refaz o final. */
+  /** Vídeo livre (sem cenas): remixa final.base.mp4 + trilha na hora. Com cenas: a montagem refaz o final.
+   *  Filme de kit com motor Python (ex.: kaz-short-films): o motor regera o MP4 com a trilha escolhida a partir do
+   *  storyboard já escrito — o storyboard NÃO muda, os efeitos sonoros das cenas continuam e a trilha antiga sai. */
   h('project:apply-music', async (id: string) => {
     idle(id);
     const p = ops.readProject(settings, id);
+    const out = path.join(projectDirOf(settings, id), 'out');
+    const music = soundtrack.musicFile(out);
+    const film = (p.route?.steps ?? []).find((s) => s.bindings.some((b) => b.type === 'builtin' && b.tool === 'kit-film'));
+    const kitId = p.skill?.kitId ?? p.skill?.plugins?.[0];
+    const story = path.join(out, 'story.json');
+    if (film && kitId && fs.existsSync(story)) {
+      const k = detectPythonFilm(path.join(pluginsRoot(settings), kitId));
+      if (k) {
+        if (!music) return { ok: false, error: 'este filme é renderizado pelo motor do kit: escolha um arquivo ou gere uma trilha antes de aplicar' };
+        const py = pythonOf(settings);
+        const tmpOut = path.join(out, 'final.music.mp4');
+        try {
+          ensurePythonDeps(py, (l) => console.log(l));
+          await runPythonFilm(py, k, story, tmpOut, { ffmpeg: settings.ffmpeg, res: p.aspect === '16:9' ? 1080 : 720, music, log: (l) => console.log(`[trilha] ${l}`) });
+          /* só troca o final quando o render terminou (um erro no meio não pode destruir o vídeo atual) */
+          const finalFile = path.join(out, 'final.mp4');
+          try { fs.renameSync(tmpOut, finalFile); } catch { fs.copyFileSync(tmpOut, finalFile); fs.rmSync(tmpOut, { force: true }); }
+        } catch (e) { fs.rmSync(tmpOut, { force: true }); return { ok: false, error: (e as Error).message }; }
+        return { ok: true, message: music ? `filme regerado com a trilha ${path.basename(music)}` : 'filme regerado com a trilha do motor' };
+      }
+    }
     if (p.scenes.length) return startRun(id, { stepIds: finalizeSteps(p, [], true) }, true);
-    const msg = await soundtrack.applyFreeSoundtrack(settings, p, path.join(projectDirOf(settings, id), 'out'));
+    /* sem narração, o áudio que está no vídeo é só trilha/efeitos do motor: a trilha nova SUBSTITUI (senão ficaria
+       misturada com a antiga e o vídeo pareceria não mudar) */
+    const hasNarration = p.scenes.some((s) => !!s.narration?.trim()) || fs.existsSync(path.join(out, 'narration.stem.wav'));
+    const msg = await soundtrack.applyFreeSoundtrack(settings, p, out, undefined, { replaceAudio: !hasNarration });
     return { ok: true, message: msg };
   });
   h('project:open-folder', (id: string) => shell.openPath(projectDirOf(settings, id)));

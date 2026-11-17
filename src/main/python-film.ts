@@ -97,8 +97,9 @@ export function ensurePythonDeps(python: string, log: (l: string) => void): void
   if (!ok()) throw new Error(`o motor do kit precisa de Pillow e numpy no Python (${python}): ${(r.stderr || r.stdout || '').trim().split('\n').slice(-2).join(' ')}`);
 }
 
-/** Roda o motor do kit: storyboard → MP4 (ffmpeg do app no PATH). */
-export function runPythonFilm(python: string, k: PythonFilm, story: string, out: string, o: { ffmpeg: string; res?: number; sheet?: string; signal?: AbortSignal; log: (l: string) => void }): Promise<void> {
+/** Roda o motor do kit: storyboard → MP4 (ffmpeg do app no PATH). `music` troca a trilha gerada pela escolhida
+ *  no editor (o motor mantém os efeitos sonoros das cenas). */
+export function runPythonFilm(python: string, k: PythonFilm, story: string, out: string, o: { ffmpeg: string; res?: number; sheet?: string; music?: string; signal?: AbortSignal; log: (l: string) => void }): Promise<void> {
   const env = { ...process.env, PATH: `${path.dirname(o.ffmpeg)}${path.delimiter}${process.env['PATH'] ?? ''}`, PYTHONIOENCODING: 'utf-8',
     /* modo UTF-8: no Windows o open() do motor lia o storyboard como cp1252 e os acentos saíam "VocÃª" */
     PYTHONUTF8: '1' };
@@ -113,7 +114,7 @@ export function runPythonFilm(python: string, k: PythonFilm, story: string, out:
   });
   return (async () => {
     if (o.sheet) { try { await run([story, '--sheet', o.sheet]); } catch (e) { o.log(`folha de contato: ${(e as Error).message.slice(0, 160)}`); } }
-    await run([story, '-o', out, '--res', String(o.res ?? 720)]);
+    await run([story, '-o', out, '--res', String(o.res ?? 720), ...(o.music ? ['--music', o.music] : [])]);
   })();
 }
 
