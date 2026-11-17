@@ -2525,6 +2525,9 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
     const timing = writeLyricsTiming(c, path.join(c.outDir, 'music.words.json'), dur, parsedTitleOf(c));
     return { files: [dest, ...(lyrics ? [lyrics] : []), ...(timing ? [timing] : [])] };
   }
+  /* CANÇÃO GERADA (sem música no projeto): apaga a letra de uma faixa antiga para o roteiro/plano não lerem a
+     transcrição de outra música — aqui a letra vem do script.md (seção LYRICS) e os tempos do songTiming */
+  for (const f of ['music.lyrics.md', 'music.words.json', 'lyrics-timing.json']) { try { fs.rmSync(path.join(c.outDir, f), { force: true }); } catch { /* nada */ } }
   const md = fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8');
   const parsed = parseLyricScript(md);
   if (!parsed.blocks.length) throw new Error('script.md sem letra (seção LYRICS:)');
