@@ -618,8 +618,9 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
          câmera dentro de objetos, pés afundando/flutuando, enquadramento */
       const page3d = !!done.files[0] && /\.mp4$/i.test(done.files[0]) && sceneReview.is3dScene(fs.readFileSync(file, 'utf8'));
       if (page3d) {
+        const res = ff.resolution(c.project.aspect);
         const v = await sceneReview.reviewScene3d(c.settings, c.binding.type === 'harness' ? [c.binding, ...pyFilm.textBindingsOf(c.project.route)] : pyFilm.textBindingsOf(c.project.route), done.files[0]!, path.dirname(file),
-          [c.scene?.title, c.scene?.visualIntent].filter(Boolean).join(' — '), c.signal, c.log).catch(() => undefined);
+          [c.scene?.title, c.scene?.visualIntent].filter(Boolean).join(' — '), c.signal, c.log, { aspect: c.project.aspect, width: res.w, height: res.h }).catch(() => undefined);
         if (v) issues = [...issues, ...v];
       }
       if (!measured && !page3d) return done;
@@ -639,7 +640,7 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       const stop = watchOutputs(cwd, c.log);
       let r: Awaited<ReturnType<typeof runHarness>>;
       const beforeFraming = (() => { try { return fs.statSync(file).mtimeMs; } catch { return 0; } })();
-      try { r = await runHarness(cfg, { cwd, prompt: (measured ? framingFixPrompt : sceneReview.reviewFixPrompt)(path.relative(cwd, file).split(path.sep).join('/'), issues), model, effort, signal: c.signal, onLine: c.log, timeoutSec: Math.max(120, Math.floor((left - renderMs) / 1000)), env,
+      try { r = await runHarness(cfg, { cwd, prompt: (measured ? framingFixPrompt : (rel: string, list: string[]) => sceneReview.reviewFixPrompt(rel, list, { aspect: c.project.aspect }))(path.relative(cwd, file).split(path.sep).join('/'), issues), model, effort, signal: c.signal, onLine: c.log, timeoutSec: Math.max(120, Math.floor((left - renderMs) / 1000)), env,
         tools: { roots: [c.projectDir, ...(c.sceneDir && c.sceneDir !== c.projectDir ? [c.sceneDir] : [])], allowShell: true } }); }
       finally { stop(); }
       const wroteFraming = (() => { try { return fs.statSync(file).mtimeMs > beforeFraming; } catch { return false; } })();

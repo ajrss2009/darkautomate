@@ -10,7 +10,7 @@ import { parseRange, mimeOf } from '../main/media-range';
 import { DRAMA_SKILLS } from '../main/microdrama';
 import { blockyPageProblem } from '../main/executors';
 import { schemaVocab, storyboardProblem } from '../main/python-film';
-import { is3dScene, parseReview } from '../main/scene-review';
+import { is3dScene, parseReview, reviewFixPrompt, reviewPrompt } from '../main/scene-review';
 import { musicKey, musicStale, writeMusicSource } from '../main/soundtrack';
 import { ROUTES } from '../main/presets';
 import { listSkills } from '../main/library';
@@ -157,6 +157,15 @@ Every shot has camera motion. Hold a perfectly still frame never.
   assert.equal(is3dScene("import * as THREE from 'three';"), true);
   assert.equal(is3dScene("import { avatar } from '../../../kit/blocky3d.js';"), true);
   assert.equal(is3dScene('<canvas></canvas><script>ctx.fillRect(0,0,9,9)</script>'), false);
+  /* revisor da VERTICAL: o prompt avisa da faixa segura e pede as checagens de 9:16 (corte lateral, 3+ lado a lado) */
+  const pv = reviewPrompt('review-sheet.jpg', 'Eddie na sala', { aspect: '9:16', width: 1080, height: 1920 });
+  assert.match(pv, /É VERTICAL/);
+  assert.match(pv, /linhas AMARELAS/);
+  assert.match(pv, /MAIS DE 2 PERSONAGENS LADO A LADO/);
+  assert.match(pv, /1080×1920/);
+  const ph = reviewPrompt('review-sheet.jpg', 'Eddie na sala', { aspect: '16:9', width: 1920, height: 1080 });
+  assert.ok(!/É VERTICAL/.test(ph) && !/MAIS DE 2 PERSONAGENS/.test(ph), 'na horizontal as checagens da vertical não entram');
+  assert.match(reviewFixPrompt('scenes/s01/code/scene.html', ['t≈2s: Eddie cortado'], { aspect: '9:16' }), /afastar a câmera/);
   /* trilha: escolhida à mão nunca é refeita; a da rota é refeita quando a configuração muda */
   const od = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-music-'));
   const pm = { musicStyle: 'lofi', codeMusic: true, route: { steps: [{ kind: 'music', enabled: true, bindings: [{ type: 'builtin', tool: 'music-code' }] }] } };
