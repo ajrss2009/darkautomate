@@ -788,7 +788,9 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
        out/storyboard.png — o plano inteiro numa imagem, com tempos, descrição e a imagem de cada quadro. */
     try {
       const fresh = ops.readProject(settings, id);
-      if (fresh.skill?.storyboard || fresh.storyboard?.enabled) {
+      /* skill da BIBLIOTECA (a definição atual) também vale: o projeto guarda uma cópia da skill da época */
+      const libSkill = fresh.skillId ? lib.getSkill(settings, fresh.skillId) : undefined;
+      if (fresh.skill?.storyboard || libSkill?.storyboard || fresh.storyboard?.enabled) {
         const png = await storyboardPng(id);
         emitEvent({ t: 'log', line: `🎞 storyboard em PNG: ${path.relative(projectDirOf(settings, id), png)}` });
       }
