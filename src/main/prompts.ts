@@ -962,13 +962,17 @@ export function buildPromptMarked(c: ExecContext): string {
     sceneImageText(c), sceneRigText(c),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });
+  /* CLIPE MUSICAL: o app OUVIU a música do projeto (fala e cantos transcritos com tempo em out/music.lyrics.md) */
+  const lyricsFile = path.join(c.outDir, 'music.lyrics.md');
+  const lyricsBlock = (c.step.kind === 'script' || c.step.kind === 'scene_plan' || c.step.kind === 'asset_design') && fs.existsSync(lyricsFile)
+    ? `\nMÚSICA DO PROJETO — o app ouviu a faixa e transcreveu (use esta letra e estes tempos; NÃO invente outra letra):\n${fs.readFileSync(lyricsFile, 'utf8').slice(0, 7000)}\n` : '';
   const head = `Você é um módulo de produção do FilmForge. IDIOMA do vídeo (narração, textos na tela, título, descrição): ${languageName(p.language)} (${p.language}). Aparência: ${vt?.label ?? p.videoType}. ` +
     `Formato ${p.aspect}, duração alvo ${p.targetDurationSec}s. Nível de qualidade: ${p.quality}.` +
     (p.musicStyle ? ` Estilo musical do projeto: ${p.musicStyle}.` : '') +
     (p.musicMode ? ` Música: ${p.musicMode === 'song' ? 'canção (com letra)' : 'instrumental'}.` : '') +
     (p.waveform ? ` Waveform: ${p.waveform}.` : '') +
     mixHint(p) +
-    `${mem}${skill ? '\n' + mark('skill', skill) + '\n' : ''}${plugins ? '\n' + mark('plugin', plugins) + '\n' : ''}${extra ? extra + '\n' : ''}\n` +
+    `${mem}${skill ? '\n' + mark('skill', skill) + '\n' : ''}${plugins ? '\n' + mark('plugin', plugins) + '\n' : ''}${extra ? extra + '\n' : ''}${lyricsBlock}\n` +
     `Trabalhe SOMENTE dentro do diretório atual e de ${path.dirname(file)}. Grave o resultado em: ${file}\n` +
     /* agentes (Antigravity, Claude Code, OpenCode) gastavam minutos explorando a pasta, relendo project.json, rodando git/
        powershell/python para contar palavras e abrindo backups antigos antes de escrever uma etapa de texto */

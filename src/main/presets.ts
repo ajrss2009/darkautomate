@@ -566,9 +566,17 @@ export const ROUTES: Route[] = ([
       step({ id: 'lyrics', kind: 'transcribe', label: 'Tempos da letra em cada cena', scope: 'scene', dependsOn: ['scene_plan'], bindings: [{ type: 'builtin', tool: 'lyric-words' }], retry: { max: 1, backoffMs: 500 }, timeoutSec: 120 }),
       step({ id: 'image', kind: 'image', label: 'Quadro da cena (cantor da biblioteca)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'],
         bindings: [{ type: 'wan2gp', template: 'wan2gp-image-krea2-elenco.json' }, ...imageChain] }),
-      step({ id: 'video', kind: 'video', label: 'Lipsync do cantor (MiniMax H3 Ref2VA + LoRA 4 passos)', scope: 'scene', dependsOn: ['image', 'lyrics'], onlySceneKinds: ['video'],
-        bindings: [{ type: 'wan2gp', template: 'wan2gp-h3-lipsync-4step.json' }, { type: 'wan2gp', template: 'wan2gp-h3-i2v.json' }, { type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, ...videoChain],
-        params: { videoSpeech: false }, timeoutSec: 2400, onFail: 'skip', concurrency: 1 }),
+      step({ id: 'video', kind: 'video', label: 'Cena do clipe: SnapGen Muse (10 s) → lipsync MiniMax H3 / LTX 2.3', scope: 'scene', dependsOn: ['image', 'lyrics'], onlySceneKinds: ['video'],
+        /* vídeo por IA do clipe: SnapGen (Muse, clipes de 10 s) primeiro; depois MiniMax H3 (lipsync no Wan2GP e no
+           ComfyUI, com a voz do cantor) e LTX 2.3 no Wan2GP — a rota aceita ComfyUI e Wan2GP para os dois modelos */
+        bindings: [
+          { type: 'api', provider: 'snapgen', model: 'muse-ai-video' },
+          { type: 'wan2gp', template: 'wan2gp-h3-lipsync-4step.json' },
+          { type: 'comfyui', server: 'local', workflow: 'minimax-h3-ref2v-voice.json' },
+          { type: 'wan2gp', template: 'wan2gp-ltx2-i2v.json' },
+          ...videoChain,
+        ],
+        params: { videoSpeech: false, maxClipSec: 10 }, timeoutSec: 2400, onFail: 'skip', concurrency: 1 }),
       step({ id: 'subtitles', kind: 'subtitles', label: 'Legendas da letra', scope: 'project', dependsOn: ['video'], bindings: [{ type: 'builtin', tool: 'subtitles' }] }),
       step({ id: 'edit', kind: 'edit', label: 'Montagem com a canção (volume cheio)', scope: 'project', dependsOn: ['song', 'video', 'subtitles'], bindings: [{ type: 'builtin', tool: 'assemble' }], params: { musicVolume: 1 } }),
       step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição SEO e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),

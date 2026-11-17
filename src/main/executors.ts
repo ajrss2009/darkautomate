@@ -2444,11 +2444,61 @@ export function timeLyrics(blocks: Array<{ label: string; lines: string[] }>, du
   }).filter((b) => b.lines.length);
 }
 
+/** Ouve a música do projeto (Whisper): grava a letra com tempos em out/music.lyrics.md + out/music.words.json.
+ *  Devolve o arquivo da letra (ou undefined se o Whisper não estiver disponível). */
+async function listenMusic(c: ExecContext, file: string, seconds: number, o: ExecutorOptions): Promise<string | undefined> {
+  const lyrics = path.join(c.outDir, 'music.lyrics.md');
+  try {
+    const cfg = c.settings.whisper ?? { python: 'python', model: 'small', device: 'auto' };
+    const script = path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'whisper_words.py');
+    const out = path.join(c.outDir, 'music.words.json');
+    let w;
+    try { w = await transcribe(cfg, script, file, out, c.project.language, c.signal, { prompt: 'song lyrics', noVad: false }); }
+    catch (e) {
+      if (cfg.autoInstall === false || !/faster-whisper|No module|ModuleNotFound|não foi possível executar|ENOENT|python/i.test((e as Error).message)) throw e;
+      const inst = await ensureWhisper(c.settings, { log: c.log, signal: c.signal });
+      w = await transcribe({ ...cfg, python: inst.python, device: 'cpu' }, script, file, out, c.project.language, c.signal, { prompt: 'song lyrics', noVad: false });
+    }
+    const words = w.words ?? [];
+    const rows = words.slice(0, 400).map((x) => `${x.start.toFixed(2)}-${x.end.toFixed(2)} ${x.w}`).join('\n');
+    fs.writeFileSync(lyrics, [
+      `# Letra ouvida da música do projeto (${path.basename(file)})`,
+      '',
+      `duração real: ${seconds.toFixed(2)} s · palavras: ${words.length}`,
+      '',
+      '## Letra (transcrição)',
+      '',
+      w.text.trim() || '(instrumental / sem voz detectada)',
+      '',
+      '## Palavras com tempo',
+      '',
+      rows,
+    ].join('\n'), 'utf8');
+    c.log(`música ouvida: ${w.text.trim().split(/\s+/).filter(Boolean).length} palavra(s) transcrita(s) → out/music.lyrics.md`);
+    return lyrics;
+  } catch (e) {
+    c.log(`não consegui ouvir a música (${(e as Error).message.slice(0, 140)}) — o clipe segue com a faixa e os tempos estimados`);
+    return undefined;
+  }
+}
+
 async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult> {
   const md = fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8');
   const parsed = parseLyricScript(md);
   if (!parsed.blocks.length) throw new Error('script.md sem letra (seção LYRICS:)');
   const seconds = clamp(Math.round(c.project.targetDurationSec || 120), 20, 360);
+  /* MÚSICA DO PROJETO (anexo/arquivo/pasta de músicas): a canção é ELA — o app copia para out/music.* e OUVE
+     (Whisper: letra + tempos) para o diretor montar o clipe em cima da música real. Só gera canção quando não há. */
+  const attached = musicAttachment(c.project, c.projectDir);
+  if (attached) {
+    fs.mkdirSync(c.outDir, { recursive: true });
+    const dest = path.join(c.outDir, 'music' + (path.extname(attached).toLowerCase() || '.mp3'));
+    if (path.resolve(dest) !== path.resolve(attached)) fs.copyFileSync(attached, dest);
+    const dur = (await ff.duration(c.settings.ffprobe, dest).catch(() => 0)) || seconds;
+    c.log(`música do projeto: ${path.basename(attached)} (${dur.toFixed(1)} s) — ouvindo a faixa para o clipe`);
+    const lyrics = await listenMusic(c, dest, dur, o);
+    return { files: [dest, ...(lyrics ? [lyrics] : [])] };
+  }
   /* canção no Wan2GP (ex.: ACE-Step 1.5 XL): params.template = template de música do Wan2GP; a letra e o estilo vêm do script.md */
   let tplName = String((c.step.params as Record<string, unknown>)['template'] ?? '');
   /* sem template: YuE 2 no ComfyUI; ComfyUI desligado → ACE-Step no Wan2GP (a canção não fica sem rota) */

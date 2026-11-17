@@ -1065,6 +1065,15 @@ async function renderNew() {
     h('option', { value: '' }, 'estilo do canal/skill'), ...SUB_KINDS.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
   const paintSubs = () => { const off = subsSel.value === 'off'; subsFont.disabled = off; subsKind.disabled = off; };
   subsSel.addEventListener('change', paintSubs); paintSubs();
+  /* MARCA D'ÁGUA no projeto novo (o editor continua podendo mudar): texto da marca em cima do vídeo final */
+  const wmOn = h('input', { type: 'checkbox', id: 'np-wm' }) as HTMLInputElement;
+  const wmText = h('input', { id: 'np-wm-text', class: 'grow', placeholder: '@seucanal — texto da marca d\'água' }) as HTMLInputElement;
+  const wmPos = h('select', { id: 'np-wm-pos', title: 'Onde a marca aparece' },
+    ...[['br', 'canto inferior direito'], ['bl', 'canto inferior esquerdo'], ['tr', 'canto superior direito'], ['tl', 'canto superior esquerdo'], ['center', 'centro']].map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+  const wmRow = h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Grava a marca d\'água (texto) em todo o vídeo final, como no editor' }, wmOn, '✒️ Marca d\'água'), wmText, wmPos);
+  const paintWm = () => { wmText.disabled = !wmOn.checked; wmPos.disabled = !wmOn.checked; };
+  wmOn.addEventListener('change', paintWm);
+  paintWm();
   const audioFirstCb = h('input', { type: 'checkbox', id: 'np-audio-first' }) as HTMLInputElement; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true;
   const codeMusicCb = h('input', { type: 'checkbox', id: 'np-code-music' }) as HTMLInputElement;
   /* storyboard depois do plano de cenas; com aprovação, a execução pausa até você aprovar */
@@ -1660,6 +1669,7 @@ async function renderNew() {
       name: name.value.trim(), idea: idea.value.trim(), videoType: 'custom', skillId: skill.value, routeId: route.value,
       aspect: aspect.value, targetDurationSec: Number(dsec.value) || 60, quality: quality.value, profile: profile.value, language: lang.value,
       freeEngine: npFreeEngine.value === '2d' || npFreeEngine.value === '3d' ? npFreeEngine.value : undefined,
+      watermark: wmOn.checked && wmText.value.trim() ? { enabled: true, text: wmText.value.trim(), position: wmPos.value as 'tl' | 'tr' | 'bl' | 'br' | 'center', opacity: 0.6, size: 12 } : undefined,
       thumbnailTemplate: thumbId || undefined, scriptStyle: scriptStyle.value.trim() || undefined, videoStyle: videoStyle.value.trim() || undefined,
       musicStyle: musicStyle.value.trim() || undefined, musicMode: musicMode.value as 'instrumental' | 'song', musicMinMin: Number(musMin.value) || undefined, musicMaxMin: Number(musMax.value) || undefined, musicTrackSec: Number(musTrack.value) || undefined, waveform: waveform.value as import('../shared/types').WaveformStyle, waveformColor: waveColor.value, perTrackLoop: perTrackLoop.checked,
       refScriptFile: refScript, refVideoFile: refVideo, refScriptUse: !!refScript && scriptUse.checked, attachFiles: attachFiles.length ? [...attachFiles] : undefined,
@@ -2175,7 +2185,7 @@ async function renderNew() {
         rowOf(name)!, titleBox, idea.closest('label') as HTMLElement, rowOf(skill)!, info, episodeBox, rowOf(aspect)!, titleThumbCard),
       drawer('np-g-cast', 'Elenco e voz', castSum, charsBox, castBox, voiceBox, foldBox),
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
-      drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb)),
+      drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb), wmRow),
       drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp),
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),
