@@ -89,6 +89,17 @@ Dois caminhos na aba Plugins:
 O botão **🧰 Virar skill (regras + bibliotecas)** é o caminho sem IA: cada seção literal do plugin vai para a etapa
 certa e as bibliotecas (imagens, sons, personagens, exemplos) vêm junto.
 
+#### Assets de dentro do plugin
+
+Nada do zip se perde na importação:
+
+- **imagens, modelos 3D e sons** são copiados para a **Biblioteca** do app em `library/plugins/<id>/` (com `assets.json`).
+  O cartão do plugin mostra a galeria dessas imagens e o botão **📂 Abrir a pasta dos assets**;
+- o plugin inteiro (SKILL.md, referências, `kit/`, texturas) fica na pasta de plugins e é **copiado para o projeto**
+  quando ele usa o plugin (`<projeto>/plugins/...`): as cenas por código importam as bibliotecas por caminho relativo;
+- kits (guias + pastas de assets) importados por **Skills → 📥 Importar skill / kit** vão além: registram os **sons** na
+  biblioteca de efeitos e os **personagens** na **Biblioteca**, e a biblioteca do kit é copiada para cada projeto.
+
 ### Rota
 
 A rota é o pipeline executável: lista de etapas, dependências, escopos e executores.

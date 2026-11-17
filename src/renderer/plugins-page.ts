@@ -181,8 +181,25 @@ function pluginCard(c: PluginsCtx, p: PluginInfo): HTMLElement {
       p.kit.needsLibrary ? h('button', { class: 'small primary', 'data-library': p.id, onclick: (e) => void c.guard(async () => { const b = e.currentTarget as HTMLButtonElement; b.disabled = true; b.textContent = '⏳ baixando a biblioteca (~90 MB)…'; await c.forge['pluginLibrary'](p.id); b.textContent = '⏳ gerando a prévia…'; await c.forge['pluginPreview'](p.id, true).catch(() => null); await renderPluginsPage(c); }) }, '⬇ Baixar a biblioteca de estilos') : null,
       p.kit.kind !== 'pages' && p.kit.styles.length ? h('div', { class: 'pl-chips' }, ...p.kit.styles.map((st) => h('span', { class: 'tag' }, `🎨 ${st}`))) : null,
       h('button', { class: 'small', 'data-regen': p.id, onclick: (e) => void c.guard(async () => { const b = e.currentTarget as HTMLButtonElement; b.disabled = true; b.textContent = '⏳ renderizando 3 s…'; await c.forge['pluginPreview'](p.id, true); await renderPluginsPage(c); }) }, p.preview ? '↻ Refazer prévia (3 s)' : '🎬 Gerar prévia (3 s)'))) : null;
-  return h('div', { class: 'card pl-card', 'data-plugin': p.id }, head, adaptBox(c, p), kitBox, pics, gallery, readme, plain, ...files, how, ex, req, res,
+  return h('div', { class: 'card pl-card', 'data-plugin': p.id }, head, adaptBox(c, p), assetsBox(c, p), kitBox, pics, gallery, readme, plain, ...files, how, ex, req, res,
     p.source ? h('div', { class: 'muted small' }, `origem: ${p.source}`) : null);
+}
+
+/** Assets do plugin que foram para a Biblioteca: imagens que o zip trouxe, com prévia e a pasta. */
+function assetsBox(c: PluginsCtx, p: PluginInfo): HTMLElement {
+  const box = h('div', { class: 'pl-assets', 'data-assets': p.id });
+  void (async () => {
+    try {
+      const a = (await c.forge['pluginAssets'](p.id)) as { files: string[]; folder: string };
+      if (!a?.files?.length) return;
+      box.replaceChildren(
+        h('div', { class: 'row' }, h('span', { class: 'tag done' }, `🧩 ${a.files.length} imagem(ns) do plugin na Biblioteca`),
+          h('span', { class: 'muted small grow' }, 'os assets de dentro do zip (imagens, modelos 3D e sons) são copiados para a Biblioteca do app; o projeto recebe os arquivos quando usa o plugin'),
+          h('button', { class: 'small', title: a.folder, onclick: () => void c.forge['pluginAssetsOpen'](p.id) }, '📂 Abrir a pasta dos assets')),
+        h('div', { class: 'pl-pics' }, ...a.files.slice(0, 12).map((f) => h('button', { class: 'pl-pic', title: f.split(/[\\/]/).slice(-2).join('/'), onclick: () => zoomImage(c, f, a.files) }, h('img', { src: c.forge.mediaUrl(f), alt: '', loading: 'lazy' })))));
+    } catch { /* plugin sem assets */ }
+  })();
+  return box;
 }
 
 /** Skill do ESTILO do plugin com IA: o plugin é o harness — a IA lê SKILL.md/referências/padrões e escreve a skill. */

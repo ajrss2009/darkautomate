@@ -56,6 +56,59 @@ export function pluginRootOf(dir: string): string {
   return inner.length === 1 && inner[0]!.isDirectory() ? path.join(dir, inner[0]!.name) : dir;
 }
 
+/** Assets que o plugin traz (imagens, modelos 3D, sons) — os arquivos que as cenas podem usar. */
+export interface PluginAssets { images: string[]; models: string[]; sounds: string[] }
+const IMG_RE = /\.(png|jpe?g|webp|gif|bmp|svg)$/i;
+const MODEL_RE = /\.(glb|gltf|obj|fbx|stl)$/i;
+const SOUND_RE = /\.(wav|mp3|ogg|m4a|flac|aac)$/i;
+
+/** Varre o plugin e devolve os assets (caminhos relativos à raiz do plugin). */
+export function pluginAssets(s: Settings, id: string, limit = 400): PluginAssets {
+  const root = pluginRoot(path.join(pluginsRoot(s), id));
+  const out: PluginAssets = { images: [], models: [], sounds: [] };
+  const walk = (d: string, depth: number) => {
+    if (depth > 6 || out.images.length + out.models.length + out.sounds.length > limit) return;
+    let es: fs.Dirent[] = [];
+    try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of es) {
+      if (e.name.startsWith('.') || /^(_gallery|node_modules|licenses)$/i.test(e.name)) continue;
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { walk(full, depth + 1); continue; }
+      const rel = path.relative(root, full).replace(/\\/g, '/');
+      if (IMG_RE.test(e.name)) out.images.push(rel);
+      else if (MODEL_RE.test(e.name)) out.models.push(rel);
+      else if (SOUND_RE.test(e.name)) out.sounds.push(rel);
+    }
+  };
+  walk(root, 0);
+  return out;
+}
+
+/**
+ * INSTALA OS ASSETS DO PLUGIN NA BIBLIOTECA: copia imagens, modelos 3D e sons para
+ * <workspace>/library/plugins/<id>/ (com assets.json), para ficarem disponíveis a todas as produções.
+ * Devolve a pasta e a contagem. Nada é apagado; importar de novo atualiza.
+ */
+export function installPluginAssets(s: Settings, id: string): { dir: string; images: number; models: number; sounds: number; total: number } {
+  const root = pluginRoot(path.join(pluginsRoot(s), id));
+  const found = pluginAssets(s, id);
+  const dir = path.join(s.workspace, 'library', 'plugins', id);
+  const all = [...found.images, ...found.models, ...found.sounds];
+  if (!all.length) return { dir, images: 0, models: 0, sounds: 0, total: 0 };
+  for (const rel of all) {
+    const src = path.join(root, ...rel.split('/'));
+    const dest = path.join(dir, ...rel.split('/'));
+    try {
+      if (!fs.existsSync(src) || !fs.statSync(src).isFile() || fs.statSync(src).size > 40_000_000) continue;
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+    } catch { /* arquivo ilegível: segue */ }
+  }
+  const manifest = { plugin: id, at: new Date().toISOString(), images: found.images, models: found.models, sounds: found.sounds };
+  try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'assets.json'), JSON.stringify(manifest, null, 1)); } catch { /* só marcador */ }
+  return { dir, images: found.images.length, models: found.models.length, sounds: found.sounds.length, total: all.length };
+}
+
 /**
  * Instala um plugin de QUALQUER origem: .plugin, .zip, .skill, pasta de plugin, pasta de skill solta
  * (só SKILL.md) ou link do GitHub. Skill solta vira um plugin do Claude antes de instalar.
@@ -73,14 +126,21 @@ export function installPluginAny(s: Settings, src: string, source?: string): Plu
       dir = pluginRootOf(path.join(tmp, 'x'));
     }
     try {
-      return installPluginFolder(s, dir, source ?? p);
+      const info = installPluginFolder(s, dir, source ?? p);
+      /* assets do zip (imagens, modelos, sons) vão para a Biblioteca, disponíveis a todas as produções */
+      try { const a = installPluginAssets(s, info.id); if (a.total) console.log(`assets do plugin "${info.id}" na Biblioteca: ${a.images} imagem(ns), ${a.models} modelo(s), ${a.sounds} som(ns) → ${a.dir}`); }
+      catch { /* plugin sem assets ou arquivo ilegível */ }
+      return info;
     } catch (e) {
       /* skill solta: um zip/pasta com SKILL.md e nada de plugin — vira plugin do Claude */
       const inner = pluginRootOf(dir);
       const skillMd = fs.existsSync(inner) ? fs.readdirSync(inner).find((f) => /^skill\.md$/i.test(f)) : undefined;
       if (!skillMd) throw e;
       const wrapped = wrapAsPlugin([inner], tmp);
-      return installPluginFolder(s, wrapped, source ?? p);
+      const info = installPluginFolder(s, wrapped, source ?? p);
+      try { const a = installPluginAssets(s, info.id); if (a.total) console.log(`assets do plugin "${info.id}" na Biblioteca: ${a.total} arquivo(s) → ${a.dir}`); }
+      catch { /* sem assets */ }
+      return info;
     }
   } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* pasta temporária */ } }
 }

@@ -47,7 +47,7 @@ import { kitRerender } from './kit-exec';
 import { generateSkillFromDoc, type SkillDocInput } from './skilldoc';
 import { TOOL_SPECS } from './tools';
 import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
-import { generateSkillFromPlugin, installPluginAny, type PluginSkillInput } from './plugin-skill';
+import { generateSkillFromPlugin, installPluginAny, installPluginAssets, type PluginSkillInput } from './plugin-skill';
 import { isCodeCharacter, normalizeRig, rigPreviewHtml } from './rig';
 import { drawnByCode, generateRig, makeThumb, makeMissingThumbs, type RigGenInput } from './rig-gen';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
@@ -976,7 +976,36 @@ function registerIpc() {
     return true;
   });
   /* depois de instalar, a prévia é gerada em segundo plano (o cartão mostra "gerando…") */
-  const withPreview = <T extends { id: string }>(p: T): T => { void makePreview(p.id).then(() => send({ t: 'plugins.changed' } as unknown as EngineEvent)).catch(() => {}); return p; };
+  const withPreview = <T extends { id: string }>(p: T): T => {
+    /* assets do zip (imagens, modelos 3D, sons) vão para a Biblioteca — o plugin instalado fica sem eles */
+    try {
+      const a = installPluginAssets(settings, p.id);
+      if (a.total) send({ t: 'log', line: `🧩 assets de "${p.id}" na Biblioteca: ${a.images} imagem(ns), ${a.models} modelo(s), ${a.sounds} som(ns) → ${a.dir}` } as EngineEvent);
+      makePreviewAssets(p.id, a);
+    } catch (e) { send({ t: 'log', line: `assets de "${p.id}": ${(e as Error).message.slice(0, 160)}` } as EngineEvent); }
+    void makePreview(p.id).then(() => send({ t: 'plugins.changed' } as unknown as EngineEvent)).catch(() => {});
+    return p;
+  };
+  /** galeria do cartão do plugin: as imagens que foram para a Biblioteca (vêm antes das do repositório) */
+  const previewAssets = new Map<string, string[]>();
+  const makePreviewAssets = (id: string, a: { dir: string; images: number }) => {
+    if (!a.images) return;
+    const dir = path.join(a.dir);
+    const list: string[] = [];
+    const walk = (d: string, depth: number) => {
+      if (depth > 4 || list.length >= 12) return;
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (list.length >= 12) break;
+        const full = path.join(d, e.name);
+        if (e.isDirectory()) walk(full, depth + 1);
+        else if (/\.(png|jpe?g|webp|gif)$/i.test(e.name) && fs.statSync(full).size < 6_000_000) list.push(full);
+      }
+    };
+    try { walk(dir, 0); } catch { /* pasta vazia */ }
+    if (list.length) previewAssets.set(id, list);
+  };
+  h('plugin:assets', (id: string) => ({ files: previewAssets.get(id) ?? [], folder: path.join(settings.workspace, 'library', 'plugins', id) }));
+  h('plugin:assets-open', async (id: string) => shell.openPath(path.join(settings.workspace, 'library', 'plugins', id)));
   h('plugin:preview', (id: string, force?: boolean, styleId?: string) => makePreview(id, !!force, styleId));
   h('plugin:previewing', () => [...previewing.keys()]);
   /** troca de estilo do motor do plugin: renderiza de novo os planos já escritos (sem IA); depois é só "Renderizar final" */
@@ -1021,7 +1050,10 @@ function registerIpc() {
   h('plugins:import-pack', async () => {
     const r = await dialog.showOpenDialog(win!, { title: 'Importar pacote de plugins', properties: ['openFile'], filters: [{ name: 'Pacote de plugins', extensions: ['ffplugins', 'zip'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
-    return importPluginsPack(settings, r.filePaths[0]);
+    const ids = importPluginsPack(settings, r.filePaths[0]);
+    /* os assets de cada plugin do pacote também vão para a Biblioteca */
+    for (const id of ids) { try { const a = installPluginAssets(settings, id); makePreviewAssets(id, a); } catch { /* sem assets */ } }
+    return ids;
   });
   /** Auditoria: incoerências entre skills, rotas, workflows, provedores, vozes e contas. */
   h('library:audit', (includeBuiltin = true) => auditLibrary(settings, workflowsDir(), { includeBuiltin }));

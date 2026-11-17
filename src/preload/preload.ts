@@ -175,6 +175,9 @@ contextBridge.exposeInMainWorld('forge', {
   kitRerender: (id: string) => call('kit:rerender', id),
   pluginPreviewing: () => call('plugin:previewing'),
   installPluginFile: () => call('plugins:install-file'),
+  /** assets do plugin já copiados para a Biblioteca (imagens para a galeria, pasta para abrir) */
+  pluginAssets: (id: string) => call('plugin:assets', id),
+  pluginAssetsOpen: (id: string) => call('plugin:assets-open', id),
   exportPluginsPack: () => call('plugins:export-pack'),
   importPluginsPack: () => call('plugins:import-pack'),
   pluginAudioInstall: () => call('plugin:audio-install'),
