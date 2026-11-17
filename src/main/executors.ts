@@ -2483,22 +2483,24 @@ async function listenMusic(c: ExecContext, file: string, seconds: number, o: Exe
 }
 
 async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult> {
-  const md = fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8');
-  const parsed = parseLyricScript(md);
-  if (!parsed.blocks.length) throw new Error('script.md sem letra (seção LYRICS:)');
-  const seconds = clamp(Math.round(c.project.targetDurationSec || 120), 20, 360);
-  /* MÚSICA DO PROJETO (anexo/arquivo/pasta de músicas): a canção é ELA — o app copia para out/music.* e OUVE
-     (Whisper: letra + tempos) para o diretor montar o clipe em cima da música real. Só gera canção quando não há. */
+  const seconds0 = clamp(Math.round(c.project.targetDurationSec || 120), 20, 360);
+  /* MÚSICA DO PROJETO (anexo/arquivo/pasta de músicas): a canção é ELA — não precisa de letra no script.md.
+     O app copia para out/music.* e OUVE (Whisper: letra + tempos) para o diretor montar o clipe em cima da música real.
+     Só gera canção quando não há música no projeto. */
   const attached = musicAttachment(c.project, c.projectDir);
   if (attached) {
     fs.mkdirSync(c.outDir, { recursive: true });
     const dest = path.join(c.outDir, 'music' + (path.extname(attached).toLowerCase() || '.mp3'));
     if (path.resolve(dest) !== path.resolve(attached)) fs.copyFileSync(attached, dest);
-    const dur = (await ff.duration(c.settings.ffprobe, dest).catch(() => 0)) || seconds;
+    const dur = (await ff.duration(c.settings.ffprobe, dest).catch(() => 0)) || seconds0;
     c.log(`música do projeto: ${path.basename(attached)} (${dur.toFixed(1)} s) — ouvindo a faixa para o clipe`);
     const lyrics = await listenMusic(c, dest, dur, o);
     return { files: [dest, ...(lyrics ? [lyrics] : [])] };
   }
+  const md = fs.readFileSync(path.join(c.projectDir, 'script.md'), 'utf8');
+  const parsed = parseLyricScript(md);
+  if (!parsed.blocks.length) throw new Error('script.md sem letra (seção LYRICS:)');
+  const seconds = seconds0;
   /* canção no Wan2GP (ex.: ACE-Step 1.5 XL): params.template = template de música do Wan2GP; a letra e o estilo vêm do script.md */
   let tplName = String((c.step.params as Record<string, unknown>)['template'] ?? '');
   /* sem template: YuE 2 no ComfyUI; ComfyUI desligado → ACE-Step no Wan2GP (a canção não fica sem rota) */

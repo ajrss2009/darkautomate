@@ -152,6 +152,23 @@ async function buildSheets(ffmpeg: string, file: string, projectDir: string, a: 
 }
 
 /**
+ * Grava out/music.lyrics.md (letra + palavras com tempo) a partir da transcrição da música do projeto —
+ * é o que o diretor do videoclipe "ouve" antes de planejar as cenas.
+ */
+function writeMusicLyrics(projectDir: string, file: string, wordsJson: string, log?: (l: string) => void): void {
+  try {
+    const j = JSON.parse(fs.readFileSync(wordsJson, 'utf8')) as { words?: Array<{ w: string; start: number; end: number }>; text?: string };
+    const words = Array.isArray(j.words) ? j.words : [];
+    const text = (j.text ?? words.map((x) => x.w).join(' ')).trim() || '(instrumental / sem voz detectada)';
+    const rows = words.slice(0, 600).map((x) => `${Number(x.start).toFixed(2)}-${Number(x.end).toFixed(2)} ${x.w}`).join('\n');
+    const lyrics = path.join(projectDir, 'out', 'music.lyrics.md');
+    fs.mkdirSync(path.dirname(lyrics), { recursive: true });
+    fs.writeFileSync(lyrics, `# Letra ouvida da música do projeto (${path.basename(file)})\n\n## Letra (transcrição)\n\n${text}\n\n## Palavras com tempo\n\n${rows}\n`, 'utf8');
+    log?.(`música ouvida: letra com ${words.length} palavra(s) em out/music.lyrics.md`);
+  } catch { /* só registro */ }
+}
+
+/**
  * Transcreve (uma vez) os vídeos e áudios anexados ao projeto e grava um resumo com tempos em
  * assets/user/transcripts. O roteiro passa a saber o que os vídeos dizem e o plano de cenas
  * consegue escolher o trecho (clipStart) de cada demonstração.
@@ -169,7 +186,11 @@ export async function ensureAttachmentTranscripts(o: {
     if (a.kind === 'video' && !attachmentSheets(o.projectDir, a).length) {
       await buildSheets(o.settings.ffmpeg || 'ffmpeg', file, o.projectDir, a, o.log);
     }
-    if (attachmentTranscript(o.projectDir, a)) continue;
+    if (attachmentTranscript(o.projectDir, a)) {
+      /* já transcrito (execução anterior): a música ainda precisa da letra com tempos para o videoclipe */
+      if (a.use === 'music') writeMusicLyrics(o.projectDir, file, attachmentTranscript(o.projectDir, a)!, o.log);
+      continue;
+    }
     const dir = transcriptsDir(o.projectDir);
     fs.mkdirSync(dir, { recursive: true });
     const out = path.join(dir, `${transcriptBase(a)}.words.json`);
@@ -188,6 +209,9 @@ export async function ensureAttachmentTranscripts(o: {
         w = await transcribe(cfg, script, file, out, undefined, ac);
       }
       fs.writeFileSync(path.join(dir, `${transcriptBase(a)}.txt`), wordsDigest(w, 140), 'utf8');
+      /* MÚSICA do projeto: a letra com tempos vai para out/music.lyrics.md — o roteiro e o plano de cenas do
+         videoclipe leem daqui (o diretor "ouve" a faixa antes de planejar) */
+      if (a.use === 'music') writeMusicLyrics(o.projectDir, file, out, o.log);
       o.log?.(`anexo "${a.file}": transcrição com ${w.words.length} palavras`);
       done++;
     } catch (e) {
