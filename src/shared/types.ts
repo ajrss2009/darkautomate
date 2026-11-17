@@ -284,6 +284,8 @@ export interface Skill {
    * para o próximo vídeo), conclusion (conclusão + chamada curta). Vazio = conclusion.
    */
   scriptEnding?: ScriptEnding;
+  /** gera o storyboard do plano de cenas em toda produção: out/storyboard.html + out/storyboard.png na pasta do projeto */
+  storyboard?: boolean;
   /** Diálogo com várias vozes: cada cena tem um `speaker` e o projeto define o elenco (voz por personagem). */
   multiVoice?: boolean;
   /** Critérios da etapa de revisão (review) para esta skill. */

@@ -285,6 +285,8 @@ const MUSICA_LIPSYNC: Skill = {
     metadata: 'Título com o nome da música e o clima; descrição com a letra completa e créditos (música: do projeto ou gerada por IA); 5–10 tags de gênero.',
   },
   reviewCriteria: 'Cada plano começa no tempo do verso e tem no máximo 10 s; a boca do cantor acompanha a voz; o mesmo rosto em todas as cenas; a letra da legenda é a da música; canção em volume cheio, sem narração; a marca d\'água do projeto aparece quando estiver ligada.',
+  /* esta skill SEMPRE entrega o storyboard do plano em imagem na pasta do projeto (out/storyboard.png) */
+  storyboard: true,
   appearance: 'music_lyric', routeId: 'musica-lipsync', aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'generated', mediaSources: [],
   outputStyle: '🎵 Música do projeto (ouvida e transcrita: letra + tempos) ou canção nova no ACE-Step 1.5 XL.\n🎤 Cantor da biblioteca cantando em lipsync (MiniMax H3 Ref2VA no Wan2GP/ComfyUI; fallback LTX 2.3).\n🎬 Planos de até 10 s (SnapGen Muse) começando no tempo de cada verso, na música inteira.\n🔇 Sem narração; letra como legenda; canção em volume cheio.\n🖋️ Marca d\'água/texto do projeto aplicada no final.',
 };

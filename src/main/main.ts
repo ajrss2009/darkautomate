@@ -784,6 +784,15 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
       }
     }
     if (timedOut) res = { ok: false, error: limitMsg };
+    /* STORYBOARD EM PNG na pasta do projeto: skill com storyboard (ou projeto com storyboard ligado) sempre deixa
+       out/storyboard.png — o plano inteiro numa imagem, com tempos, descrição e a imagem de cada quadro. */
+    try {
+      const fresh = ops.readProject(settings, id);
+      if (fresh.skill?.storyboard || fresh.storyboard?.enabled) {
+        const png = await storyboardPng(id);
+        emitEvent({ t: 'log', line: `🎞 storyboard em PNG: ${path.relative(projectDirOf(settings, id), png)}` });
+      }
+    } catch (e) { emitEvent({ t: 'log', line: `storyboard em PNG não gerado (${(e as Error).message.slice(0, 140)})` }); }
     return res;
   } finally {
     if (deadline) clearTimeout(deadline);
