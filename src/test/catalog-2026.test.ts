@@ -65,7 +65,8 @@ async function main() {
   assert.ok(ROUTES.some((r) => r.id === podcast.routeId), 'a rota free do podcast precisa existir no app');
   assert.ok(podRoute.steps.some((s) => s.kind === 'image' && s.scope === 'project'), 'a rota do podcast precisa de etapa de IMAGEM para escolher o modelo');
   const imageStep = podRoute.steps.find((s) => s.kind === 'image')!;
-  assert.ok(imageStep.bindings.some((b: any) => b.provider === 'snapgen' || b.type === 'wan2gp' || b.type === 'comfyui'), 'modelo de imagem configurável');
+  assert.ok(imageStep.bindings.some((b: any) => b.provider === 'snapgen' || b.type === 'wan2gp' || b.type === 'comfyui' || b.type === 'flow'), 'modelo de imagem configurável');
+  assert.ok(imageStep.bindings.some((b: any) => b.type === 'flow'), 'Google Flow disponível para gerar a imagem do podcast');
   assert.ok(podRoute.steps.find((s) => s.kind === 'free')!.dependsOn.includes(imageStep.id), 'o ramo free usa a imagem gerada');
 
   console.log('catalogo 2026 tests: OK');
