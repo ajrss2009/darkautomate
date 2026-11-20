@@ -216,6 +216,8 @@ export interface ScenePatch {
   userMedia?: string;
   transform?: { reverse?: boolean; mirror?: boolean };
   audio?: { muted?: boolean };
+  /** contrato de áudio desta cena numa mistura de skills (documentário + clipe no mesmo vídeo) */
+  audioOverride?: { contract?: 'principal' | 'narracao' | 'elenco' | 'musica' | 'silencio' };
 }
 export const FILTERS = ['none', 'bw', 'sepia', 'vivid', 'warm', 'cool', 'blur', 'cinematic', 'teal_orange', 'vintage', 'noir', 'matte', 'dramatic'];
 const ZOOMS = ['none', 'in', 'out', 'pan_left', 'pan_right', 'pan_up', 'pan_down', 'in_left', 'in_right', 'shake', 'pulse', 'drift'];
@@ -270,6 +272,10 @@ function cleanPatch(patch: ScenePatch): ScenePatch {
   if (typeof patch.durationSec === 'number' && Number.isFinite(patch.durationSec) && patch.durationSec > 0 && patch.durationSec < 3600) out.durationSec = patch.durationSec;
   if (patch.transform && typeof patch.transform === 'object') out.transform = { reverse: !!patch.transform.reverse, mirror: !!patch.transform.mirror };
   if (patch.audio && typeof patch.audio === 'object') out.audio = { muted: !!patch.audio.muted };
+  if (patch.audioOverride && typeof patch.audioOverride === 'object') {
+    const c = patch.audioOverride.contract;
+    out.audioOverride = { contract: ['principal', 'narracao', 'elenco', 'musica', 'silencio'].includes(String(c)) ? c : 'principal' };
+  }
   return out;
 }
 

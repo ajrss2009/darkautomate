@@ -1172,6 +1172,8 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .tl-menu.clipmenu { display:block; background:var(--panel); border:1px solid var(--line2); border-radius:8px; padding:4px; min-width:200px; box-shadow:0 8px 26px rgba(0,0,0,.45); }
 .tl-menu.clipmenu button { display:block; width:100%; text-align:left; background:transparent; border:0; color:var(--txt); padding:7px 9px; border-radius:5px; cursor:pointer; font-size:12px; }
 .tl-menu.clipmenu button:hover { background:var(--hover); }
+.tl-menu.clipmenu .tl-audio-contract { display:flex; align-items:center; gap:6px; padding:6px 9px; font-size:12px; color:var(--txt); }
+.tl-menu.clipmenu .tl-audio-contract select { flex:1; min-width:0; background:var(--panel); color:var(--txt); border:1px solid var(--line2); border-radius:5px; padding:4px 6px; font-size:12px; }
 .np-guided-prev .skillmedia { object-fit: contain; background:#000; }
 .np-prev-note { font-size:10px; letter-spacing:.04em; text-transform:uppercase; color:var(--mut); }
 /* faixa oculta: barra para devolver o controle (o olho da faixa some junto) */

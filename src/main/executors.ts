@@ -2194,8 +2194,9 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
       }
       const effects = autoMotion(s, params);
       const narrVol = c.project.tracks?.narration?.muted ? 0 : c.project.narrationVolume;
+      const noVoice = s.audioOverride?.contract === 'musica' || s.audioOverride?.contract === 'silencio';
       const sfxVol = c.project.tracks?.sfx?.muted ? 0 : (c.project.sfxVolume ?? SFX_DEFAULT_VOLUME);
-      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, frames, fps: PROJECT_FPS, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: sfxVol, trimStart: s.trimStart, narrationVolume: narrVol, muted: !!s.audio?.muted, mirror: !!s.transform?.mirror }, out, c.project.aspect, c.signal);
+      await ff.makeSegment(c.settings.ffmpeg, { visual, audio: sceneAudio(dir), seconds, frames, fps: PROJECT_FPS, effects, loop, sfx: sfxOk ? sfxFile : undefined, sfxVolume: sfxVol, trimStart: s.trimStart, narrationVolume: noVoice ? 0 : narrVol, muted: !!s.audio?.muted, mirror: !!s.transform?.mirror }, out, c.project.aspect, c.signal);
       segs.push({ file: out, seconds, transition: effects?.transition, transitionSec: effects?.transitionSec });
       c.log(`segmento ${s.index}/${scenes.length} ok`);
     }

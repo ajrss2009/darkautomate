@@ -686,6 +686,18 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       return { ok: true };
     }
 
+    /* audioOverride da cena: clipe/lyric não tem voz — a narração (e a transcrição) são puladas
+       para que documentário + clipe possam conviver no mesmo vídeo (catálogo pág. 35-37). */
+    if ((step.kind === 'narration' || step.kind === 'transcribe') && scene) {
+      const contract = scene.audioOverride?.contract;
+      if (contract === 'musica' || contract === 'silencio') {
+        scene.status[step.id] = 'skipped';
+        scene.artifacts[step.id] = [];
+        emit({ t: 'step.skipped', stepId: step.id, sceneId, reason: `áudio da cena = ${contract === 'musica' ? 'só música (sem voz)' : 'silenciar voz'} — contrato de áudio da cena` });
+        return { ok: true };
+      }
+    }
+
     /* fala do MiniMax H3: a voz sai do próprio vídeo (emoção e lábios juntos); o TTS fica de reserva */
     if (step.kind === 'narration' && scene && speechInVideo() && !ttsFallback.has(scene.id)) {
       scene.status[step.id] = 'skipped';

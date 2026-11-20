@@ -181,6 +181,9 @@ export interface Scene {
   transform?: { reverse?: boolean; mirror?: boolean };
   /** áudio da cena: mudo mantém a legenda e silencia a narração dela no render */
   audio?: { muted?: boolean };
+  /** audioOverride por cena (catálogo pág. 35-37): qual contrato de áudio esta cena usa numa mistura.
+   *  'principal' = herda da skill principal; 'musica'/'silencio' = sem voz (permite documentário + clipe). */
+  audioOverride?: { contract?: 'principal' | 'narracao' | 'elenco' | 'musica' | 'silencio' };
   status: Record<string, StepStatus>;
   artifacts: Record<string, string[]>;
 }

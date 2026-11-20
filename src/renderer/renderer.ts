@@ -19,7 +19,7 @@ import type { PluginStyle } from '../shared/types';
 import { WAN2GP_SMOOTH, WAN2GP_UPSCALE } from '../shared/types';
 import { helpButton } from './carousel';
 import { CATEGORIES, CATEGORY_INFO, applyExecutorProfile, applyStepBindings } from '../shared/profiles';
-import { checkSkillRoute, checkSkillMix, routeHasTool } from '../shared/compat';
+import { checkSkillRoute, checkSkillMix, routesForMix, routeHasTool } from '../shared/compat';
 import { addSegLayer, layersOf, placeSeg, segAt, segEnd, segsAt, totalOf } from '../shared/fx';
 import { SUBTITLE_FONTS, subtitleFontCss } from '../shared/subtitle-fonts';
 import { renderAgents } from './agents-ui';
@@ -1274,6 +1274,12 @@ async function renderNew() {
           h('div', {}, picked.map((s, i) => `${s.name}: ~${Math.round(secs * (shares[i] ?? 0) / 100)} s`).join(' · ')),
           ...rep.issues.map((x: string) => h('div', {}, `• ${x}`)),
           ...(rep.requiredSteps.length ? [h('div', { class: 'muted' }, `Etapas exigidas por todas: ${rep.requiredSteps.join(', ')}`)] : []),
+          (() => {
+            const cand = routesForMix(meta.routes, rep.requiredSteps)[0];
+            if (!cand) return h('div', { class: 'muted' }, 'Nenhuma rota existente produz todas as etapas exigidas pela mistura.');
+            return h('div', {}, 'Rota sugerida para A+B: ', h('strong', {}, cand.name), ' ',
+              h('button', { class: 'small', title: 'Usar esta rota no projeto', onclick: () => { route.value = cand.id; route.dispatchEvent(new Event('change', { bubbles: true })); } }, 'Usar'));
+          })(),
         );
       };
       mainPct.addEventListener('input', paintLight); dsec.addEventListener('input', paintLight); mixList.addEventListener('change', paintLight);
@@ -3128,6 +3134,14 @@ function timeline(p: Project): HTMLElement {
       h('button', { onclick: () => run({ transform: { ...(sc.transform ?? {}), reverse: !sc.transform?.reverse } }) }, `${sc.transform?.reverse ? '↺ Voltar ao normal' : '⇄ Inverter cena'}`),
       h('button', { onclick: () => run({ transform: { ...(sc.transform ?? {}), mirror: !sc.transform?.mirror } }) }, `${sc.transform?.mirror ? '↔ Tirar o espelho' : '⇋ Espelhar cena'}`),
       h('button', { onclick: () => run({ audio: { ...(sc.audio ?? {}), muted: !sc.audio?.muted } }) }, `${sc.audio?.muted ? '🔊 Ouvir o áudio da cena' : '🔇 Mutar o áudio da cena'}`),
+      h('label', { class: 'tl-audio-contract' }, '🎚 Áudio: ',
+        h('select', { title: 'audioOverride por cena — permite misturar documentário e clipe no mesmo vídeo', onchange: (ev: Event) => run({ audioOverride: { contract: (ev.target as HTMLSelectElement).value as NonNullable<Scene['audioOverride']>['contract'] } }) },
+          h('option', { value: 'principal', selected: (sc.audioOverride?.contract ?? 'principal') === 'principal' }, 'Da skill principal'),
+          h('option', { value: 'narracao', selected: sc.audioOverride?.contract === 'narracao' }, 'Narração'),
+          h('option', { value: 'elenco', selected: sc.audioOverride?.contract === 'elenco' }, 'Elenco (voz do personagem)'),
+          h('option', { value: 'musica', selected: sc.audioOverride?.contract === 'musica' }, 'Só música (sem voz)'),
+          h('option', { value: 'silencio', selected: sc.audioOverride?.contract === 'silencio' }, 'Silenciar voz')
+        )),
       h('button', { onclick: () => { m.remove(); saveTrack('video', { hidden: true }); } }, '◉ Ocultar a faixa de vídeo'));
     m.style.position = 'fixed'; m.style.left = `${ev.clientX}px`; m.style.top = `${ev.clientY}px`; m.style.zIndex = '9999';
     document.body.append(m);

@@ -6,7 +6,8 @@ import { BUILTIN_SKILLS } from '../main/skills-builtin';
 import { ROUTES } from '../main/presets';
 import { shoppingText } from '../main/publish-kit';
 import { checkSkillMix, routesForMix, familyOf } from '../shared/compat';
-import type { GeneratorProfile } from '../shared/types';
+import { updateScene } from '../main/ops';
+import type { GeneratorProfile, Project, Scene } from '../shared/types';
 
 const profile: GeneratorProfile = {
   provider: 'minimax', model_id: 'minimax-h3-2026-09-12', family_guide: '02', task_mode: 'i2v',
@@ -87,6 +88,14 @@ async function main() {
   const rMix = routesForMix(ROUTES, ['free']);
   assert.ok(rMix.some((r) => r.id === 'podcast-pip-slideshow'));
   assert.equal(routesForMix(ROUTES, ['etapa-que-nao-existe']).length, 0);
+
+  /* audioOverride por cena: o editor grava o contrato e o motors silencia a voz dessas cenas */
+  const baseScene: Scene = { id: 's1', index: 1, title: 't', narration: 'fala', visualIntent: 'v', kind: 'code', status: {}, artifacts: {} } as unknown as Scene;
+  const proj = { scenes: [baseScene], route: { steps: [] } } as unknown as Project;
+  updateScene(proj, 's1', { audioOverride: { contract: 'musica' } });
+  assert.equal(proj.scenes[0]!.audioOverride?.contract, 'musica');
+  updateScene(proj, 's1', { audioOverride: { contract: 'invalido' as never } });
+  assert.equal(proj.scenes[0]!.audioOverride?.contract, 'principal');
 
   console.log('catalogo 2026 tests: OK');
 }
