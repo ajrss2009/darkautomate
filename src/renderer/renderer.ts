@@ -19,7 +19,7 @@ import type { PluginStyle } from '../shared/types';
 import { WAN2GP_SMOOTH, WAN2GP_UPSCALE } from '../shared/types';
 import { helpButton } from './carousel';
 import { CATEGORIES, CATEGORY_INFO, applyExecutorProfile, applyStepBindings } from '../shared/profiles';
-import { checkSkillRoute, routeHasTool } from '../shared/compat';
+import { checkSkillRoute, checkSkillMix, routeHasTool } from '../shared/compat';
 import { addSegLayer, layersOf, placeSeg, segAt, segEnd, segsAt, totalOf } from '../shared/fx';
 import { SUBTITLE_FONTS, subtitleFontCss } from '../shared/subtitle-fonts';
 import { renderAgents } from './agents-ui';
@@ -1260,6 +1260,25 @@ async function renderNew() {
   };
   const mixBox = h('details', { class: 'card', id: 'np-mix' },
     h('summary', {}, h('strong', {}, '🧠 Misturar skills'), h('span', { class: 'muted small' }, ' (opcional) — várias skills no mesmo vídeo, com o percentual de tempo de cada uma')),
+    (() => {
+      const light = h('div', { class: 'muted small', id: 'np-mix-light' });
+      const paintLight = () => {
+        if (!mixRows.length) { light.replaceChildren(); return; }
+        const picked = [skill.value, ...mixRows.map((r) => r.skill.value)].map((id) => skills.find((k) => k.id === id)).filter(Boolean) as Skill[];
+        const rep = checkSkillMix(picked as never);
+        const secs = Math.max(1, Number(dsec.value) || 60);
+        const shares = [Number(mainPct.value) || 60, ...mixRows.map((r) => Number(r.pct.value) || 0)];
+        const LABEL: Record<'green' | 'yellow' | 'red', string> = { green: '🟢 compatível', yellow: '🟡 só com audioOverride por cena', red: '🔴 incompatível — o vídeo troca de língua no meio' };
+        light.replaceChildren(
+          h('strong', {}, `Semáforo: ${LABEL[rep.level]} · famílias ${rep.families.join(' + ')}`),
+          h('div', {}, picked.map((s, i) => `${s.name}: ~${Math.round(secs * (shares[i] ?? 0) / 100)} s`).join(' · ')),
+          ...rep.issues.map((x: string) => h('div', {}, `• ${x}`)),
+          ...(rep.requiredSteps.length ? [h('div', { class: 'muted' }, `Etapas exigidas por todas: ${rep.requiredSteps.join(', ')}`)] : []),
+        );
+      };
+      mainPct.addEventListener('input', paintLight); dsec.addEventListener('input', paintLight); mixList.addEventListener('change', paintLight);
+      return light;
+    })(),
     h('div', { class: 'muted small' }, 'A skill escolhida acima é a PRINCIPAL: ela define o roteiro, a voz, a trilha e as legendas. As outras entram em cenas próprias pela cota de tempo — o app confere a divisão depois do plano de cenas e o storyboard mostra a skill de cada cena. A rota precisa produzir os tipos de cena de todas (o app avisa se não).'),
     h('div', { class: 'row' }, h('label', {}, 'Skill principal (%)', mainPct), h('label', {}, 'Distribuição', mixMode), mixSum),
     mixList, h('button', { class: 'small', onclick: () => addMix() }, '＋ Adicionar skill'));

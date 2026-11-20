@@ -65,3 +65,80 @@ export function checkSkillRoute(skill: Skill | undefined, route: Route | undefin
   if (!rep.errors.length && !rep.warnings.length) rep.ok.push(`A rota produz: ${[...kinds].map((k) => KIND_PT[k]).join(', ') || 'apenas montagem'}.`);
   return rep;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * MATRIZ DE COMPATIBILIDADE ENTRE SKILLS (catálogo, parte VI — pág. 37)
+ * Seis famílias, três eixos de conflito: áudio, motor e continuidade.
+ * 🟢 mesmo contrato de áudio e motor compatível · 🟡 só com audioOverride por cena
+ * · 🔴 contratos incompatíveis — o vídeo troca de língua no meio.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type SkillFamily = 'explicativo' | 'documentario' | 'elenco' | 'clipe' | 'slideshow' | 'cartoon3d';
+export type AudioContract = 'narracao' | 'elenco' | 'musica';
+export type EngineContract = 'code' | 'image_video' | 'banco';
+
+export interface FamilyProfile {
+  family: SkillFamily; audio: AudioContract; engine: EngineContract;
+  /** só uma skill pode ser dona do elenco/cenário/figurino */
+  ownsContinuity: boolean;
+}
+
+/** Heurística pura: família + contratos a partir do skill (id/appearance/steps). */
+export function familyOf(skill: Pick<Skill, 'id' | 'appearance' | 'musicVideo' | 'multiVoice' | 'steps'>): FamilyProfile {
+  const id = String(skill.id ?? ''), ap = String(skill.appearance ?? '');
+  const steps = Object.keys(skill.steps ?? {});
+  if (skill.musicVideo || /clip|lyric|musica|musical/.test(id) || ap === 'music_lyric')
+    return { family: 'clipe', audio: 'musica', engine: steps.includes('video') ? 'image_video' : 'code', ownsContinuity: false };
+  if (skill.multiVoice || /dorama|elenco|historia|drama/.test(id))
+    return { family: 'elenco', audio: 'elenco', engine: steps.includes('video') ? 'image_video' : 'code', ownsContinuity: true };
+  if (/cartoon|cartoon_3d|code3d/.test(id + ap) || ap === 'cartoon_3d')
+    return { family: 'cartoon3d', audio: 'narracao', engine: 'code', ownsContinuity: false };
+  if (/slideshow|slide/.test(id) || ap === 'slideshow')
+    return { family: 'slideshow', audio: 'narracao', engine: 'banco', ownsContinuity: false };
+  if (/documentario|doc_netflix|realista|recon/.test(id + ap))
+    return { family: 'documentario', audio: 'narracao', engine: 'image_video', ownsContinuity: true };
+  return { family: 'explicativo', audio: 'narracao', engine: 'code', ownsContinuity: false };
+}
+
+const LED: Record<SkillFamily, Record<SkillFamily, 'green' | 'yellow' | 'red'>> = {
+  explicativo:  { explicativo: 'green',  documentario: 'green',  elenco: 'red',     clipe: 'red',     slideshow: 'green',  cartoon3d: 'green' },
+  documentario: { explicativo: 'green',  documentario: 'green',  elenco: 'yellow', clipe: 'red',     slideshow: 'green',  cartoon3d: 'yellow' },
+  elenco:       { explicativo: 'red',    documentario: 'yellow', elenco: 'green',  clipe: 'red',     slideshow: 'red',    cartoon3d: 'yellow' },
+  clipe:        { explicativo: 'red',    documentario: 'red',    elenco: 'red',    clipe: 'green',   slideshow: 'yellow', cartoon3d: 'green' },
+  slideshow:    { explicativo: 'green',  documentario: 'green',  elenco: 'red',    clipe: 'yellow',  slideshow: 'green',  cartoon3d: 'green' },
+  cartoon3d:    { explicativo: 'green',  documentario: 'yellow', elenco: 'yellow', clipe: 'green',   slideshow: 'green',  cartoon3d: 'green' },
+};
+
+export interface MixReport {
+  level: 'green' | 'yellow' | 'red';
+  families: SkillFamily[];
+  issues: string[];
+  /** etapas exigidas por todas as skills da mistura (para filtrar rotas) */
+  requiredSteps: string[];
+}
+
+/** Semáforo da mistura: auditam-se todos os pares; o pior nível vence. */
+export function checkSkillMix(skills: Array<Pick<Skill, 'id' | 'appearance' | 'musicVideo' | 'multiVoice' | 'steps'>>): MixReport {
+  const profiles = skills.map(familyOf);
+  const issues: string[] = [];
+  let level: 'green' | 'yellow' | 'red' = 'green';
+  for (let i = 0; i < profiles.length; i++) for (let j = i + 1; j < profiles.length; j++) {
+    const a = profiles[i]!, b = profiles[j]!;
+    const led = LED[a.family][b.family];
+    if (led === 'red' && level !== 'red') level = 'red';
+    if (led === 'yellow' && level === 'green') level = 'yellow';
+    if (a.audio !== b.audio) issues.push(`${a.family} (${a.audio}) + ${b.family} (${b.audio}): contratos de áudio diferentes — só com audioOverride por cena.`);
+    if (a.ownsContinuity && b.ownsContinuity) issues.push(`${a.family} e ${b.family} querem ser donas do elenco/cenário — o personagem troca de rosto entre blocos.`);
+    if (led === 'red') issues.push(`${a.family} + ${b.family}: o vídeo troca de língua no meio (use uma só ou uma rota com etapas separadas por bloco).`);
+  }
+  const required = new Set<string>();
+  for (const s of skills) for (const k of Object.keys(s.steps ?? {})) required.add(k);
+  return { level, families: profiles.map((p) => p.family), issues: [...new Set(issues)], requiredSteps: [...required] };
+}
+
+/** Rotas que contêm TODAS as etapas exigidas pela mistura. */
+export function routesForMix(routes: Route[], required: string[]): Route[] {
+  if (!required.length) return routes;
+  return routes.filter((r) => required.every((k) => on(r).some((s) => s.kind === k)));
+}
+

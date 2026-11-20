@@ -5,6 +5,7 @@ import { PROMPT_CONTRACTS, validatePromptContract, cleanNegatives, toFrames, fro
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
 import { ROUTES } from '../main/presets';
 import { shoppingText } from '../main/publish-kit';
+import { checkSkillMix, routesForMix, familyOf } from '../shared/compat';
 import type { GeneratorProfile } from '../shared/types';
 
 const profile: GeneratorProfile = {
@@ -75,6 +76,17 @@ async function main() {
   assert.match(prod, /PS5 Slim/);
   assert.match(prod, /link de afiliado/);
   assert.match(prod, /Jogo 1/);
+
+  /* semáforo da mistura de skills (catálogo pág. 37): áudio, motor e dono do elenco */
+  const sk = (id: string, o: Record<string, unknown> = {}) => ({ id, steps: {}, appearance: 'custom', ...o } as never);
+  assert.equal(checkSkillMix([sk('explicativo-codigo'), sk('slideshow')]).level, 'green');
+  const badMix = checkSkillMix([sk('dorama', { multiVoice: true }), sk('explicativo-codigo')]);
+  assert.equal(badMix.level, 'red');
+  assert.ok(badMix.issues.some((x) => /elenco|contratos de áudio/.test(x)));
+  assert.equal(familyOf(sk('musica-lipsync', { musicVideo: true })).family, 'clipe');
+  const rMix = routesForMix(ROUTES, ['free']);
+  assert.ok(rMix.some((r) => r.id === 'podcast-pip-slideshow'));
+  assert.equal(routesForMix(ROUTES, ['etapa-que-nao-existe']).length, 0);
 
   console.log('catalogo 2026 tests: OK');
 }
