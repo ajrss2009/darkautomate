@@ -355,7 +355,7 @@ const LISTA_JOGOS_AFILIADO: Skill = {
   steps: {
     script: 'Gancho em 5 s ("Esse jogo custa R$ 349 e quase ninguém lembra que ele existe."), introdução 40-60 s com o critério da lista, e um capítulo por jogo (promessa/entrega/falha/público) com frases curtas e opinião explícita. Ponte no fim de cada capítulo.',
     scene_plan: '40% stock (gameplay/trailer do link, searchTerms com nome do jogo), 30% image (comparativos, mapas, tabelas), 20% code_scene (gráficos de preço e prós/contras), 10% video IA só para o que não existe em material real. Cenas de 4-8 s, uma ideia por cena.',
-    metadata: 'Título com tema + número + torção; capítulos com timestamp por jogo; bloco "🎮 Indicados neste vídeo" com produto + URL de afiliado + "link de afiliado" na mesma linha; descrição começando com #publi e terminando com pergunta.',
+    metadata: 'Título com tema + número + torção; capítulos com timestamp por jogo; bloco "🎮 Indicados neste vídeo" com produto + URL de afiliado + "link de afiliado" na mesma linha; descrição começando com #publi e terminando com pergunta. Preencha TAMBÉM o campo "shopping" do metadata.json com [{"name","url","platform","note","chapter"}] — o app gera produtos.txt no kit de publicação. Nunca invente URL: use só links reais do pedido/canal.',
     review: 'Nota 0-10. Reprovar se faltou pró/contra de algum jogo, produto marcado não aparece no capítulo, dado inventado, #publi ausente, gancho depois de 5 s ou nenhuma pergunta no fim.',
   },
   appearance: 'custom', routeId: 'gta6-quality', aspect: '16:9', durationSec: 1080, language: 'pt-BR', presentation: 'mixed', mediaSources: ['youtube'], mixSources: ['stock', 'ai'], scriptEnding: 'next', multiVoice: false, plugins: ['youtube'],

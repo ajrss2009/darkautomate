@@ -10,9 +10,25 @@ import { readTimeline } from './timeline';
  * Gerada no fim de cada execução que termina com o final.mp4 (e pelo botão "📦 Publicar" do editor).
  */
 
+export interface ShoppingItem { name?: string; url?: string; platform?: string; note?: string; chapter?: string }
 export interface PublishMeta {
   title?: string; titleOptions?: Array<string | { title?: string; type?: string }>; description?: string;
   tags?: string[] | string; chapters?: Array<string | { time?: string; at?: number; title?: string }>; hashtags?: string[]; thumbnailText?: string;
+  /** produtos de shopping/afiliado, ligados ao capítulo em que aparecem (skill "Lista de Jogos com Afiliado") */
+  shopping?: ShoppingItem[];
+}
+
+/** Linhas de produtos do kit de publicação: nome, plataforma, URL exata e aviso de afiliado na mesma linha. */
+export function shoppingText(items: ShoppingItem[] = []): string[] {
+  const out: string[] = [];
+  let chapter = '';
+  for (const it of items) {
+    if (!it || !String(it.name ?? '').trim()) continue;
+    if (it.chapter && it.chapter !== chapter) { chapter = it.chapter; out.push('', `${chapter}:`); }
+    const bits = [String(it.name).trim(), it.platform ? `[${it.platform}]` : '', it.url ? String(it.url).trim() : '', it.note ? String(it.note).trim() : ''].filter(Boolean);
+    out.push(`- ${bits.join(' — ')}${it.url ? ' (link de afiliado)' : ''}`);
+  }
+  return out;
 }
 
 /** Nome de arquivo do Windows a partir do título (sem \ / : * ? " < > |, sem ponto final, até 120 caracteres). */
@@ -94,6 +110,8 @@ export function publishTexts(p: Pick<Project, 'name' | 'idea' | 'aspect' | 'lang
   };
   if (tags.length) out['tags.txt'] = tags.join(', ') + '\r\n';
   if (chapters.length) out['capitulos.txt'] = chapters.join('\r\n') + '\r\n';
+  const products = shoppingText(meta.shopping);
+  if (products.length) out['produtos.txt'] = ['🎮 Indicados neste vídeo', '', ...products, '', '#publi — recebo comissão pelos links marcados.'].join('\r\n') + '\r\n';
   out['LEIA-ME.txt'] = [
     `${title}`,
     '',
@@ -107,6 +125,7 @@ export function publishTexts(p: Pick<Project, 'name' | 'idea' | 'aspect' | 'lang
     '- descricao.txt: cole na descrição (já tem os capítulos);',
     tags.length ? '- tags.txt: cole no campo de tags (separadas por vírgula);' : '',
     chapters.length ? '- capitulos.txt: os capítulos com os tempos;' : '',
+    products.length ? '- produtos.txt: os produtos/afiliados por capítulo ( cole os links na descrição );' : '',
     '- legendas.srt (se houver): envie como legenda do vídeo.',
   ].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\r\n') + '\r\n';
   return out;

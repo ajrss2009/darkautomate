@@ -4,6 +4,7 @@ import { validateDisclosure, disclosureFields, disclosureGate, DEFAULT_DISCLOSUR
 import { PROMPT_CONTRACTS, validatePromptContract, cleanNegatives, toFrames, fromFrames, CLEAN_NEGATIVES } from '../main/prompt-contract';
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
 import { ROUTES } from '../main/presets';
+import { shoppingText } from '../main/publish-kit';
 import type { GeneratorProfile } from '../shared/types';
 
 const profile: GeneratorProfile = {
@@ -68,6 +69,12 @@ async function main() {
   assert.ok(imageStep.bindings.some((b: any) => b.provider === 'snapgen' || b.type === 'wan2gp' || b.type === 'comfyui' || b.type === 'flow'), 'modelo de imagem configurável');
   assert.ok(imageStep.bindings.some((b: any) => b.type === 'flow'), 'Google Flow disponível para gerar a imagem do podcast');
   assert.ok(podRoute.steps.find((s) => s.kind === 'free')!.dependsOn.includes(imageStep.id), 'o ramo free usa a imagem gerada');
+
+  /* shopping nativo: produtos viram metadata.shopping + produtos.txt no kit de publicação */
+  const prod = shoppingText([{ name: 'PS5 Slim', platform: 'Amazon BR', url: 'https://amazon/br/x', chapter: 'Jogo 1' }]).join('\n');
+  assert.match(prod, /PS5 Slim/);
+  assert.match(prod, /link de afiliado/);
+  assert.match(prod, /Jogo 1/);
 
   console.log('catalogo 2026 tests: OK');
 }
