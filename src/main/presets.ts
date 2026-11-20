@@ -451,7 +451,11 @@ export const ROUTES: Route[] = ([
     description: 'Link de podcast + minuto inicial/final + canto do PiP no campo ideia: o harness baixa o trecho com yt-dlp/ffmpeg, grava o vídeo em PiP e intercala slideshow de 8-12 s com blocos fullscreen aleatórios de 30-55 s. Crédito e link originais na descrição.',
     videoTypes: [],
     steps: [
-      step({ id: 'free', kind: 'free', label: 'Podcast PiP + Slideshow (harness)', scope: 'project',
+      /* etapa de IMAGEM explícita (escopo projeto): é aqui que o usuário escolhe o MODELO DE IMAGEM em
+         Provedores → Etapa "Imagem do slideshow". O frame gerado alimenta o slideshow do ramo free. */
+      step({ id: 'image', kind: 'image', label: 'Imagem do slideshow (modelo escolhido em Provedores)', scope: 'project', dependsOn: [],
+        bindings: [{ type: 'api', provider: 'snapgen', model: 'muse-ai-image' } as never, ...imageChain], timeoutSec: 900 }),
+      step({ id: 'free', kind: 'free', label: 'Podcast PiP + Slideshow (harness)', scope: 'project', dependsOn: ['image'],
         bindings: [{ type: 'harness', harness: 'opencode', model: 'opencode/minimax-m3.1-flash-free' } as never],
         timeoutSec: 7200, retry: { max: 1, backoffMs: 1000 } }),
     ],
