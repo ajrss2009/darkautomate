@@ -2,6 +2,8 @@
 import { validateGeneratorProfile, compileGeneratorPrompt, familyGuideText } from '../main/generator-profile';
 import { validateDisclosure, disclosureFields, disclosureGate, DEFAULT_DISCLOSURE } from '../main/disclosure';
 import { PROMPT_CONTRACTS, validatePromptContract, cleanNegatives, toFrames, fromFrames, CLEAN_NEGATIVES } from '../main/prompt-contract';
+import { BUILTIN_SKILLS } from '../main/skills-builtin';
+import { ROUTES } from '../main/presets';
 import type { GeneratorProfile } from '../shared/types';
 
 const profile: GeneratorProfile = {
@@ -52,6 +54,14 @@ async function main() {
   assert.ok(check.missing.includes('cliffhanger'));
   assert.equal(validatePromptContract('microdrama', { hook: 'x', cliffhanger: 'y', dialogue: ['a'], narrator: 'y', character_id: 'c', continuity: 'ok', durationSec: 12 }).ok, true);
   assert.equal(validatePromptContract('microdrama', { hook: 'x', cliffhanger: 'y', dialogue: ['a'], narrator: 'y', character_id: 'c', continuity: 'ok', durationSec: 12 }).frames.durationSec, 360);
+
+  /* as skills registradas do catalogo sao PADRAO do app (embutidas) e a rota free existe antes delas */
+  for (const id of ['podcast-pip-slideshow', 'lista-jogos-afiliado', 'feed-noticias-midia-mista', 'cortes-virais-lives', 'avatar-reativo-video', 'cartoon-short-studio', 'cartoon-to-real-crossover']) {
+    assert.ok(BUILTIN_SKILLS.some((s) => s.id === id), `skill padrao ausente: ${id}`);
+  }
+  const podcast = BUILTIN_SKILLS.find((s) => s.id === 'podcast-pip-slideshow')!;
+  assert.equal(podcast.freeform, true, 'skill orfa precisa de freeform para segurar a rota free');
+  assert.ok(ROUTES.some((r) => r.id === podcast.routeId), 'a rota free do podcast precisa existir no app');
 
   console.log('catalogo 2026 tests: OK');
 }

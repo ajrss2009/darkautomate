@@ -447,6 +447,16 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'podcast-pip-slideshow', name: 'Podcast PiP + Slideshow (rota free)',
+    description: 'Link de podcast + minuto inicial/final + canto do PiP no campo ideia: o harness baixa o trecho com yt-dlp/ffmpeg, grava o vídeo em PiP e intercala slideshow de 8-12 s com blocos fullscreen aleatórios de 30-55 s. Crédito e link originais na descrição.',
+    videoTypes: [],
+    steps: [
+      step({ id: 'free', kind: 'free', label: 'Podcast PiP + Slideshow (harness)', scope: 'project',
+        bindings: [{ type: 'harness', harness: 'opencode', model: 'opencode/minimax-m3.1-flash-free' } as never],
+        timeoutSec: 7200, retry: { max: 1, backoffMs: 1000 } }),
+    ],
+  },
+  {
     id: 'wan2gp-showrunner', name: 'Showrunner do Wan2GP (o diretor do Wan2GP faz tudo)',
     description: 'O Showrunner do Wan2GP (diretor Deepy Prime, LLM local) planeja as tomadas, escala o elenco, filma com os modelos instalados, revisa as tomadas e monta; o FilmForge cria a produção a partir da ideia/roteiro do projeto e traz o vídeo final. Precisa do Wan2GP com o Deepy Prime configurado; acompanhe em http://127.0.0.1:7860/showrunner/.',
     videoTypes: ['custom'],
