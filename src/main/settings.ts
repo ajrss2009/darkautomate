@@ -16,6 +16,7 @@ import { userStyleRef } from './style-ref';
 import { copyKitIntoProject } from './kit-import';
 import { normalizeMix } from './skill-mix';
 import { routeSceneKinds } from './prompts';
+import { DEFAULT_DISCLOSURE } from './disclosure';
 
 export const DEFAULT_SNAPGEN_PROVIDER: Settings['providers'][number] = {
   id: 'snapgen', kind: 'snapgen', baseUrl: 'https://api.snapgen.ai', apiKey: '',
@@ -147,6 +148,10 @@ export interface NewProjectInput {
   harnessFallback?: HarnessId[];
   /** vÃ­deo livre em 2D (Canvas + plugins) ou 3D (Three.js); indefinido = 2D, ou 3D se a ideia pede */
   freeEngine?: '2d' | '3d';
+  /** divulgação contínua (11/2026) + perfil exato do gerador (catálogo XLIV) + contrato de prompt */
+  disclosure?: import('../shared/types').Disclosure;
+  generator_profile?: import('../shared/types').GeneratorProfile;
+  prompt_format?: import('../shared/types').PromptFormat;
   /** marca d'Ã¡gua / texto de marca jÃ¡ no projeto novo (o editor continua podendo mudar) */
   watermark?: Watermark;
   /** sem reserva neste projeto (true/false vence as ConfiguraÃ§Ãµes; indefinido = padrÃ£o) */
@@ -316,6 +321,17 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
         position: (['tl', 'tr', 'bl', 'br', 'center'] as const).includes(input.watermark.position) ? input.watermark.position : 'br',
         opacity: Math.max(0.05, Math.min(1, Number(input.watermark.opacity) || 0.6)), size: Math.max(4, Math.min(60, Number(input.watermark.size) || 12)) } }
       : {}),
+    /* divulgação contínua: padrão do app quando o projeto publica (diretrizes 11/2026) */
+    disclosure: input.disclosure ? {
+      label: String(input.disclosure.label || DEFAULT_DISCLOSURE.label).slice(0, 160),
+      position_sec: Math.max(0, Math.min(2, Number(input.disclosure.position_sec ?? DEFAULT_DISCLOSURE.position_sec))),
+      visible_whole: input.disclosure.visible_whole !== false,
+      platform_tool: input.disclosure.platform_tool !== false,
+      ai_label: input.disclosure.ai_label !== false,
+      music_genai: input.disclosure.music_genai !== false,
+    } : { ...DEFAULT_DISCLOSURE },
+    generator_profile: input.generator_profile ?? undefined,
+    prompt_format: input.prompt_format ?? undefined,
     subtitles: ['off', 'srt', 'burn'].includes(String(input.subtitles)) ? input.subtitles : (s.defaults?.subtitles ?? 'off'),
     subtitleStyle: { ...DEFAULT_SUBTITLES, burn: (input.subtitles ?? s.defaults?.subtitles) === 'burn',
       ...(subtitleFontName(input.subtitleFont) ? { font: subtitleFontName(input.subtitleFont) } : {}),

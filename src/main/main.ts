@@ -48,6 +48,8 @@ import { generateSkillFromDoc, type SkillDocInput } from './skilldoc';
 import { TOOL_SPECS } from './tools';
 import { exportPluginFile, exportPluginsPack, importPluginsPack, installPluginUrl, listPlugins, pluginPrompt, pluginsRoot, removePlugin, seedBundledPlugins, setAppPluginsDir, adoptPlugins } from './plugins';
 import { generateSkillFromPlugin, installPluginAny, installPluginAssets, type PluginSkillInput } from './plugin-skill';
+import { validateGeneratorProfile, compileGeneratorPrompt } from './generator-profile';
+import { disclosureGate } from './disclosure';
 import { isCodeCharacter, normalizeRig, rigPreviewHtml } from './rig';
 import { drawnByCode, generateRig, makeThumb, makeMissingThumbs, type RigGenInput } from './rig-gen';
 import { MCP_TOOLS, createMcpServer, mcpClientConfig, mcpSetupConfigs, runMcpHttp, runMcpStdio } from './mcp';
@@ -757,6 +759,29 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
         }, 2000);
       }
     });
+    /* PRÉ-VÔO (catálogo): perfil do gerador válido (um guia de família, nunca quatro) + disclosure contínuo
+       para quem publica. Erro aqui = job não agendado, antes de gastar crédito. */
+    try {
+      if (project.generator_profile) {
+        const check = validateGeneratorProfile(project.generator_profile);
+        for (const w of check.warnings) emitEvent({ t: 'log', line: `⚠ pré-vôo gerador: ${w}` } as EngineEvent);
+        if (!check.ok) {
+          const msg = `pré-vôo do gerador falhou: ${check.errors.join('; ')}`;
+          emitEvent({ t: 'log', line: msg } as EngineEvent);
+          res = { ok: false, error: msg };
+          return res;
+        }
+      }
+      const publishes = (project.route?.steps ?? []).some((s) => s.enabled && s.kind === 'publish');
+      const gate = disclosureGate({ disclosure: project.disclosure, publishes });
+      for (const w of gate.warnings) emitEvent({ t: 'log', line: `⚠ ${w}` } as EngineEvent);
+      if (!gate.ok) {
+        const msg = gate.errors.join('; ');
+        emitEvent({ t: 'log', line: msg } as EngineEvent);
+        res = { ok: false, error: msg };
+        return res;
+      }
+    } catch (e) { emitEvent({ t: 'log', line: `pré-vôo indisponível (${(e as Error).message.slice(0, 140)})` } as EngineEvent); }
     const deps = { settings, emit: emitEvent, approve, executors: createExecutors({ workflowsDir: workflowsDir(), toolsDir: toolsDir(), renderHtml, snapHtml, kitRender: { host: kitHost, frames: renderKitFrames } }) };
     /* skill de link: abre a página da ideia no navegador invisível, lê o conteúdo e grava a rolagem (anexos web/) */
     if (project.skill?.linkCapture) {

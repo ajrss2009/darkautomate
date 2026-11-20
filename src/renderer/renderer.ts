@@ -1074,6 +1074,31 @@ async function renderNew() {
   const paintWm = () => { wmText.disabled = !wmOn.checked; wmPos.disabled = !wmOn.checked; };
   wmOn.addEventListener('change', paintWm);
   paintWm();
+  /* CATÁLOGO 11/2026: disclosure contínuo + perfil exato do gerador (um guia de família) + contrato de prompt */
+  const discLabel = h('input', { id: 'np-disc-label', class: 'grow', value: '#publi — parceria paga' }) as HTMLInputElement;
+  const discWhole = h('input', { type: 'checkbox', id: 'np-disc-whole', checked: true }) as HTMLInputElement;
+  const genOn = h('input', { type: 'checkbox', id: 'np-gen-on' }) as HTMLInputElement;
+  const genProvider = h('input', { id: 'np-gen-provider', placeholder: 'provider (minimax, byteplus…)' }) as HTMLInputElement;
+  const genModel = h('input', { id: 'np-gen-model', class: 'grow', placeholder: 'ID EXATO do modelo — não use Fast/Pro/Mini/Developer' }) as HTMLInputElement;
+  const selectNp = (id: string, items: Array<[string, string]>) => h('select', { id }, ...items.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+  const genFamily = selectNp('np-gen-family', [['01', '01 · Seedance'], ['02', '02 · MiniMax/Wan/HappyHorse'], ['03', '03 · Google/Veo'], ['04', '04 · Kling/Grok/Vidu/BACH']]);
+  const genTask = selectNp('np-gen-task', [['i2v', 'i2v'], ['t2v', 't2v'], ['r2v', 'r2v'], ['first_last', 'first/last'], ['edit', 'edição']]);
+  const genRes = selectNp('np-gen-res', [['1080p', '1080p'], ['720p', '720p'], ['4K', '4K']]);
+  const genAudio = selectNp('np-gen-audio', [['post', 'montado na pós'], ['native', 'nativo do modelo'], ['guided', 'guiado']]);
+  const genEvidence = selectNp('np-gen-evidence', [['provider', 'provider'], ['host', 'host'], ['marketplace', 'marketplace'], ['unknown', 'desconhecido']]);
+  const genSecs = h('input', { id: 'np-gen-secs', type: 'number', min: '1', max: '30', value: '10', class: 'num' }) as HTMLInputElement;
+  const genRefs = h('input', { id: 'np-gen-refs', class: 'grow', placeholder: 'papéis das refs: identity, wardrobe, location' }) as HTMLInputElement;
+  const genNeg = h('input', { type: 'checkbox', id: 'np-gen-neg' }) as HTMLInputElement;
+  const genRewrite = h('input', { type: 'checkbox', id: 'np-gen-rewrite' }) as HTMLInputElement;
+  const fmtSel = selectNp('np-fmt', [['', 'sem contrato (padrão)'], ['microdrama', 'microdrama'], ['dramatizado', 'clipe dramatizado'], ['dossie', 'dossiê/relato'], ['trailer', 'concept trailer'], ['ugc', 'UGC demo'], ['musica', 'música funcional'], ['inserto', 'inserto visual']]);
+  const catalogBox = h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Obrigatório para publicar: visível do início ao fim (portaria 23/10/2026)' }, discWhole, '✓ visível o tempo todo'), discLabel),
+    h('p', { class: 'muted small' }, 'Sem disclosure contínuo, o job com publicação não agenda. Campos por plataforma: is_aigc (TikTok Content), is_ai_generated (TikTok Business/Meta), GenAI no YouTube Music.'),
+    h('div', { class: 'row' }, h('label', { class: 'inline chk' }, genOn, '🎯 Perfil exato do gerador'), genProvider, genModel),
+    h('div', { class: 'row' }, genFamily, genTask, genRes, genAudio, genSecs, genEvidence),
+    h('div', { class: 'row' }, genRefs, h('label', { class: 'inline chk' }, genNeg, 'campo negativo'), h('label', { class: 'inline chk' }, genRewrite, 'plataforma reescreve')),
+    h('p', { class: 'muted small' }, 'Um gerador, um guia de família, um prompt: o app carrega SÓ o guia escolhido e valida ID exato, envelope, papéis das refs e áudio antes de gastar crédito.'),
+    h('div', { class: 'row' }, h('label', {}, 'Contrato de prompt', fmtSel)));
   const audioFirstCb = h('input', { type: 'checkbox', id: 'np-audio-first' }) as HTMLInputElement; audioFirstCb.checked = cfg?.defaults?.audioFirst ?? true;
   const codeMusicCb = h('input', { type: 'checkbox', id: 'np-code-music' }) as HTMLInputElement;
   /* storyboard depois do plano de cenas; com aprovação, a execução pausa até você aprovar */
@@ -1670,6 +1695,16 @@ async function renderNew() {
       aspect: aspect.value, targetDurationSec: Number(dsec.value) || 60, quality: quality.value, profile: profile.value, language: lang.value,
       freeEngine: npFreeEngine.value === '2d' || npFreeEngine.value === '3d' ? npFreeEngine.value : undefined,
       watermark: wmOn.checked && wmText.value.trim() ? { enabled: true, text: wmText.value.trim(), position: wmPos.value as 'tl' | 'tr' | 'bl' | 'br' | 'center', opacity: 0.6, size: 12 } : undefined,
+      disclosure: { label: discLabel.value.trim() || '#publi — parceria paga', position_sec: 0.5, visible_whole: discWhole.checked, platform_tool: true, ai_label: true, music_genai: true },
+      generator_profile: genOn.checked ? {
+        provider: genProvider.value.trim() || 'custom', model_id: genModel.value.trim(),
+        family_guide: genFamily.value as '01' | '02' | '03' | '04', task_mode: genTask.value as 't2v' | 'i2v' | 'r2v' | 'first_last' | 'edit',
+        duration_sec: Number(genSecs.value) || 10, resolution: genRes.value as '720p' | '1080p' | '4K', aspect: aspect.value as never,
+        refs: genRefs.value.split(',').map((s, i) => ({ type: 'image' as const, role: s.trim(), slot: i + 1 })).filter((r) => !!r.role),
+        audio: genAudio.value as 'native' | 'guided' | 'post', negative_field: genNeg.checked, prompt_rewrite: genRewrite.checked,
+        evidence: genEvidence.value as 'provider' | 'host' | 'marketplace' | 'unknown',
+      } : undefined,
+      prompt_format: (fmtSel.value || undefined) as never,
       thumbnailTemplate: thumbId || undefined, scriptStyle: scriptStyle.value.trim() || undefined, videoStyle: videoStyle.value.trim() || undefined,
       musicStyle: musicStyle.value.trim() || undefined, musicMode: musicMode.value as 'instrumental' | 'song', musicMinMin: Number(musMin.value) || undefined, musicMaxMin: Number(musMax.value) || undefined, musicTrackSec: Number(musTrack.value) || undefined, waveform: waveform.value as import('../shared/types').WaveformStyle, waveformColor: waveColor.value, perTrackLoop: perTrackLoop.checked,
       refScriptFile: refScript, refVideoFile: refVideo, refScriptUse: !!refScript && scriptUse.checked, attachFiles: attachFiles.length ? [...attachFiles] : undefined,
@@ -2186,6 +2221,7 @@ async function renderNew() {
       drawer('np-g-cast', 'Elenco e voz', castSum, charsBox, castBox, voiceBox, foldBox),
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
       drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb), wmRow),
+      drawer('np-g-catalog', 'Diretrizes 11/2026 · disclosure · gerador', () => `${discLabel.value.trim() || 'sem disclosure'}${genOn.checked ? ` · ${genFamily.value}/${genModel.value.trim() || 'sem ID'}` : ''}`, catalogBox),
       drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp),
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),

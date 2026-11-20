@@ -236,6 +236,19 @@ export interface FxSegment { id: string; kind: 'filter' | 'vignette'; value: str
 export type SubtitleKind = 'classic' | 'box' | 'bold' | 'karaoke' | 'word' | 'neon' | 'minimal' | 'highlight' | 'reveal' | 'typewriter' | 'comic' | 'slide';
 /** Marca d'água do vídeo final: texto e/ou imagem, num canto ou no centro, com opacidade e tamanho. */
 export interface Watermark { enabled: boolean; text?: string; image?: string; position: 'tl' | 'tr' | 'bl' | 'br' | 'center'; opacity: number; /** % da altura do vídeo (texto) ou da largura (imagem) */ size: number }
+/** Divulgação contínua (diretrizes 11/2026): sem ela, job com publicação não agenda. */
+export interface Disclosure { label: string; position_sec: number; visible_whole: boolean; platform_tool: boolean; ai_label: boolean; music_genai: boolean }
+/** Perfil exato do gerador (catálogo XLIV): um gerador, um guia de família, um prompt. */
+export interface GeneratorProfile {
+  provider: string; model_id: string; family_guide: '01' | '02' | '03' | '04';
+  task_mode: 't2v' | 'i2v' | 'r2v' | 'first_last' | 'edit';
+  duration_sec: number; resolution: '720p' | '1080p' | '4K'; aspect: Aspect;
+  refs: Array<{ type: 'image' | 'video' | 'audio'; role: string; slot: number }>;
+  audio: 'native' | 'guided' | 'post'; negative_field: boolean; prompt_rewrite: boolean;
+  evidence: 'provider' | 'host' | 'marketplace' | 'unknown';
+}
+/** Contrato de prompt por formato (catálogo XXXI–XXXIII): campos obrigatórios antes de gastar crédito. */
+export type PromptFormat = 'microdrama' | 'dramatizado' | 'dossie' | 'trailer' | 'ugc' | 'musica' | 'inserto';
 export interface SubtitleStyle { burn: boolean; position: 'bottom' | 'middle' | 'top'; size: number; color: string; box: boolean; kind?: SubtitleKind; /** cor de destaque (bold/karaoke/neon) */ accent?: string; /** família da fonte (vazio = a padrão do tipo de legenda) */ font?: string }
 /** Fontes que uma skill mista pode mesclar: motion graphics/código, bancos de mídia e vídeo/imagem por IA (MiniMax etc.). */
 export type MixSource = 'motion' | 'stock' | 'ai';
@@ -539,6 +552,12 @@ export interface Project {
   finalEffects?: FinalEffects;
   /** marca d'água opcional (texto/imagem) gravada no vídeo final */
   watermark?: Watermark;
+  /** divulgação contínua obrigatória para publicação (11/2026) */
+  disclosure?: Disclosure;
+  /** perfil exato do gerador de vídeo (filtro por gerador, catálogo XLIV) */
+  generator_profile?: GeneratorProfile;
+  /** formato do contrato de prompt validado antes de gerar */
+  prompt_format?: PromptFormat;
   /** pós-processamento do vídeo final pelo Wan2GP: upscale (flashvsr*2, seedvr2*2, lanczos*2) e fluidez (rife*2) */
   wan2gpPost?: Wan2gpPost;
   /** trechos de filtro e vinheta na timeline (arrastáveis) */

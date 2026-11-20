@@ -4,6 +4,7 @@ import type { Project, Scene, Skill, StepKind } from '../shared/types';
 import { dnaScriptRule, dnaSfxRule, wordsPerSecond } from './channel-dna';
 import { identityPrompt, paletteEnglish, projectPalettePrompt } from './channel-setup';
 import { charactersPrompt } from './characters';
+import { compileGeneratorPrompt } from './generator-profile';
 import { rigSceneText } from './rig';
 import { mixPrompt } from './skill-mix';
 import { productCtaPrompt } from './clone-business';
@@ -962,6 +963,9 @@ export function buildPromptMarked(c: ExecContext): string {
     sceneImageText(c), sceneRigText(c),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });
+  /* filtro por gerador: guia mestre + SÓ a família escolhida no perfil exato do projeto */
+  const generatorBlock = p.generator_profile && ['video', 'image', 'thumbnail', 'code_scene', 'motion_graphics'].includes(c.step.kind)
+    ? `\n${compileGeneratorPrompt(p.generator_profile)}\n` : '';
   /* CLIPE MUSICAL: o app OUVIU a música do projeto (fala e cantos transcritos com tempo em out/music.lyrics.md) */
   const lyricsFile = path.join(c.outDir, 'music.lyrics.md');
   const lyricsBlock = (c.step.kind === 'script' || c.step.kind === 'scene_plan' || c.step.kind === 'asset_design') && fs.existsSync(lyricsFile)
@@ -972,7 +976,7 @@ export function buildPromptMarked(c: ExecContext): string {
     (p.musicMode ? ` Música: ${p.musicMode === 'song' ? 'canção (com letra)' : 'instrumental'}.` : '') +
     (p.waveform ? ` Waveform: ${p.waveform}.` : '') +
     mixHint(p) +
-    `${mem}${skill ? '\n' + mark('skill', skill) + '\n' : ''}${plugins ? '\n' + mark('plugin', plugins) + '\n' : ''}${extra ? extra + '\n' : ''}${lyricsBlock}\n` +
+    `${mem}${skill ? '\n' + mark('skill', skill) + '\n' : ''}${plugins ? '\n' + mark('plugin', plugins) + '\n' : ''}${extra ? extra + '\n' : ''}${lyricsBlock}${generatorBlock}\n` +
     `Trabalhe SOMENTE dentro do diretório atual e de ${path.dirname(file)}. Grave o resultado em: ${file}\n` +
     /* agentes (Antigravity, Claude Code, OpenCode) gastavam minutos explorando a pasta, relendo project.json, rodando git/
        powershell/python para contar palavras e abrindo backups antigos antes de escrever uma etapa de texto */

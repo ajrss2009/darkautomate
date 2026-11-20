@@ -291,9 +291,52 @@ const MUSICA_LIPSYNC: Skill = {
   outputStyle: '🎵 Música do projeto (ouvida e transcrita: letra + tempos) ou canção nova no ACE-Step 1.5 XL.\n🎤 Cantor da biblioteca cantando em lipsync (MiniMax H3 Ref2VA no Wan2GP/ComfyUI; fallback LTX 2.3).\n🎬 Planos de até 10 s (SnapGen Muse) começando no tempo de cada verso, na música inteira.\n🔇 Sem narração; letra como legenda; canção em volume cheio.\n🖋️ Marca d\'água/texto do projeto aplicada no final.',
 };
 
+/** Cartoon Short Studio: manual operacional (pauta com score, 5 beats, 3,7 palavras/s, twist final). */
+const CARTOON_SHORT_STUDIO: Skill = {
+  id: 'cartoon-short-studio', name: 'Cartoon Short Studio (story-driven)', builtin: true,
+  description: 'Short animado story-driven: personagem-cartão (cabeça de feijão) num mundo 3D pintado, narração única e twist de ironia no último segundo. Pauta pontuada, banco de hooks, plano de ritmo e QA por métrica (9:16, 30 fps).',
+  global: 'Regra zero: a spec abaixo é a fonte da verdade — números, proporções, timing e áudio não mudam se o motor mudar. Gate de pauta (5 filtros, falhar 1 = descartar): causa física visível, everyman sem nome de pessoa viva, escada de stakes, twist de ironia no fim, cenário construível. Score 0–2 em hook/twist/potencial visual/verificabilidade/novidade: CORTA EM <7. Veto: pessoa viva como alvo de piada, mascote/logo de marca, gore, sofrimento infantil, política partidária, recrear shot a shot. Selo de veracidade DOCUMENTADO/DISPUTADO/LENDA — se LENDA, a narração diz "dizem que". Narração a 3,7 palavras/segundo (30 s = 110 palavras, 10–13 planos), frases de 8–15 palavras, português falado, números por extenso, nunca descreva o que já está na tela. Nunca misture render de código com geração IA dentro do mesmo plano.',
+  steps: {
+    script: 'Escreva `script.md` com: 1) PAUTA com o score dos 5 critérios e o selo de veracidade; 2) HOOK como primeira frase, fato absurdo dito como fato (nunca "nesse vídeo eu vou te contar"); 3) CHÃO (quando/onde/quem + um detalhe concreto); 4) ESCALADA com 2–4 beats crescentes e exatamente UMA piada de exagero; 5) MECANISMO ("mas quando…" / "o detalhe é que…") com a causa física por analogia do dia a dia; 6) PAYOFF de uma frase — as ÚLTIMAS palavras são o twist, sem CTA falado (mata a releitura). Respeite 3,7 palavras/s e as palavras da tabela de duração.',
+    asset_design: 'Personagem-cartão fixo (cabeça de feijão), com aparência idêntica em todos os planos; cenário construível (cidade, ponte, navio, castelo, deserto, mina, laboratório, cozinha). Evite multidão, esporte e interface de tela.',
+    scene_plan: 'Um plano por frase (ou plano dividido em 2 inserts). 30 s = 10–13 planos de 2–4 s; tempo em QUADROS a 30 fps. Cada plano diz o que muda na tela e o beat (hook/chão/escalada/mecanismo/payoff). O último plano termina no twist.',
+    code_scene: 'Cartoon 3D com contorno a tinta, mundo pintado, câmera viva e sem descrição visual redundante na narração. Um plano = 100% engine ou 100% gerado, nunca misturado. Último segundo = virada visual.',
+    narration: 'Narrador profundo, PT-BR, 3,7 palavras/s, ritmo de história, sem CTA final.',
+    music: 'Trilha discreta sob a voz, com queda/no intervalo no mecanismo e um ponto no payoff.',
+    subtitles: 'Legenda curta, sincronizada à palavra, sem repetir o que está na tela.',
+    edit: 'Corte no quadro da frase, não no meio; sem "obrigado por assistir"; o vídeo acaba no twist e volta ao começo para incentivar releitura.',
+  },
+  reviewCriteria: 'Pauta com score ≥7 e selo; hook na frase 1; twist nas últimas palavras; 3,7 palavras/s; um plano por frase; sem CTA falado; personagem idêntico em todos os planos; áudio abaixo da voz; revisão por métrica (corte, retenção, clareza do twist).',
+  appearance: 'cartoon_3d', routeId: 'curta-cartoon-3d', aspect: '9:16', durationSec: 30, language: 'pt-BR', presentation: 'generated', mediaSources: [],
+  outputStyle: '🎬 Cartoon short 9:16, 30 fps, 30 s (110 palavras, 10–13 planos).\n📐 Pauta pontuada (≥7) + selo de veracidade + 5 beats.\n🎤 Narração única a 3,7 palavras/s; twist irônico nas últimas palavras; sem CTA falado.\n🎨 Personagem-cartão num mundo 3D pintado, um plano por frase.\n📤 Saída: final.mp4 + legendas + thumbnail + metadados.',
+};
+
+/** Cartoon-to-Real: sem narração, motor é a música + piada visual, 16:9, lineup de 4–8 pares. */
+const CARTOON_TO_REAL: Skill = {
+  id: 'cartoon-to-real-crossover', name: 'Cartoon-to-Real (crossover)', builtin: true,
+  description: 'Personagem 2D clássico lado a lado com sua versão live-action fotorrealista no set de filmagem: cumprimento, pose e selfie final. Sem narração — música + piada visual; gate de IP obrigatório, 4–8 pares, 16:9.',
+  global: 'Este formato NÃO tem narração: o motor é a música + a piada visual; quem escreve roteiro escreve QUADROS, não frases. IP semaphore obrigatório antes de qualquer prompt: VERDE = domínio público por obra e país ( Mickey 1928, Popeye, Tintin — ainda protegido na UE até 2054; Drácula, Frankenstein, Nosferatu); ÂMBAR = IP de 80/90 (fan-concept declarado, sem merch/endosso/logos, esperar claim); VERMELHO = trailers oficiais, designs modernos, pessoa viva sem autorização, shot-a-shot. Regra de ouro: personagem ORIGINAL desenhado no estilo anos 80 — controle total, zero risco. Gate do duplo: reconhecível em 120 px, contraste físico, gesto de encontro, quadro de screenshot. Score 0–2 em reconhecimento/contraste/gesto/screenshot/novidade: CORTA EM <7. Nunca vendas, nunca use logo/trade dress, nunca recomende o IP como marca do canal.',
+  steps: {
+    script: 'Escreva `script.md` com: 1) semáforo de IP do personagem escolhido e justificativa; 2) score do duplo (≥7); 3) LINEUP de 4–8 pares em ordem dramática (herói → sidekick → cômico → vilão); o vilão entra por último com queda de música; um único cameo de ator no meio; 4) um GESTO diferente por par (aperto, high five, abraço, autógrafo, selfie) — repetir o mesmo gesto mata o vídeo; 5) beat sheet de 90 s (0–3 hook com o par principal já em quadro = frame da thumb; 3–8 revelação do set; 8–20 lineup; 20–32 interação; 32–42 cameo; 42–58 vilão; 58–70 irmandade dos vilões; 70–90 selfie final). Nada de narração, nada de explicação.',
+    asset_design: 'Cada par: personagem 2D original no estilo da época + ator live-action fotorrealista. Figurino e paleta fixos. Set de filmagem com green screen, luzes e equipe. Nenhum logo oficial.',
+    scene_plan: 'Um quadro por beat, 3–5 s por plano (música manda). 90 s ≈ 22–28 planos. O frame de abertura é o da thumbnail. Nunca Morph/I2V na variante antes/depois: corte seco.',
+    image: 'Still do par lado a lado no set, contraste chapado 2D × pele com poros, composição legível em 120 px. O selfie final é o quadro de screenshot.',
+    video: 'I2V com keyframes só para os gestos de contato (aperto de mão, high five, selfie). Cada corte no beat da música. Sem路人, sem texto na imagem.',
+    edit: 'Música licenciada em volume cheio, sem voz, cortes no beat, 90 s. Marca "Made with AI"/selo de IA e disclosure contínuo.',
+    metadata: 'Título no formato "WHAT IF X WAS REAL?" (ou equivalente PT), descrição com fan-concept declarado e sem sugestão de endosso; selo de IA; 5–10 tags. Sem capítulos públicos neste formato.',
+    thumbnail: 'O par principal já em quadro no set, selfie/cumprimento, legível em 120 px.',
+  },
+  reviewCriteria: 'Sem narração; 4–8 pares; gesto diferente por par; vilão por último; contraste 2D/live-action; quadro de abertura = thumbnail; selo de IA e disclosure; nenhum IP vermelho ou logo oficial.',
+  appearance: 'custom', routeId: 'shorts-autopilot', aspect: '16:9', durationSec: 90, language: 'pt-BR', presentation: 'generated', mediaSources: [],
+  musicVideo: true,
+  outputStyle: '🎬 Crossover cartoon → live-action, 16:9, 90 s, sem narração.\n🎵 Música licenciada em volume cheio; cortes no beat; 4–8 pares com gestos de encontro diferentes.\n🚦 Gate de IP (verde/âmbar/vermelho) + score do duplo ≥7 antes de gerar.\n📸 Abertura = frame da thumb; selfie final = quadro de screenshot.\n📤 Saída: final.mp4 + thumbnail + metadados com selo de IA e disclosure.',
+};
+
 const SPECIAL: Skill[] = [
   UGC_PRODUTO,
   MUSICA_LIPSYNC,
+  CARTOON_SHORT_STUDIO,
+  CARTOON_TO_REAL,
   CARTOON_3D_SHORT,
   CARTOON_3D_LONG,
   LINK_EXPLAINER,
