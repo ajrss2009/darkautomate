@@ -718,8 +718,14 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     /* Muse/Meta AI fala: a linha entra no prompt e a voz sai no prÃ³prio clipe (sem TTS) */
     /* params.videoSpeech = false: a fala fica com a narraÃ§Ã£o (TTS) e o clipe sai sem voz (ex.: UGC com voz fixa do OmniVoice) */
     const museTalk = /^(meta-ai|muse)/i.test(model) && !!c.scene?.narration?.trim() && (c.step.params as Record<string, unknown> | undefined)?.['videoSpeech'] !== false;
-    const prompt = museTalk ? museSpeechPrompt(c) : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound. No text, captions, subtitles, titles or letters anywhere on screen.` : visualPrompt(c);
-    await prov.snapgenVideo(p, model, prompt, { imagePath: img, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
+    const refNote = ' Use the attached reference images to keep the same faces, hair, bodies and outfits of the characters in every frame.';
+    const prompt = museTalk ? museSpeechPrompt(c) + refNote : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}${refNote}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound. No text, captions, subtitles, titles or letters anywhere on screen.` : visualPrompt(c) + refNote;
+    /* referências do elenco (biblioteca/projeto) para o Muse: até 10 imagens, mantendo o mesmo rosto em todas as cenas */
+    const refFiles = c.scene ? charactersInScene(c.projectDir, c.scene, 9)
+      .map((ch) => characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name))
+      .filter((f) => !!f && f !== img && fs.existsSync(f)).slice(0, 9) : [];
+    if (refFiles.length) c.log(`Snapgen ${model}: ${refFiles.length} referência(s) de personagem(ens) da biblioteca`);
+    await prov.snapgenVideo(p, model, prompt, { imagePath: img, imagePaths: refFiles, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
     if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
     return { files: [file] };
   }

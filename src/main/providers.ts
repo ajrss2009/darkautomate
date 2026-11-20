@@ -496,7 +496,7 @@ function snapgenVideoSpec(model: string): {
 
 /** Vídeo Snapgen (Veo/Omni, Sora, Seedance, Kling, Minimax, Flux, Vela, Meta): multipart + polling. */
 export async function snapgenVideo(p: ProviderConfig, model: string, prompt: string, o: {
-  imagePath?: string; seconds: number; ratio: string; resolution?: string; dest: string; signal: AbortSignal;
+  imagePath?: string; imagePaths?: string[]; seconds: number; ratio: string; resolution?: string; dest: string; signal: AbortSignal;
   log?: (l: string) => void; pollMs?: number;
 }): Promise<string> {
   if (!p.apiKey) throw new Error('Snapgen: sem chave de API');
@@ -513,8 +513,12 @@ export async function snapgenVideo(p: ProviderConfig, model: string, prompt: str
   form.append('duration', String(duration));
   form.append(spec.aspectField, aspect);
   form.append('resolution', o.resolution ?? '720p');
-  if (o.imagePath && spec.imageField) {
-    snapAppendFile(form, spec.imageField, o.imagePath);
+  if (spec.imageField) {
+    /* Muse/Meta (e os demais) aceitam várias imagens de referência — até 10.
+       A 1ª é o quadro-base gerado (start frame); as seguintes são folhas/retratos do elenco. */
+    const imgs = [...(o.imagePath ? [o.imagePath] : []), ...(o.imagePaths ?? [])].filter((x) => !!x && fs.existsSync(x)).slice(0, 10);
+    for (const img of imgs) snapAppendFile(form, spec.imageField, img);
+    if (imgs.length > 1) o.log?.(`Snapgen ${model}: ${imgs.length} imagens de referência enviadas (máx. 10)`);
     if (spec.imageField === 'ref_images') form.append('mode_image', 'frame');
   }
 
