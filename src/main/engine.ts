@@ -266,7 +266,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       /* só converte para uma etapa que aceite a cena original; respeita o
          filtro onlySceneKinds (ex.: etapa stock limitada a stock/mixed não
          deve capturar uma cena de código). */
-      const candidates = producers.filter((p) => !p.only || p.only.includes(sc.kind));
+      /* a cena convertida passa a ter o tipo da etapa: etapa restrita ao PRÓPRIO tipo (ex.: image só para cenas
+         image) também serve — senão a cena "stock" de uma rota com banco desligado ficava sem visual (cartão de título) */
+      const candidates = producers.filter((p) => !p.only || p.only.includes(sc.kind) || (sc.kind === 'stock' && p.only.includes(p.kind)));
       const pick = candidates.find((p) => p.kind === fallbackKind) ?? candidates[0]
         /* o tipo tem etapa, mas restrita a outros tipos (ex.: rota imagem→clipe→código só para cenas code): usa o tipo que a rota produz */
         ?? (producers.some((p) => p.kind === sc.kind) ? { kind: fallbackKind } : undefined);

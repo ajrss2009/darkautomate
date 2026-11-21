@@ -228,6 +228,24 @@ async function main() {
   assert.equal((await runRoute({ project: pm, route: mus, projectDir: dm, deps: mk(), signal: new AbortController().signal })).ok, true);
   assert.equal(tracks, 2, 'cena mais nova que a trilha → trilha refeita');
 
+  // dark54: cena "stock" com o banco DESLIGADO e etapa de imagem restrita a cenas "image" → vira imagem (antes: cartão de título)
+  {
+    const r2: Route = JSON.parse(JSON.stringify(route));
+    r2.steps[1]!.onlySceneKinds = ['image'];
+    r2.steps.push({ id: 'stock', kind: 'stock_media', label: 'banco', scope: 'scene', dependsOn: ['scene_plan'], enabled: false, params: {},
+      retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'stock' } as never] });
+    executors.harness = async (c) => {
+      const f = path.join(c.projectDir, 'scenes.json');
+      fs.writeFileSync(f, JSON.stringify([{ title: 'S', narration: 's', visualIntent: 'seta laranja', kind: 'stock' }]));
+      return { files: [f] };
+    };
+    const p2 = createProject(settings, { name: 'Stock off', idea: 'x', videoType: 'custom', routeId: 'shorts-autopilot' });
+    const res2 = await runRoute({ project: p2, route: r2, projectDir: path.join(ws, 'projects', p2.id), deps: mk(), signal: new AbortController().signal, noCache: true });
+    assert.equal(res2.ok, true, res2.error ?? '');
+    assert.equal(p2.scenes[0]!.kind, 'image', 'cena stock vira imagem quando o banco está desligado');
+    assert.equal(p2.scenes[0]!.status['image'], 'done');
+  }
+
   console.log('engine tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });
