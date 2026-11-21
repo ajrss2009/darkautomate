@@ -246,6 +246,24 @@ async function main() {
     assert.equal(p2.scenes[0]!.status['image'], 'done');
   }
 
+  // dark54: anime 2D sem personagem da biblioteca → cena de vídeo vira imagem com zoom lento (o vídeo IA trocava a protagonista)
+  {
+    const r3: Route = JSON.parse(JSON.stringify(route));
+    r3.steps.push({ id: 'video', kind: 'video', label: 'vid', scope: 'scene', dependsOn: ['image'], enabled: true, params: {},
+      retry: { max: 1, backoffMs: 0 }, timeoutSec: 5, bindings: [{ type: 'api', provider: 'openai', model: 'v' }] });
+    executors.harness = async (c) => {
+      const f = path.join(c.projectDir, 'scenes.json');
+      fs.writeFileSync(f, JSON.stringify([{ title: 'A', narration: 'a', visualIntent: 'estudante', kind: 'video' }]));
+      return { files: [f] };
+    };
+    const p3 = createProject(settings, { name: 'Anime', idea: 'x', videoType: 'custom', routeId: 'shorts-autopilot' });
+    p3.skill = { ...(p3.skill ?? {}), id: 'anime_2d' } as never;
+    const res3 = await runRoute({ project: p3, route: r3, projectDir: path.join(ws, 'projects', p3.id), deps: mk(), signal: new AbortController().signal, noCache: true });
+    assert.equal(res3.ok, true, res3.error ?? '');
+    assert.equal(p3.scenes[0]!.kind, 'image', 'anime sem elenco: vídeo vira imagem');
+    assert.equal(p3.scenes[0]!.effects?.zoom, 'in', 'com zoom lento');
+  }
+
   console.log('engine tests: OK');
 }
 main().catch((e) => { console.error(e); process.exit(1); });

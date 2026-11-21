@@ -256,9 +256,17 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
   };
   /* rota que anima todas as cenas (UGC): uma cena "image" do plano vira "video" — o quadro (foto do produto) é animado */
   const animateAll = route.steps.some((st) => st.kind === 'video' && st.enabled !== false && st.params?.['animateImages'] === true);
+  const stillAnime = () => project.skill?.id === 'anime_2d' && !(project.characters ?? []).some((ch) => (ch.entity ?? 'character') === 'character') && producible.has('image');
   const fitKinds = () => {
     for (const sc of project.scenes) {
       if (animateAll && sc.kind === 'image') { emit({ t: 'log', line: `cena ${sc.id}: imagem → vídeo (a rota anima todas as cenas)` }); sc.kind = 'video'; }
+      /* anime 2D sem personagem da biblioteca: o vídeo IA (Muse) troca a protagonista mesmo com a referência — a cena fica
+         na imagem do Flow (que segue a 1ª cena) com zoom lento. Pedido do usuário na bateria dark54. */
+      if (stillAnime() && sc.kind === 'video') {
+        emit({ t: 'log', line: `cena ${sc.id}: vídeo → imagem com zoom lento (anime sem personagem da biblioteca)` });
+        sc.kind = 'image';
+        sc.effects = { ...(sc.effects ?? {}), zoom: sc.effects?.zoom ?? 'in' };
+      }
       if (!sc.searchTerms && (sc.kind === 'stock' || sc.kind === 'mixed' || sc.kind === 'image' || sc.kind === 'video')) {
         sc.searchTerms = keywords(`${sc.title} ${sc.visualIntent}`) || undefined;
       }
