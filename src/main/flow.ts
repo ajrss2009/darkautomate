@@ -200,8 +200,9 @@ export function flowRefsText(refs: Array<{ name: string }> | undefined): string 
 /** A mídia tem a orientação pedida? (sem tamanho ainda = aceita; 1:1 aceita qualquer). Função pura. */
 export function orientationOk(aspect: string | undefined, w = 0, h = 0): boolean {
   if (!w || !h || !aspect) return true;
-  if (aspect === '9:16' || aspect === '4:5' || aspect === '3:4') return h > w;
-  if (aspect === '16:9' || aspect === '4:3') return w > h;
+  /* só recusa a orientação OPOSTA (deitada num pedido em pé e vice-versa); quadrado passa */
+  if (aspect === '9:16' || aspect === '4:5' || aspect === '3:4') return w <= h;
+  if (aspect === '16:9' || aspect === '4:3') return h <= w;
   return true;
 }
 

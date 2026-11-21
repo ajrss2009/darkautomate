@@ -22,6 +22,7 @@ async function main() {
   /* dark54: imagem antiga deitada da grade não conta como resultado de um pedido 9:16 */
   assert.equal(orientationOk('9:16', 1376, 768), false); assert.equal(orientationOk('9:16', 768, 1376), true);
   assert.equal(orientationOk('16:9', 768, 1376), false); assert.equal(orientationOk('1:1', 1376, 768), true);
+  assert.equal(orientationOk('16:9', 64, 64), true, 'quadrado não é orientação oposta');
   assert.equal(orientationOk('9:16', 0, 0), true, 'sem tamanho ainda: aceita (o download confere)');
   assert.match(flowPrompt({ prompt: 'gato', media: 'video', aspect: '9:16', seconds: 30 }), /^Gere 1 vídeo de 10 segundos na proporção 9:16/);
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-flow-'));
