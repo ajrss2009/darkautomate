@@ -1306,7 +1306,16 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
       const sk = c.scene.sketch ? path.join(c.projectDir, c.scene.sketch) : '';
       if (sk && fs.existsSync(sk) && refs.length < 6) refs.push({ name: 'esboÃ§o do storyboard (siga a composiÃ§Ã£o)', file: sk });
     }
-    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
+    /* sem personagem na biblioteca (ex.: anime 2D sem bíblia): a 1ª cena vira a referência das seguintes — no teste
+       dark54 a protagonista mudava de cabelo/uniforme a cada cena. O podcast ilustra o ASSUNTO, não um personagem. */
+    const first = c.project.scenes[0];
+    if (c.scene && k !== 'thumbnail' && !refs.some((r) => !/esbo|cen[aá]rio|objeto/i.test(r.name)) && first && first.id !== c.scene.id && c.project.skill?.id !== 'podcast-16-9') {
+      const f0 = path.join(c.projectDir, 'scenes', first.id, 'frames', 'frame.png');
+      if (fs.existsSync(f0)) { refs.unshift({ name: 'protagonista e estilo da 1ª cena (mesmo rosto, cabelo, roupa e traço)', file: f0 }); c.log('Flow: 1ª cena anexada como referência da protagonista'); }
+    }
+    /* cena: texto na imagem sai errado e cobre a composição; a thumbnail é a exceção (o texto é pedido) */
+    const noText = k === 'thumbnail' ? '' : ' Sem nenhuma letra, palavra, rótulo, legenda, número ou marca d\'água na imagem (no text, no letters, no labels, no captions).';
+    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
       aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });
     // formato que a montagem espera: frame.png / thumbnail.png / clip.mp4
