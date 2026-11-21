@@ -1054,6 +1054,12 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   /* elenco como referÃªncia (image_refs): foto do usuÃ¡rio ou retrato jÃ¡ gerado de cada personagem da cena */
   if (c.scene && (tpl.needsRefs || placeholders(tpl.settings).includes('ref_images'))) {
     const refs = charactersInScene(c.projectDir, c.scene, tpl.productRefs ? 2 : 3).map((ch) => ({ name: ch.name, file: characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name) })).filter((r) => fs.existsSync(r.file));
+    /* lipsync: cantor da bíblia sem retrato (nenhuma folha/foto) → o quadro da própria cena, que já mostra quem canta.
+       Antes o H3 recusava ("cantor sem retrato") e o clipe inteiro parava. */
+    if (tpl.songSlice && !refs.length && c.scene.speaker && prevImg && fs.existsSync(prevImg)) {
+      refs.push({ name: c.scene.speaker, file: prevImg });
+      c.log(`lipsync: ${c.scene.speaker} sem retrato — usando o quadro da cena como referência`);
+    }
     /* UGC: fotos do produto (anexos de referÃªncia / objetos da biblioteca) depois do elenco â€” o produto sai igual Ã  foto */
     const prods = tpl.productRefs ? productRefFiles(c.project.attachments).map((a) => ({ label: productLabel(a), file: attachmentPath(c.projectDir, a) })).filter((r) => fs.existsSync(r.file)) : [];
     if (tpl.songSlice && !refs.length) throw new Error(`${b.template}: ninguÃ©m canta nesta cena (intro/instrumental ou cantor sem retrato) â€” usando o prÃ³ximo provedor`);
