@@ -10,6 +10,7 @@ import type { ExecContext, ExecResult, Executor } from './engine';
 import { isHttpHarness, resolveHarness, runHarness } from './harness';
 import { ComfyClient, applyVariables, collectOutputs, isUiFormat, placeholders } from './comfyui';
 import { refPrompt, speechSeconds, Wan2gpClient, wan2gpLanguage } from './wan2gp';
+import { podcastPipScene } from './podcast-pip-scene';
 import { runShowrunner, showrunnerKind } from './showrunner';
 import * as prov from './providers';
 import * as ff from './ffmpeg';
@@ -441,6 +442,27 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
     const r = shotsWanted(id, fdur) ? await freeInShots(c, o, { id, cfg, model, effort }, file, fdur) : await freeViaHtml(c, o, { id, cfg, model, effort }, file);
     await freeAudio(c);
     return r;
+  }
+  /* Podcast 16:9: o app monta a cena com PiP deterministicamente — o LLM era
+     inconsistente (às vezes gerava HTML sem a PiP). Fundo = imagem do Flow com
+     zoom lento; vídeo original em PiP no canto do projeto; TELA_CHEIA nas cenas
+     marcadas. Só usa o template quando a skill é podcast-16-9. */
+  if (c.step.kind === 'code_scene' && c.project.skill?.id === 'podcast-16-9' && /\.(html?)$/i.test(file)) {
+    const fsMatch = String(c.scene?.notes ?? '').match(/TELA_CHEIA\s+(\d+(?:\.\d+)?)\s*(?:-|a|–|to)?\s*(\d+(?:\.\d+)?)?/i);
+    const start = Number(fsMatch?.[1] ?? 0);
+    const end = fsMatch?.[2] ? Number(fsMatch[2]) : Math.min((c.scene?.durationSec ?? 8), start + 12);
+    const corner = /inferior\s+esquerdo|inferior esquerda/i.test(c.project.idea) ? 'bl'
+      : /inferior\s+direit/i.test(c.project.idea) ? 'br'
+      : /superior\s+esquerd/i.test(c.project.idea) ? 'tl'
+      : /superior\s+direit/i.test(c.project.idea) ? 'tr' : 'bl';
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, podcastPipScene({
+      duration: Number(c.scene?.durationSec) || Number(c.project.targetDurationSec) || 8,
+      fps: 30, aspect: c.project.aspect === '9:16' ? '9:16' : '16:9',
+      pipCorner: corner, fullscreen: fsMatch ? { start, end } : undefined,
+    }));
+    c.log('podcast-16-9: cena PiP montada pelo app (template determinístico)');
+    return { files: [file] };
   }
   const cwd = c.sceneDir ?? c.projectDir;
   const stopWatch = watchOutputs(cwd, c.log);
