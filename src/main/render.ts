@@ -323,6 +323,29 @@ export async function snapHtml(htmlFile: string, out: string, o: { w: number; h:
   } finally { win.destroy(); }
 }
 
+/** Disponibiliza `web/` do projeto dentro da pasta da cena para que `video.src='web/...'`
+ *  funcione sem caminhos absolutos. Junções não duplicam os arquivos (o vídeo do podcast
+ *  tem ~150 MB). Cuida também de cenas aninhadas em plugins/kits. */
+function linkProjectWebIntoScene(htmlFile: string): void {
+  try {
+    let dir = path.dirname(path.resolve(htmlFile));
+    for (let i = 0; i < 8; i++) {
+      const source = path.join(dir, 'web');
+      if (fs.existsSync(source) && fs.statSync(source).isDirectory()) {
+        const link = path.join(path.dirname(path.resolve(htmlFile)), 'web');
+        if (path.resolve(link) !== path.resolve(source) && !fs.existsSync(link)) {
+          try { fs.symlinkSync(source, link, 'junction'); }
+          catch { /* sistema sem junção: o fallback do protocolo forge-scene resolve */ }
+        }
+        return;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch { /* nunca derruba a renderização por causa disso */ }
+}
+
 export const renderHtml: RenderHtml = async (htmlFile, out, { w, h, ffmpeg, duration, fps: fpsOpt, log }) => {
   const win = new BrowserWindow({
     show: false, width: w, height: h, useContentSize: true, enableLargerThanScreen: true,  // sem isso: faixas pretas (janela limitada à área útil da tela)
@@ -341,6 +364,11 @@ export const renderHtml: RenderHtml = async (htmlFile, out, { w, h, ffmpeg, dura
   const errs = () => (pageErrors.length ? ` — console: ${[...new Set(pageErrors)].slice(0, 3).join(' | ')}` : '');
   try {
     renderSession();
+    /* Cenas por código referenciam mídia do projeto como "web/arquivo" (capturas de link,
+       vídeo original do podcast em PiP). O navegador resolve relativo à pasta do HTML
+       (scenes/<id>/code/web/...), mas o arquivo está na raiz do projeto. Sem isto a PiP
+       não carrega. Cria junções locais para TODOS os ancestors até encontrar "web/". */
+    linkProjectWebIntoScene(htmlFile);
     /* origem forge-scene://: módulos ES e import map funcionam (a cena pode importar a biblioteca de um plugin) */
     win.setContentSize(w, h);   // garante w×h mesmo se a janela nasceu limitada à tela
     await win.loadURL(sceneUrl(htmlFile));
