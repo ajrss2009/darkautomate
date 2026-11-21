@@ -1323,10 +1323,13 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
       const f0 = path.join(c.projectDir, 'scenes', first.id, 'frames', 'frame.png');
       if (fs.existsSync(f0)) { refs.unshift({ name: 'protagonista e estilo da 1ª cena (mesmo rosto, cabelo, roupa e traço)', file: f0 }); c.log('Flow: 1ª cena anexada como referência da protagonista'); }
     }
+    /* cena que descreve só um diagrama/conceito: o Flow inventava OUTRA pessoa (um rapaz explicando, cena 3 do anime) */
+    const onlyHer = refs.some((r) => /protagonista e estilo da 1/.test(r.name))
+      ? ' Se aparecer qualquer pessoa nesta imagem, é a MESMA protagonista da imagem anexada (mesmo rosto, cabelo e uniforme) — nunca outra pessoa.' : '';
     /* cena: texto na imagem sai errado e cobre a composição; a thumbnail é a exceção (o texto é pedido) */
     /* só em pedido de IMAGEM: no de vídeo a palavra "imagem" fazia o agente do Flow devolver imagem */
     const noText = k === 'thumbnail' || media !== 'image' ? '' : ' Sem nenhuma letra, palavra, rótulo, legenda, número ou marca d\'água na imagem (no text, no letters, no labels, no captions).';
-    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
+    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + onlyHer + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
       aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });
     // formato que a montagem espera: frame.png / thumbnail.png / clip.mp4
