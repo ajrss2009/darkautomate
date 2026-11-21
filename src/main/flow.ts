@@ -72,7 +72,7 @@ const PAGE_HELPERS = String.raw`
   const findBtn = (re) => clickables().find((el) => re.test(txt(el)));
   const editor = () => [...document.querySelectorAll('[contenteditable][role=textbox], .ProseMirror, textarea')].filter(vis)[0];
   const inputs = () => [...document.querySelectorAll('textarea, [contenteditable=true], [contenteditable=""], input[type=text]')].filter(vis);
-  const medias = () => [...document.querySelectorAll('video, img')].filter((m) => { const r = m.getBoundingClientRect(); const src = m.currentSrc || m.src || (m.querySelector && m.querySelector('source') && m.querySelector('source').src) || ''; return Math.max(r.width, r.height) >= 120 && Math.min(r.width, r.height) >= 60 && src && !/^data:image\/svg|\.svg(\?|$)|googleusercontent\.com\/a\/|avatar|logo/i.test(src); }).map((m) => ({ tag: m.tagName.toLowerCase(), src: m.currentSrc || m.src || (m.querySelector('source') || {}).src }));
+  const medias = () => [...document.querySelectorAll('video, img')].filter((m) => { const r = m.getBoundingClientRect(); const src = m.currentSrc || m.src || (m.querySelector && m.querySelector('source') && m.querySelector('source').src) || ''; return Math.max(r.width, r.height) >= 120 && Math.min(r.width, r.height) >= 60 && src && !/^data:image\/svg|\.svg(\?|$)|googleusercontent\.com\/a\/|avatar|logo/i.test(src); }).map((m) => ({ tag: m.tagName.toLowerCase(), src: m.currentSrc || m.src || (m.querySelector('source') || {}).src, w: m.naturalWidth || m.videoWidth || 0, h: m.naturalHeight || m.videoHeight || 0 }));
 `;
 
 /** Estado da página: login, campo de prompt, mídias atuais (para detectar as novas). */
@@ -197,6 +197,14 @@ export function flowRefsText(refs: Array<{ name: string }> | undefined): string 
   return (style.length ? ` A imagem ${style.map(idx).join(', ')} anexada é o MODELO DE ESTILO da thumbnail: copie composição, tipografia, cores e acabamento, não o conteúdo nem os textos dela.` : '') +
     (cast.length ? ` Use as imagens anexadas como referência de personagem (mesmo rosto, cabelo, corpo e roupa): ${cast.map((r) => `imagem ${idx(r)} = ${r.name}`).join('; ')}.` : '');
 }
+/** A mídia tem a orientação pedida? (sem tamanho ainda = aceita; 1:1 aceita qualquer). Função pura. */
+export function orientationOk(aspect: string | undefined, w = 0, h = 0): boolean {
+  if (!w || !h || !aspect) return true;
+  if (aspect === '9:16' || aspect === '4:5' || aspect === '3:4') return h > w;
+  if (aspect === '16:9' || aspect === '4:3') return w > h;
+  return true;
+}
+
 /** Proporções que o Flow oferece: imagem 16:9/4:3/1:1/3:4/9:16; vídeo 16:9/9:16. */
 export function flowAspect(media: 'image' | 'video', aspect = '16:9'): string {
   if (media === 'video') return aspect === '9:16' || aspect === '4:5' ? '9:16' : '16:9';
@@ -365,9 +373,11 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     while (Date.now() < deadline) {
       if (job.signal?.aborted) throw new Error('cancelado');
       await wait(4000);
-      let ms: Array<{ tag: string; src: string }> = [];
+      let ms: Array<{ tag: string; src: string; w?: number; h?: number }> = [];
       try { ms = (await evaluate<{ medias: string[] }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000)).medias as unknown as typeof ms; } catch { continue; }
-      const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img'));
+      /* a grade carrega itens ANTIGOS aos poucos (rolagem/lazy load): eles aparecem "novos" sem ser o resultado. Só vale a
+         mídia na orientação pedida (9:16 em pé, 16:9 deitada) — no teste dark54 3 de 5 cenas pegaram imagens antigas deitadas */
+      const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img') && orientationOk(job.aspect, m.w, m.h));
       if (fresh) { src = fresh.src; break; }
     }
     if (!src) { await dbg('nenhuma mídia nova'); throw new Error(`o Flow não entregou ${job.media === 'image' ? 'imagem' : 'vídeo'} em ${job.timeoutSec}s`); }
@@ -378,8 +388,8 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     for (let t = 0; t < 6 && !got; t++) {
       if (t) {
         await wait(4000);
-        const ms = await evaluate<{ medias: Array<{ tag: string; src: string }> }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000).then((r) => r.medias).catch(() => [] as Array<{ tag: string; src: string }>);
-        const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img'));
+        const ms = await evaluate<{ medias: Array<{ tag: string; src: string; w?: number; h?: number }> }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000).then((r) => r.medias).catch(() => [] as Array<{ tag: string; src: string; w?: number; h?: number }>);
+        const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img') && orientationOk(job.aspect, m.w, m.h));
         if (fresh) src = fresh.src;
       }
       try {

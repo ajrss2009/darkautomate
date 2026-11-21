@@ -8,7 +8,7 @@ import * as auto from '../main/automations';
 import { createExecutors } from '../main/executors';
 import { runRoute } from '../main/engine';
 import { createProject, defaultSettings } from '../main/settings';
-import { flowAspect, flowPrompt } from '../main/flow';
+import { flowAspect, flowPrompt, orientationOk } from '../main/flow';
 import type { Route } from '../shared/types';
 
 /**
@@ -19,6 +19,10 @@ import type { Route } from '../shared/types';
  */
 async function main() {
   assert.equal(flowAspect('image', '4:5'), '3:4'); assert.equal(flowAspect('video', '1:1'), '16:9'); assert.equal(flowAspect('video', '4:5'), '9:16');
+  /* dark54: imagem antiga deitada da grade não conta como resultado de um pedido 9:16 */
+  assert.equal(orientationOk('9:16', 1376, 768), false); assert.equal(orientationOk('9:16', 768, 1376), true);
+  assert.equal(orientationOk('16:9', 768, 1376), false); assert.equal(orientationOk('1:1', 1376, 768), true);
+  assert.equal(orientationOk('9:16', 0, 0), true, 'sem tamanho ainda: aceita (o download confere)');
   assert.match(flowPrompt({ prompt: 'gato', media: 'video', aspect: '9:16', seconds: 30 }), /^Gere 1 vídeo de 10 segundos na proporção 9:16/);
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-flow-'));
   const s = defaultSettings(ws);
