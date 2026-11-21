@@ -812,6 +812,9 @@ export function fitExactAspect(aspect: Aspect, megapixels = 0.6, multiple = 32):
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 /** VariÃ¡veis comuns a ComfyUI e Wan2GP. */
+/** Texto falado sem "#" no começo das linhas (o Wan2GP ignora essas linhas como comentário). Função pura. */
+export const wan2gpSafeText = (t: string) => t.replace(/^(\s*)#+\s*/gm, '$1');
+
 function commonVars(c: ExecContext, side: { maxSide?: number; multiple?: number; megapixels?: number; exactAspect?: boolean }): Record<string, string | number> {
   const isThumb = c.step.kind === 'thumbnail';
   const aspect = isThumb ? THUMB_ASPECT : c.project.aspect;   // thumbnail sempre 16:9
@@ -1043,6 +1046,8 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   const vars: Record<string, string | number> = { ...commonVars(c, tpl), language_name: lang.name, language_code: lang.code, language_label: lang.label, ...(tpl.vars ?? {}),
     /* quem chama pode fixar variÃ¡veis (ex.: coletÃ¢nea: estilo/letra/duraÃ§Ã£o/seed de cada faixa) */
     ...((((c.step.params ?? {}) as Record<string, unknown>)['varsOverride'] as Record<string, string | number> | undefined) ?? {}) };
+  /* no Wan2GP linha de prompt que começa com "#" é COMENTÁRIO: "#publi: recebo comissão…" virava prompt vazio */
+  if (typeof vars['text'] === 'string') vars['text'] = wan2gpSafeText(vars['text']);
   vars['speech_seconds'] = speechSeconds(String(vars['text'] ?? ''));
   const prevImg = c.scene?.artifacts['image']?.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
   if (prevImg) vars['init_image'] = prevImg;                       // caminho absoluto local

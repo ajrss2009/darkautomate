@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { alignPodcastScenes, blocksMarkdown, fullscreenScenes, fullscreenWindow, podcastBlocks, podcastOffsets, podcastPipScene, tensionScore } from '../main/podcast-pip-scene';
 import { clockSeconds, sectionFromIdea } from '../main/youtube';
+import { wan2gpSafeText } from '../main/executors';
 
 /* Podcast 16:9: voz original, PiP sincronizada com o trecho e tela cheia nos momentos de tensão */
 function main() {
@@ -68,6 +69,11 @@ function main() {
   alignPodcastScenes(fewer, blocks);
   assert.equal(fewer[0]!.clipStart, 0); assert.equal(fewer[1]!.clipStart! + fewer[1]!.durationSec, blocks[blocks.length - 1]!.end, 'cobre o trecho inteiro');
   assert.equal(`${fewer[0]!.narration} ${fewer[1]!.narration}`, blocks.map((b) => b.text).join(' '));
+
+  /* Wan2GP: "#" no começo da linha é comentário — a fala "#publi: …" não pode sumir */
+  assert.equal(wan2gpSafeText('#publi: recebo comissão. Agora, o critério.'), 'publi: recebo comissão. Agora, o critério.');
+  assert.equal(wan2gpSafeText('linha 1\n  ## linha 2'), 'linha 1\n  linha 2');
+  assert.equal(wan2gpSafeText('meio #hashtag fica'), 'meio #hashtag fica');
 
   /* link + minutos na ideia */
   assert.equal(clockSeconds('46:04'), 2764); assert.equal(clockSeconds('1:02:03'), 3723);
