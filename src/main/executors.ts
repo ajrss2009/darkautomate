@@ -470,7 +470,8 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
       fullscreen: isFull ? fullscreenWindow(dur, i > 0 && full.has(scenes[i - 1]!.id), i >= 0 && i < scenes.length - 1 && full.has(scenes[i + 1]!.id)) : undefined,
     }));
     c.log(`podcast-16-9: cena PiP montada pelo app (trecho a partir de ${videoStart.toFixed(2)} s${isFull ? ', TELA CHEIA — momento de tensão' : ''})`);
-    return { files: [file] };
+    /* renderiza o HTML em clips/code.mp4: sem isto a montagem caía no frame.png do Flow e a PiP sumia do vídeo final */
+    return finishRendered(c, o, file);
   }
   const cwd = c.sceneDir ?? c.projectDir;
   const stopWatch = watchOutputs(cwd, c.log);
