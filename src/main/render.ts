@@ -260,8 +260,24 @@ export function registerSceneProtocol(roots: () => string[]) {
       const u = new URL(req.url);
       const kit = mounts.get(u.hostname);
       if (kit) return serveKit(kit, u.pathname);
-      const file = path.resolve(u.pathname.replace(/^\//, '').split('/').map(decodeURIComponent).join(path.sep));
+      let file = path.resolve(u.pathname.replace(/^\//, '').split('/').map(decodeURIComponent).join(path.sep));
       const ok = roots().map((x) => path.resolve(x) + path.sep);
+      /* Cenas por codigo referenciam midia do projeto como "web/arquivo" (capturas de link,
+         podcast em PiP). O navegador resolve relativo a pasta code/ da cena, mas o arquivo
+         esta na RAIZ do projeto. Sem isso a PiP do podcast (e as capturas web/) nao carregam
+         e a cena renderiza so o fundo — a skill "podcast-16-9" nao pode depender de junction
+         criado a mao. Resolve qualquer caminho .../web/... contra a raiz que o contem. */
+      if (!fs.existsSync(file)) {
+        for (const root of ok) {
+          const rr = root.slice(0, -1);
+          if (!file.startsWith(rr + path.sep)) continue;
+          const rel = path.relative(rr, file).split(path.sep);
+          const wi = rel.indexOf('web');
+          if (wi < 0) continue;
+          const alt = path.join(rr, ...rel.slice(wi));
+          if (fs.existsSync(alt) && fs.statSync(alt).isFile()) { file = alt; break; }
+        }
+      }
       if (!ok.some((root) => file.startsWith(root)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return new Response('not found', { status: 404 });
       return fileResponse(file, req.headers.get('range'));
     } catch { return new Response('bad request', { status: 400 }); }
