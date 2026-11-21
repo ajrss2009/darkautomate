@@ -10,7 +10,8 @@ import type { ExecContext, ExecResult, Executor } from './engine';
 import { isHttpHarness, resolveHarness, runHarness } from './harness';
 import { ComfyClient, applyVariables, collectOutputs, isUiFormat, placeholders } from './comfyui';
 import { refPrompt, speechSeconds, Wan2gpClient, wan2gpLanguage } from './wan2gp';
-import { podcastPipScene } from './podcast-pip-scene';
+import { fullscreenScenes, fullscreenWindow, podcastOffsets, podcastPipScene } from './podcast-pip-scene';
+import { downloadSection, sectionFromIdea } from './youtube';
 import { runShowrunner, showrunnerKind } from './showrunner';
 import * as prov from './providers';
 import * as ff from './ffmpeg';
@@ -448,20 +449,27 @@ const harnessExec = (o: ExecutorOptions): Executor => async (c) => {
      zoom lento; vídeo original em PiP no canto do projeto; TELA_CHEIA nas cenas
      marcadas. Só usa o template quando a skill é podcast-16-9. */
   if (c.step.kind === 'code_scene' && c.project.skill?.id === 'podcast-16-9' && /\.(html?)$/i.test(file)) {
-    const fsMatch = String(c.scene?.notes ?? '').match(/TELA_CHEIA\s+(\d+(?:\.\d+)?)\s*(?:-|a|–|to)?\s*(\d+(?:\.\d+)?)?/i);
-    const start = Number(fsMatch?.[1] ?? 0);
-    const end = fsMatch?.[2] ? Number(fsMatch[2]) : Math.min((c.scene?.durationSec ?? 8), start + 12);
+    /* "TELA_CHEIA 10-25s" no plano é a DURAÇÃO desejada, não um instante dentro da cena (cenas têm 6-12 s:
+       ler como início 10 s fazia a tela cheia nunca aparecer). A cena marcada inteira vai a tela cheia;
+       vizinhas marcadas emendam. Sem marca, o app escolhe o momento de maior curiosidade/tensão da fala. */
+    const scenes = c.project.scenes;
+    const full = fullscreenScenes(scenes);
+    const i = scenes.findIndex((x) => x.id === c.scene?.id);
+    const dur = Number(c.scene?.durationSec) || Number(c.project.targetDurationSec) || 8;
+    const isFull = !!c.scene && full.has(c.scene.id);
+    const videoStart = c.scene ? podcastOffsets(scenes).get(c.scene.id) ?? 0 : 0;
     const corner = /inferior\s+esquerdo|inferior esquerda/i.test(c.project.idea) ? 'bl'
       : /inferior\s+direit/i.test(c.project.idea) ? 'br'
       : /superior\s+esquerd/i.test(c.project.idea) ? 'tl'
       : /superior\s+direit/i.test(c.project.idea) ? 'tr' : 'bl';
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, podcastPipScene({
-      duration: Number(c.scene?.durationSec) || Number(c.project.targetDurationSec) || 8,
+      duration: dur, videoStart,
       fps: 30, aspect: c.project.aspect === '9:16' ? '9:16' : '16:9',
-      pipCorner: corner, fullscreen: fsMatch ? { start, end } : undefined,
+      pipCorner: corner,
+      fullscreen: isFull ? fullscreenWindow(dur, i > 0 && full.has(scenes[i - 1]!.id), i >= 0 && i < scenes.length - 1 && full.has(scenes[i + 1]!.id)) : undefined,
     }));
-    c.log('podcast-16-9: cena PiP montada pelo app (template determinístico)');
+    c.log(`podcast-16-9: cena PiP montada pelo app (trecho a partir de ${videoStart.toFixed(2)} s${isFull ? ', TELA CHEIA — momento de tensão' : ''})`);
     return { files: [file] };
   }
   const cwd = c.sceneDir ?? c.projectDir;
@@ -2735,7 +2743,41 @@ export function importedScript(c: ExecContext): ExecResult | undefined {
 export function createExecutors(o: ExecutorOptions): Record<Binding['type'], Executor> {
   /* thumbnail em qualquer formato: 16:9 no YouTube, capa 9:16 em shorts/reels (antes era ignorada fora do 16:9) */
   const all: Record<Binding['type'], Executor> = { harness: harnessExec(o), api: apiExec(o), comfyui: comfyExec(o), wan2gp: wan2gpExec(o), stock: stockExec(o), builtin: builtinExec(o), manual: manualExec(o), flow: flowExec(o) };
-  return Object.fromEntries(Object.entries(all).map(([k, ex]) => [k, async (c: ExecContext) => userFiles(c) ?? importedScript(c) ?? (c.step.kind === 'thumbnail' ? visualThumb(c, o, ex) : ex(c))])) as Record<Binding['type'], Executor>;
+  return Object.fromEntries(Object.entries(all).map(([k, ex]) => [k, async (c: ExecContext) => { await ensurePodcastSource(c); return userFiles(c) ?? importedScript(c) ?? (await podcastVoice(c)) ?? (c.step.kind === 'thumbnail' ? visualThumb(c, o, ex) : ex(c)); }])) as Record<Binding['type'], Executor>;
+}
+
+/**
+ * Podcast 16:9: o APP baixa o trecho pedido na ideia (link + minuto inicial/final) para web/podcast.mp4
+ * antes do roteiro — o harness lê a transcrição dele em vez de depender do LLM rodar o yt-dlp certo.
+ */
+async function ensurePodcastSource(c: ExecContext): Promise<void> {
+  if (c.project.skill?.id !== 'podcast-16-9' || !['script', 'scene_plan', 'narration', 'code_scene'].includes(c.step.kind)) return;
+  const dest = path.join(c.projectDir, 'web', 'podcast.mp4');
+  if (fs.existsSync(dest) && fs.statSync(dest).size > 0) return;
+  const sec = sectionFromIdea(c.project.idea ?? '');
+  if (!sec) { c.log('podcast-16-9: a ideia não tem link — o harness precisa baixar o trecho'); return; }
+  try { await downloadSection(c.settings, sec.url, sec.start, sec.end, dest, c.signal, c.log); c.log(`podcast-16-9: trecho original salvo em web/podcast.mp4 (${sec.end - sec.start} s)`); }
+  catch (e) { c.log(`podcast-16-9: download do trecho falhou — ${(e as Error).message.slice(0, 200)}`); }
+}
+
+/**
+ * Podcast 16:9: a voz é a do trecho ORIGINAL, nunca TTS. A narração de cada cena é recortada de
+ * web/podcast.mp4 no mesmo ponto em que a PiP da cena começa (podcastOffsets) — som e boca batem.
+ * Sem o vídeo baixado ainda, deixa a etapa seguir o executor normal.
+ */
+async function podcastVoice(c: ExecContext): Promise<ExecResult | undefined> {
+  if (c.step.kind !== 'narration' || c.project.skill?.id !== 'podcast-16-9' || !c.scene || !c.sceneDir) return undefined;
+  const src = path.join(c.projectDir, 'web', 'podcast.mp4');
+  if (!fs.existsSync(src)) return undefined;
+  const start = podcastOffsets(c.project.scenes).get(c.scene.id) ?? 0;
+  const dur = Math.max(0.5, Number(c.scene.durationSec) || 8);
+  const dir = path.join(c.sceneDir, 'audio');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of fs.readdirSync(dir)) if (f.startsWith('narration.')) fs.rmSync(path.join(dir, f), { force: true });
+  const out = path.join(dir, 'narration.wav');
+  await ff.run(c.settings.ffmpeg, ['-y', '-ss', start.toFixed(3), '-t', dur.toFixed(3), '-i', src, '-vn', '-ac', '2', '-ar', '48000', '-c:a', 'pcm_s16le', out], c.signal);
+  c.log(`podcast-16-9: voz original do trecho ${start.toFixed(2)}–${(start + dur).toFixed(2)} s (sem TTS)`);
+  return { files: [out] };
 }
 
 /**

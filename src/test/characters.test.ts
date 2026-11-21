@@ -12,7 +12,7 @@ import { characterPhoto } from '../main/attachments';
 import { buildStoryboard } from '../main/project-storyboard';
 import type { Project, Scene } from '../shared/types';
 import { RIG_RUNTIME, normalizeRig, rigSceneText, sanitizeSvg, stageRig, cartoonSpecOf, isCodeCharacter } from '../main/rig';
-import { setCharacterRig, readCharacterRig, toProjectCharacter, setCharacterThumb, hasPicture } from '../main/characters';
+import { setCharacterRig, readCharacterRig, toProjectCharacter, setCharacterThumb, hasPicture, portabilizeLibrary, voiceFile } from '../main/characters';
 import { sceneRigText, ensureThreeImport } from '../main/prompts';
 import * as vm from 'node:vm';
 
@@ -44,6 +44,29 @@ async function main() {
   assert.match(sp, /FRONT view/); assert.match(sp, /SIDE view/); assert.match(sp, /BACK view/); assert.match(sp, /expressions/); assert.match(sp, /NOT resemble any real celebrity/);
   assert.match(sheetPrompt({ ...upd, kind: 'cartoon' }), /2D cartoon/);
   assert.deepEqual(castFromCharacter(upd), { speaker: 'Ji-woo Park', refAudio: undefined, voice: 'nova', description: `${upd.look} — voz: feminina, 25 anos, doce` });
+
+  /* biblioteca portátil: voz de fora entra na pasta do item; mover a pasta de dados não perde a voz */
+  {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-voz-'));
+    const wav = path.join(outside, 'Dave PT-BR.wav'); fs.writeFileSync(wav, 'RIFFxxxxWAVE');
+    const dave = saveCharacter(s, { name: 'Dave', look: 'homem de 40 anos, barba curta, jaqueta verde', voice: { refAudio: wav } });
+    assert.equal(dave.voice?.refAudio, 'voice.wav', 'voz copiada para a pasta do item, caminho relativo');
+    assert.ok(fs.existsSync(path.join(ws, 'library', 'characters', 'dave', 'voice.wav')));
+    assert.ok(!JSON.stringify(getCharacter(s, 'dave')).includes(outside.replace(/\\/g, '\\\\')), 'nenhum caminho absoluto no registro');
+    /* item antigo (gravado antes da correção) é migrado na abertura */
+    const old = path.join(ws, 'library', 'characters', 'dave', 'character.json');
+    fs.writeFileSync(old, JSON.stringify({ ...getCharacter(s, 'dave'), voice: { refAudio: wav } }));
+    assert.equal(portabilizeLibrary(s), 1);
+    assert.equal(getCharacter(s, 'dave').voice?.refAudio, 'voice.wav');
+    /* move a pasta inteira: a voz resolve pelo item, não pelo caminho antigo */
+    const moved = ws + '-movido';
+    fs.cpSync(ws, moved, { recursive: true });
+    const s2 = defaultSettings(moved);
+    assert.equal(voiceFile(s2, getCharacter(s2, 'dave')), path.join(moved, 'library', 'characters', 'dave', 'voice.wav'));
+    assert.ok(fs.existsSync(voiceFile(s2, getCharacter(s2, 'dave'))!));
+    fs.rmSync(moved, { recursive: true, force: true });
+    deleteCharacter(s, 'dave');
+  }
 
   /* bíblia: acrescenta só quem falta, nas seções certas */
   const md = mergeBible('# Bíblia\n\n## Personagens fixos\n- **Min-ho**: já descrito\n\n## Cenários\n- praça\n', [{ name: 'Min-ho', look: 'x' }, { name: 'Ji-woo Park', look: 'y', voice: { description: 'doce' } }]);

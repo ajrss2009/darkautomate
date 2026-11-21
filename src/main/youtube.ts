@@ -154,6 +154,37 @@ export function cleanWindow(cuts: number[], len: number, total: number): number 
   return undefined;
 }
 
+/** "46:04" / "1:02:03" / "95" → segundos (função pura). */
+export function clockSeconds(t: string): number {
+  const p = t.trim().split(':').map(Number);
+  return p.some((x) => !Number.isFinite(x)) ? NaN : p.reduce((a, x) => a * 60 + x, 0);
+}
+
+/** Link + minuto inicial/final escritos na ideia ("https://… 46:04 - 58:11, canto inferior esquerdo"). Função pura. */
+export function sectionFromIdea(idea: string): { url: string; start: number; end: number } | undefined {
+  const url = /(https?:\/\/[^\s,;)]+)/i.exec(idea)?.[1];
+  if (!url) return undefined;
+  const m = /(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:-|–|—|a|até|to)\s*(\d{1,2}:\d{2}(?::\d{2})?)/i.exec(idea.slice(idea.indexOf(url) + url.length)) ?? /(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:-|–|—|a|até|to)\s*(\d{1,2}:\d{2}(?::\d{2})?)/i.exec(idea);
+  const start = m ? clockSeconds(m[1]!) : 0, end = m ? clockSeconds(m[2]!) : NaN;
+  return { url, start: Number.isFinite(start) ? start : 0, end: Number.isFinite(end) && end > start ? end : (Number.isFinite(start) ? start : 0) + 120 };
+}
+
+/** Trecho de um vídeo COM áudio (podcast em PiP: a voz original entra na montagem), em mp4 até 1080p. */
+export async function downloadSection(s: Settings, url: string, start: number, end: number, dest: string, signal?: AbortSignal, log?: (l: string) => void): Promise<string> {
+  const exe = await ensureYtDlp(s, log);
+  const ffmpeg = resolveBin(s.ffmpeg || 'ffmpeg');
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const tmp = path.join(path.dirname(dest), `.section-${Date.now()}.%(ext)s`);
+  log?.(`baixando o trecho ${start}s–${end}s de ${url}`);
+  const r = await run(exe, ['-f', 'bv*[height<=1080]+ba/b[height<=1080]/b', '--merge-output-format', 'mp4', '--no-playlist', '--no-warnings',
+    '--ffmpeg-location', path.dirname(ffmpeg), '--download-sections', `*${start}-${end}`, '--force-keyframes-at-cuts', '-o', tmp, '--', url], signal);
+  const got = fs.readdirSync(path.dirname(dest)).filter((f) => f.startsWith('.section-')).map((f) => path.join(path.dirname(dest), f)).sort((a, b) => fs.statSync(b).size - fs.statSync(a).size)[0];
+  if (r.code !== 0 || !got) throw new Error(`yt-dlp não baixou o trecho: ${(r.err || r.out).split('\n').slice(-2).join(' ').slice(0, 300)}`);
+  fs.renameSync(got, dest);
+  for (const f of fs.readdirSync(path.dirname(dest))) if (f.startsWith('.section-')) fs.rmSync(path.join(path.dirname(dest), f), { force: true });
+  return dest;
+}
+
 /**
  * Baixa só o trecho necessário, sem arquivos de legenda, e recorta as bordas
  * (marcas d'água/créditos costumam ficar nas bordas; legendas queimadas no rodapé).

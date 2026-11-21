@@ -285,6 +285,8 @@ function loadSettings(): Settings {
     const repaired = repairStalePaths(merged, def);
     if (migrateSettings(merged) || legacyKeys || repaired) saveSettings(merged);
     relocateIfMoved(merged);
+    /* biblioteca portátil: vozes de personagens que apontam para fora da pasta passam a viver dentro dela */
+    try { const n = characters.portabilizeLibrary(merged); if (n) console.log(`biblioteca: ${n} voz(es) trazida(s) para dentro da pasta de dados`); } catch (e) { dumpErr('portabilize', e); }
     /* venv do Whisper criado pelo botão "Baixar/instalar": usa sozinho se o Python configurado não existe */
     try {
       const vp = whisperVenvPython(merged);

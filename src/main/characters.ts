@@ -112,8 +112,46 @@ export function saveCharacter(s: Settings, raw: Partial<LibraryCharacter>): Libr
     storyId: n.storyId ?? prev?.storyId };
   if (!c.variants) delete c.variants;
   fs.mkdirSync(charDir(s, id), { recursive: true });
+  adoptVoice(s, c);
   fs.writeFileSync(path.join(charDir(s, id), 'character.json'), JSON.stringify(c, null, 2));
   return c;
+}
+
+const AUDIO = /\.(wav|mp3|m4a|flac|ogg)$/i;
+/**
+ * Biblioteca portátil: a voz de referência que aponta para fora da pasta do item (Downloads, OneDrive…)
+ * é copiada para dentro dela (voice.<ext>) e o item guarda só o nome relativo — mover a pasta de
+ * dados ou abrir em outro PC não perde a voz. Voz que não existe neste PC fica como está.
+ */
+function adoptVoice(s: Settings, c: LibraryCharacter): boolean {
+  const ref = c.voice?.refAudio;
+  if (!ref || !path.isAbsolute(ref) || !AUDIO.test(ref) || !fs.existsSync(ref)) return false;
+  const dir = charDir(s, c.id);
+  if (path.resolve(path.dirname(ref)).toLowerCase() === path.resolve(dir).toLowerCase()) { c.voice!.refAudio = path.basename(ref); return true; }
+  const name = `voice${path.extname(ref).toLowerCase()}`;
+  fs.copyFileSync(ref, path.join(dir, name));
+  c.voice!.refAudio = name;
+  return true;
+}
+
+/** Caminho absoluto da voz de referência do item (relativa à pasta dele ou absoluta antiga). */
+export function voiceFile(s: Settings, c: Pick<LibraryCharacter, 'id' | 'voice'>): string | undefined {
+  const ref = c.voice?.refAudio;
+  if (!ref) return undefined;
+  return path.isAbsolute(ref) ? ref : charFile(s, c, ref) ?? path.join(charDir(s, c.id), ref);
+}
+
+/** Migração: traz para dentro da biblioteca as vozes que ainda apontam para fora (roda na abertura). */
+export function portabilizeLibrary(s: Settings): number {
+  let n = 0;
+  for (const c of listCharacters(s)) {
+    try {
+      if (!adoptVoice(s, c)) continue;
+      fs.writeFileSync(path.join(charDir(s, c.id), 'character.json'), JSON.stringify(c, null, 2));
+      n++;
+    } catch { /* item ilegível: fica como está */ }
+  }
+  return n;
 }
 
 /** Copia um arquivo para o item: imagem vira "extra" (referência) e modelo 3D entra em models. */
@@ -363,7 +401,7 @@ export function applyCharacters(s: Settings, p: Project, projectDir: string, ids
       const st = stageRig(projectDir, c.id, rig, c.name);
       pc.rig = st.script;
     }
-    if (e === 'character' && !cast.some((m) => m.speaker.toLowerCase() === c.name.toLowerCase())) cast.push(castFromCharacter({ ...c, look: pc.look }));
+    if (e === 'character' && !cast.some((m) => m.speaker.toLowerCase() === c.name.toLowerCase())) cast.push(castFromCharacter({ ...c, look: pc.look, voice: c.voice && { ...c.voice, refAudio: voiceFile(s, c) } }));
   }
   p.attachments = atts.length ? atts : undefined;
   p.cast = cast.length ? cast : undefined;
