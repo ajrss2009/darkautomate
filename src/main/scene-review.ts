@@ -109,6 +109,30 @@ export function reviewFixPrompt(rel: string, issues: string[], o: { aspect?: str
  * A imagem tem o texto pedido, legível? (thumbnail com modelo: o gerador às vezes ignora o texto). Usa um harness com
  * visão; undefined = não deu para conferir.
  */
+/**
+ * A pessoa da imagem da cena é a MESMA da imagem de referência (1ª cena)? Sem pessoa na cena = ok.
+ * undefined = nenhum harness com visão respondeu (quem chama segue sem conferir).
+ */
+export async function samePerson(s: Settings, image: string, reference: string, signal: AbortSignal, log: (l: string) => void): Promise<boolean | undefined> {
+  const dir = path.dirname(image);
+  const prompt = `Abra as duas imagens: A = "${reference}" (protagonista) e B = "${image}". Se B não mostra nenhuma pessoa, responda {"ok": true, "why": "sem pessoa"}. ` +
+    'Se mostra, a pessoa principal de B é a MESMA de A (mesmo gênero, rosto, cor e corte de cabelo, roupa)? Responda SÓ com JSON: {"ok": true|false, "why": "motivo curto"}';
+  for (const b of [{ type: 'harness', harness: 'antigravity' }, { type: 'harness', harness: 'claude', model: 'sonnet' }, { type: 'harness', harness: 'codex' }] as Array<Extract<Binding, { type: 'harness' }>>) {
+    try {
+      const { id, cfg, model } = await resolveHarness(s, b);
+      const http = isHttpHarness(cfg);
+      const roots = [...new Set([dir, path.dirname(reference)])];
+      const r = await runHarness(cfg, { cwd: dir, prompt, model, signal, timeoutSec: 300, images: http ? [reference, image] : undefined, tools: http ? undefined : { roots, allowShell: false } } as Parameters<typeof runHarness>[1]);
+      const m = /\{[\s\S]*\}/.exec(r.stdout);
+      if (!m) continue;
+      const j = JSON.parse(m[0]) as { ok?: boolean; why?: string };
+      log(`conferência da protagonista (${id}): ${j.ok ? 'ok' : 'outra pessoa'} — ${(j.why ?? '').slice(0, 80)}`);
+      return !!j.ok;
+    } catch { /* próximo harness */ }
+  }
+  return undefined;
+}
+
 export async function imageHasText(s: Settings, image: string, text: string, signal: AbortSignal, log: (l: string) => void): Promise<boolean | undefined> {
   const dir = path.dirname(image);
   const prompt = `Abra a imagem "${image}". Ela contém o texto "${text}" escrito de forma legível (pode ter outra caixa de letra)? Responda SÓ com JSON: {"has": true|false, "seen": "texto que você lê na imagem"}`;

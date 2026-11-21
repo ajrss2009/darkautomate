@@ -1329,9 +1329,19 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
     /* cena: texto na imagem sai errado e cobre a composição; a thumbnail é a exceção (o texto é pedido) */
     /* só em pedido de IMAGEM: no de vídeo a palavra "imagem" fazia o agente do Flow devolver imagem */
     const noText = k === 'thumbnail' || media !== 'image' ? '' : ' Sem nenhuma letra, palavra, rótulo, legenda, número ou marca d\'água na imagem (no text, no letters, no labels, no captions).';
-    const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + onlyHer + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
+    const gen = (extra = '') => flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + onlyHer + extra + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
       aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });
+    let got = await gen();
+    /* conferência por visão: mesmo com a referência e a instrução, o Flow às vezes desenha OUTRA pessoa (um rapaz na cena 4
+       do anime). Compara com a 1ª cena e gera de novo até 2 vezes; sem harness com visão, segue sem conferir. */
+    const herRef = onlyHer && media === 'image' ? refs.find((r) => /protagonista e estilo da 1/.test(r.name))?.file : undefined;
+    for (let retry = 1; herRef && retry <= 2; retry++) {
+      const ok = await sceneReview.samePerson(c.settings, got, herRef, c.signal, c.log).catch(() => undefined);
+      if (ok !== false) break;
+      c.log(`Flow: a imagem trocou a protagonista — gerando de novo (${retry}/2)`);
+      got = await gen(` ATENÇÃO: a tentativa anterior desenhou OUTRA pessoa. A pessoa desta imagem TEM de ser a mesma pessoa da imagem anexada, com o mesmo rosto, cabelo e uniforme.`);
+    }
     // formato que a montagem espera: frame.png / thumbnail.png / clip.mp4
     if (got !== dest) {
       if (media === 'image') await ff.run(c.settings.ffmpeg, ['-y', '-i', got, '-frames:v', '1', dest], c.signal);
