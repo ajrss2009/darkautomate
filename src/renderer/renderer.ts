@@ -1070,8 +1070,10 @@ async function renderNew() {
   const wmText = h('input', { id: 'np-wm-text', class: 'grow', placeholder: '@seucanal — texto da marca d\'água' }) as HTMLInputElement;
   const wmPos = h('select', { id: 'np-wm-pos', title: 'Onde a marca aparece' },
     ...[['br', 'canto inferior direito'], ['bl', 'canto inferior esquerdo'], ['tr', 'canto superior direito'], ['tl', 'canto superior esquerdo'], ['center', 'centro']].map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
-  const wmRow = h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Grava a marca d\'água (texto) em todo o vídeo final, como no editor' }, wmOn, '✒️ Marca d\'água'), wmText, wmPos);
-  const paintWm = () => { wmText.disabled = !wmOn.checked; wmPos.disabled = !wmOn.checked; };
+  const wmOpacity = h('input', { type: 'number', id: 'np-wm-opacity', min: '0.05', max: '1', step: '0.05', value: '0.6', title: 'Opacidade da marca (0,05 a 1)' }) as HTMLInputElement;
+  const wmSize = h('input', { type: 'number', id: 'np-wm-size', min: '4', max: '60', step: '1', value: '12', title: 'Tamanho da marca em pontos' }) as HTMLInputElement;
+  const wmRow = h('div', { class: 'row' }, h('label', { class: 'inline chk', title: 'Grava a marca d\'água (texto) em todo o vídeo final, como no editor' }, wmOn, '✒️ Marca d\'água'), wmText, wmPos, wmOpacity, wmSize);
+  const paintWm = () => { wmText.disabled = !wmOn.checked; wmPos.disabled = !wmOn.checked; wmOpacity.disabled = !wmOn.checked; wmSize.disabled = !wmOn.checked; };
   wmOn.addEventListener('change', paintWm);
   paintWm();
   /* CATÁLOGO 11/2026: disclosure contínuo + perfil exato do gerador (um guia de família) + contrato de prompt */
@@ -1719,7 +1721,7 @@ async function renderNew() {
       name: name.value.trim(), idea: idea.value.trim(), videoType: 'custom', skillId: skill.value, routeId: route.value,
       aspect: aspect.value, targetDurationSec: Number(dsec.value) || 60, quality: quality.value, profile: profile.value, language: lang.value,
       freeEngine: npFreeEngine.value === '2d' || npFreeEngine.value === '3d' ? npFreeEngine.value : undefined,
-      watermark: wmOn.checked && wmText.value.trim() ? { enabled: true, text: wmText.value.trim(), position: wmPos.value as 'tl' | 'tr' | 'bl' | 'br' | 'center', opacity: 0.6, size: 12 } : undefined,
+      watermark: wmOn.checked && wmText.value.trim() ? { enabled: true, text: wmText.value.trim(), position: wmPos.value as 'tl' | 'tr' | 'bl' | 'br' | 'center', opacity: Math.min(1, Math.max(0.05, Number(wmOpacity.value) || 0.6)), size: Math.min(60, Math.max(4, Number(wmSize.value) || 12)) } : undefined,
       disclosure: { label: discLabel.value.trim() || '#publi — parceria paga', position_sec: 0.5, visible_whole: discWhole.checked, platform_tool: true, ai_label: true, music_genai: true },
       generator_profile: genOn.checked ? {
         provider: genProvider.value.trim() || 'custom', model_id: genModel.value.trim(),
