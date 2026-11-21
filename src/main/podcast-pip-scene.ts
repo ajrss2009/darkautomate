@@ -187,7 +187,7 @@ var img=new Image(); img.src='${frame}';
 var ready=false;
 function clamp(x,a,b){return x<a?a:(x>b?b:x)}
 function smooth(a,b,t){var u=clamp((t-a)/(b-a),0,1);return u*u*(3-2*u)}
-function cover(im,x,y,w,h){var iw=im.naturalWidth,ih=im.naturalHeight;if(!iw||!ih)return;var s=Math.max(w/iw,h/ih),dw=iw*s,dh=ih*s;ctx.drawImage(im,x+(w-dw)/2,y+(h-dh)/2,dw,dh)}
+function cover(im,x,y,w,h){var iw=im.naturalWidth||im.videoWidth,ih=im.naturalHeight||im.videoHeight;if(!iw||!ih)return;var s=Math.max(w/iw,h/ih),dw=iw*s,dh=ih*s;ctx.drawImage(im,x+(w-dw)/2,y+(h-dh)/2,dw,dh)}
 function rr(x,y,w,h,r){r=Math.max(0,Math.min(r,w/2,h/2));ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath()}
 function pipRect(){var w=Math.round(W*PW),h=Math.round(w*9/16),m=Math.round(W*0.045);
   var x=(CORNER==='br'||CORNER==='tr')?W-m-w:m;

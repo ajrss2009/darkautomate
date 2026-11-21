@@ -36,6 +36,8 @@ function main() {
   /* HTML: a PiP busca o vídeo no ponto da cena no trecho e a tela cheia aparece dentro da cena */
   const html = podcastPipScene({ duration: 8, videoStart: 15, fullscreen: fullscreenWindow(8, false, true) });
   assert.match(html, /VSTART=15/);
+  /* regressão dark54: <video> não tem naturalWidth — a PiP saía preta */
+  assert.match(html, /im\.naturalWidth\|\|im\.videoWidth/);
   assert.match(html, /var target=VSTART\+clamp\(t,0,DUR\)/);
   assert.match(html, /var FS=\{s:0\.4,e:9\}/);
   /* regressão dark53: "TELA_CHEIA 10-25s" numa cena de 8 s não pode gerar uma janela fora da cena */
