@@ -10,7 +10,7 @@ import type { ExecContext, ExecResult, Executor } from './engine';
 import { isHttpHarness, resolveHarness, runHarness } from './harness';
 import { ComfyClient, applyVariables, collectOutputs, isUiFormat, placeholders } from './comfyui';
 import { refPrompt, speechSeconds, Wan2gpClient, wan2gpLanguage } from './wan2gp';
-import { fullscreenScenes, fullscreenWindow, podcastOffsets, podcastPipScene } from './podcast-pip-scene';
+import { alignPodcastScenes, blocksMarkdown, fullscreenScenes, fullscreenWindow, podcastBlocks, podcastOffsets, podcastPipScene } from './podcast-pip-scene';
 import { downloadSection, sectionFromIdea } from './youtube';
 import { runShowrunner, showrunnerKind } from './showrunner';
 import * as prov from './providers';
@@ -2743,21 +2743,39 @@ export function importedScript(c: ExecContext): ExecResult | undefined {
 export function createExecutors(o: ExecutorOptions): Record<Binding['type'], Executor> {
   /* thumbnail em qualquer formato: 16:9 no YouTube, capa 9:16 em shorts/reels (antes era ignorada fora do 16:9) */
   const all: Record<Binding['type'], Executor> = { harness: harnessExec(o), api: apiExec(o), comfyui: comfyExec(o), wan2gp: wan2gpExec(o), stock: stockExec(o), builtin: builtinExec(o), manual: manualExec(o), flow: flowExec(o) };
-  return Object.fromEntries(Object.entries(all).map(([k, ex]) => [k, async (c: ExecContext) => { await ensurePodcastSource(c); return userFiles(c) ?? importedScript(c) ?? (await podcastVoice(c)) ?? (c.step.kind === 'thumbnail' ? visualThumb(c, o, ex) : ex(c)); }])) as Record<Binding['type'], Executor>;
+  return Object.fromEntries(Object.entries(all).map(([k, ex]) => [k, async (c: ExecContext) => { await ensurePodcastSource(c, o.toolsDir ?? path.join(process.cwd(), 'tools')); return userFiles(c) ?? importedScript(c) ?? (await podcastVoice(c)) ?? (c.step.kind === 'thumbnail' ? visualThumb(c, o, ex) : ex(c)); }])) as Record<Binding['type'], Executor>;
 }
 
 /**
  * Podcast 16:9: o APP baixa o trecho pedido na ideia (link + minuto inicial/final) para web/podcast.mp4
  * antes do roteiro — o harness lê a transcrição dele em vez de depender do LLM rodar o yt-dlp certo.
  */
-async function ensurePodcastSource(c: ExecContext): Promise<void> {
+async function ensurePodcastSource(c: ExecContext, toolsDir: string): Promise<void> {
   if (c.project.skill?.id !== 'podcast-16-9' || !['script', 'scene_plan', 'narration', 'code_scene'].includes(c.step.kind)) return;
   const dest = path.join(c.projectDir, 'web', 'podcast.mp4');
-  if (fs.existsSync(dest) && fs.statSync(dest).size > 0) return;
-  const sec = sectionFromIdea(c.project.idea ?? '');
-  if (!sec) { c.log('podcast-16-9: a ideia não tem link — o harness precisa baixar o trecho'); return; }
-  try { await downloadSection(c.settings, sec.url, sec.start, sec.end, dest, c.signal, c.log); c.log(`podcast-16-9: trecho original salvo em web/podcast.mp4 (${sec.end - sec.start} s)`); }
-  catch (e) { c.log(`podcast-16-9: download do trecho falhou — ${(e as Error).message.slice(0, 200)}`); }
+  if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) {
+    const sec = sectionFromIdea(c.project.idea ?? '');
+    if (!sec) { c.log('podcast-16-9: a ideia não tem link — o harness precisa baixar o trecho'); return; }
+    try { await downloadSection(c.settings, sec.url, sec.start, sec.end, dest, c.signal, c.log); c.log(`podcast-16-9: trecho original salvo em web/podcast.mp4 (${sec.end - sec.start} s)`); }
+    catch (e) { c.log(`podcast-16-9: download do trecho falhou — ${(e as Error).message.slice(0, 200)}`); return; }
+  }
+  /* a FALA REAL do trecho: o roteiro e o plano leem web/podcast.transcript.md (sem isto o LLM inventava a fala) */
+  const wordsFile = path.join(c.projectDir, 'web', 'podcast.words.json');
+  if (!readWords(wordsFile)?.words?.length) {
+    try {
+      c.log('podcast-16-9: transcrevendo o trecho original (Whisper)…');
+      await transcribe(c.settings.whisper ?? { python: 'python', model: 'small', device: 'auto' }, path.join(toolsDir, 'whisper_words.py'), dest, wordsFile, (c.project.language || 'pt').slice(0, 2), c.signal);
+    } catch (e) { c.log(`podcast-16-9: transcrição falhou — ${(e as Error).message.slice(0, 200)}`); return; }
+  }
+  const blocks = podcastBlocks(readWords(wordsFile)?.words ?? []);
+  if (!blocks.length) return;
+  const md = path.join(c.projectDir, 'web', 'podcast.transcript.md');
+  if (!fs.existsSync(md)) { fs.writeFileSync(md, blocksMarkdown(blocks), 'utf8'); c.log(`podcast-16-9: fala real em ${blocks.length} blocos → web/podcast.transcript.md`); }
+  /* antes da primeira narração: cada cena recebe início, duração e fala EXATOS do trecho (voz, PiP e imagem batem) */
+  if (c.step.kind === 'narration' && c.project.scenes.some((s) => s.clipStart === undefined)) {
+    const n = alignPodcastScenes(c.project.scenes, blocks);
+    c.log(`podcast-16-9: ${c.project.scenes.length} cenas encaixadas na fala real (${n} ajustadas)`);
+  }
 }
 
 /**

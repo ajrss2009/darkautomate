@@ -32,6 +32,83 @@ export function podcastOffsets(scenes: PodScene[]): Map<string, number> {
   return out;
 }
 
+export interface PodBlock { start: number; end: number; text: string }
+
+/**
+ * Blocos de 6-12 s da fala REAL do trecho (palavras do Whisper), fechando no fim de frase ou numa
+ * pausa. São contíguos a partir do 0 do trecho: somados cobrem o áudio inteiro, sem buracos.
+ */
+export function podcastBlocks(words: Array<{ w: string; start: number; end: number }>, min = 6, max = 12): PodBlock[] {
+  const out: PodBlock[] = [];
+  let start = 0, buf: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!, next = words[i + 1];
+    buf.push(w.w.trim());
+    const dur = w.end - start;
+    const sentence = /[.?!…]["”']?$/.test(w.w.trim());
+    const pause = next ? next.start - w.end : 99;
+    const tooLong = next ? next.end - start > max : false;
+    if (!next || (dur >= min && (sentence || pause >= 0.6)) || tooLong) {
+      /* o corte cai no meio da pausa: o bloco seguinte começa antes da primeira palavra dele */
+      const end = next ? Math.round(((w.end + next.start) / 2) * 1000) / 1000 : Math.round(w.end * 1000) / 1000;
+      out.push({ start, end, text: buf.join(' ').replace(/\s+/g, ' ').trim() });
+      start = end; buf = [];
+    }
+  }
+  /* último bloco curto demais: junta ao anterior */
+  if (out.length > 1 && out[out.length - 1]!.end - out[out.length - 1]!.start < min / 2) {
+    const last = out.pop()!;
+    const prev = out[out.length - 1]!;
+    out[out.length - 1] = { start: prev.start, end: last.end, text: `${prev.text} ${last.text}` };
+  }
+  return out;
+}
+
+/** Transcrição em blocos para o roteiro/plano lerem (web/podcast.transcript.md). Função pura. */
+export function blocksMarkdown(blocks: PodBlock[]): string {
+  return ['# Fala real do trecho (Whisper), em blocos contíguos de 6-12 s', '',
+    'Use estes blocos EXATAMENTE: uma cena por bloco, FALA = o texto do bloco, TEMPO = fim − início. Não reescreva a fala.', '',
+    ...blocks.map((b, i) => `${i + 1}. [${b.start.toFixed(2)}s–${b.end.toFixed(2)}s · ${(b.end - b.start).toFixed(1)} s] ${b.text}`)].join('\n');
+}
+
+/**
+ * Encaixa as cenas do plano na fala real: cada cena recebe início (clipStart), duração e narração do
+ * trecho. Mesmo número de cenas e blocos = 1 para 1; senão os cortes do plano (proporção das durações)
+ * vão para a fronteira de bloco mais próxima. Muda as cenas no lugar; devolve quantas mudaram.
+ */
+export function alignPodcastScenes(scenes: Array<PodScene & { narration?: string; manualDuration?: boolean }>, blocks: PodBlock[]): number {
+  if (!scenes.length || !blocks.length) return 0;
+  const groups: PodBlock[][] = [];
+  if (scenes.length === blocks.length) blocks.forEach((b) => groups.push([b]));
+  else {
+    const total = blocks[blocks.length - 1]!.end;
+    const planned = scenes.map((s) => Math.max(0.5, Number(s.durationSec) || 8));
+    const sum = planned.reduce((a, x) => a + x, 0);
+    let acc = 0, bi = 0;
+    for (let i = 0; i < scenes.length; i++) {
+      acc += planned[i]! / sum * total;
+      const g: PodBlock[] = [];
+      const left = scenes.length - i - 1;
+      /* pega blocos até passar do corte proporcional, deixando pelo menos um bloco por cena restante */
+      while (bi < blocks.length - left && (g.length === 0 || i === scenes.length - 1 || Math.abs(blocks[bi]!.end - acc) < Math.abs(g[g.length - 1]!.end - acc))) g.push(blocks[bi++]!);
+      groups.push(g);
+    }
+  }
+  let n = 0;
+  scenes.forEach((s, i) => {
+    const g = groups[i];
+    if (!g?.length) return;
+    const start = g[0]!.start, end = g[g.length - 1]!.end;
+    const text = g.map((b) => b.text).join(' ');
+    if (s.clipStart !== start || s.durationSec !== Math.round((end - start) * 1000) / 1000 || s.narration !== text) n++;
+    s.clipStart = start;
+    s.durationSec = Math.round((end - start) * 1000) / 1000;
+    s.narration = text;
+    s.manualDuration = true;
+  });
+  return n;
+}
+
 /* curiosidade e tensão na fala: pergunta, exclamação, revelação, perigo, segredo, virada */
 const TENSION = /\?|!|segred|mist[ée]ri|medo|mort[eo]|morr|verdade|ningu[ée]m|nunca|descobr|de repente|perig|amea[cç]|proib|escondid|revel|choc|terr[íi]vel|assust|sangue|crime|culpa|estranh|impossível|inacredit|ninguem|jamais|ningu|escuro|sombr|grit|sil[êe]ncio|o pior|a verdade|ent[ãa]o (eu|ele|ela)|foi a[ií] que|imagina|sabe o que/gi;
 const FS_MARK = /TELA[_ ]CHEIA|FULL[_ ]?SCREEN/i;

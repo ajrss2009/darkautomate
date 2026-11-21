@@ -1,5 +1,5 @@
 import * as assert from 'node:assert/strict';
-import { fullscreenScenes, fullscreenWindow, podcastOffsets, podcastPipScene, tensionScore } from '../main/podcast-pip-scene';
+import { alignPodcastScenes, blocksMarkdown, fullscreenScenes, fullscreenWindow, podcastBlocks, podcastOffsets, podcastPipScene, tensionScore } from '../main/podcast-pip-scene';
 import { clockSeconds, sectionFromIdea } from '../main/youtube';
 
 /* Podcast 16:9: voz original, PiP sincronizada com o trecho e tela cheia nos momentos de tensão */
@@ -40,6 +40,32 @@ function main() {
   assert.match(html, /var FS=\{s:0\.4,e:9\}/);
   /* regressão dark53: "TELA_CHEIA 10-25s" numa cena de 8 s não pode gerar uma janela fora da cena */
   assert.match(podcastPipScene({ duration: 8, fullscreen: { start: 10, end: 25 } }), /var FS=null/);
+
+  /* fala real em blocos de 6-12 s, fechando no fim da frase ou na pausa, contíguos desde o 0 */
+  const words: Array<{ w: string; start: number; end: number }> = [];
+  const say = (text: string, from: number, gapAfter = 0.2) => { let t = from; for (const w of text.split(' ')) { words.push({ w, start: t, end: t + 0.4 }); t += 0.5; } return t - 0.1 + gapAfter; };
+  let t = 0.3;
+  t = say('Eu entrei no grupo com dezessete anos e fiquei até os vinte e seis.', t);
+  t = say('Num congresso eles revelaram o calendário inteiro pra gente.', t, 0.9);
+  t = say('Um falso Anticristo em dois mil e dois e o verdadeiro depois.', t);
+  t = say('Só que a data mudou e ninguém explicou por quê.', t);
+  const blocks = podcastBlocks(words);
+  assert.ok(blocks.length >= 3, `blocos: ${blocks.length}`);
+  assert.equal(blocks[0]!.start, 0, 'começa no 0 do trecho');
+  for (let k = 1; k < blocks.length; k++) assert.equal(blocks[k]!.start, blocks[k - 1]!.end, 'contíguos, sem buraco');
+  for (const b of blocks.slice(0, -1)) assert.ok(b.end - b.start >= 6 && b.end - b.start <= 12.5, `6-12 s (${(b.end - b.start).toFixed(1)})`);
+  assert.equal(blocks.map((b) => b.text).join(' '), words.map((w) => w.w).join(' '), 'nenhuma palavra perdida');
+  assert.match(blocksMarkdown(blocks), /^1\. \[0\.00s–/m);
+
+  /* plano com o mesmo número de cenas: 1 para 1; com menos cenas: junta blocos nas fronteiras */
+  const plan: Array<{ id: string; durationSec: number; narration?: string; clipStart?: number }> = blocks.map((_, k) => ({ id: `s0${k + 1}`, durationSec: 9, narration: 'texto inventado' }));
+  alignPodcastScenes(plan, blocks);
+  assert.deepEqual(plan.map((s) => s.clipStart), blocks.map((b) => b.start));
+  assert.equal(plan[0]!.narration, blocks[0]!.text, 'a fala da cena é a do trecho, não a inventada');
+  const fewer = [{ id: 'a', durationSec: 10 }, { id: 'b', durationSec: 10 }] as Array<{ id: string; durationSec: number; clipStart?: number; narration?: string }>;
+  alignPodcastScenes(fewer, blocks);
+  assert.equal(fewer[0]!.clipStart, 0); assert.equal(fewer[1]!.clipStart! + fewer[1]!.durationSec, blocks[blocks.length - 1]!.end, 'cobre o trecho inteiro');
+  assert.equal(`${fewer[0]!.narration} ${fewer[1]!.narration}`, blocks.map((b) => b.text).join(' '));
 
   /* link + minutos na ideia */
   assert.equal(clockSeconds('46:04'), 2764); assert.equal(clockSeconds('1:02:03'), 3723);
