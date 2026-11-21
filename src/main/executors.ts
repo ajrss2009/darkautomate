@@ -750,7 +750,10 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     /* params.videoSpeech = false: a fala fica com a narraÃ§Ã£o (TTS) e o clipe sai sem voz (ex.: UGC com voz fixa do OmniVoice) */
     const museTalk = /^(meta-ai|muse)/i.test(model) && !!c.scene?.narration?.trim() && (c.step.params as Record<string, unknown> | undefined)?.['videoSpeech'] !== false;
     const refNote = ' Use the attached reference images to keep the same faces, hair, bodies and outfits of the characters in every frame.';
-    const prompt = museTalk ? museSpeechPrompt(c) + refNote : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}${refNote}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound. No text, captions, subtitles, titles or letters anywhere on screen.` : visualPrompt(c) + refNote;
+    /* sem texto em TODO vídeo de cena: no anime da bateria dark54 o Muse escrevia legendas ("Ondas Curtas Azuis", diagrama
+       com rótulos) nas cenas faladas, que não tinham esta linha */
+    const noText = ' No text, captions, subtitles, titles, labels or letters anywhere on screen.';
+    const prompt = museTalk ? museSpeechPrompt(c) + refNote + noText : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}${refNote}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound.${noText}` : visualPrompt(c) + refNote + noText;
     /* referências do elenco (biblioteca/projeto) para o Muse: até 10 imagens, mantendo o mesmo rosto em todas as cenas */
     const refFiles = c.scene ? charactersInScene(c.projectDir, c.scene, 9)
       .map((ch) => characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name))
