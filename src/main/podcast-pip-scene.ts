@@ -197,7 +197,8 @@ function pipAlpha(t){ if(!FS) return 0; return smooth(FS.s-0.15,FS.s,t)*(1-smoot
 function draw(t){
   ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,W,H);
   /* fundo: imagem do assunto com ZOOM LENTO (Ken Burns) */
-  if(img.complete&&img.naturalWidth>0){var z=1+0.10*clamp(t/DUR,0,1);cover(img,W*(1-z)/2,H*(1-z)/2,W*z,H*z)}
+  /* velocidade constante (~0,8%/s, teto 8%): cena curta não ganha zoom mais rápido que a longa */
+  if(img.complete&&img.naturalWidth>0){var z=1+Math.min(0.08,0.008*clamp(t,0,DUR));cover(img,W*(1-z)/2,H*(1-z)/2,W*z,H*z)}
   else {ctx.fillStyle='#0b0b0b';ctx.fillRect(0,0,W,H)}
   var a=pipAlpha(t), vr=pipRect();
   var vx=a>0?vr.x+(0-vr.x)*a:vr.x, vy=a>0?vr.y+(0-vr.y)*a:vr.y;
