@@ -1314,7 +1314,8 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
       if (fs.existsSync(f0)) { refs.unshift({ name: 'protagonista e estilo da 1ª cena (mesmo rosto, cabelo, roupa e traço)', file: f0 }); c.log('Flow: 1ª cena anexada como referência da protagonista'); }
     }
     /* cena: texto na imagem sai errado e cobre a composição; a thumbnail é a exceção (o texto é pedido) */
-    const noText = k === 'thumbnail' ? '' : ' Sem nenhuma letra, palavra, rótulo, legenda, número ou marca d\'água na imagem (no text, no letters, no labels, no captions).';
+    /* só em pedido de IMAGEM: no de vídeo a palavra "imagem" fazia o agente do Flow devolver imagem */
+    const noText = k === 'thumbnail' || media !== 'image' ? '' : ' Sem nenhuma letra, palavra, rótulo, legenda, número ou marca d\'água na imagem (no text, no letters, no labels, no captions).';
     const got = await flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
       aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });

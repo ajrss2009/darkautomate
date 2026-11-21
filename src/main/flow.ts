@@ -378,7 +378,7 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
       try { ms = (await evaluate<{ medias: string[] }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000)).medias as unknown as typeof ms; } catch { continue; }
       /* a grade carrega itens ANTIGOS aos poucos (rolagem/lazy load): eles aparecem "novos" sem ser o resultado. Só vale a
          mídia na orientação pedida (9:16 em pé, 16:9 deitada) — no teste dark54 3 de 5 cenas pegaram imagens antigas deitadas */
-      const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img') && orientationOk(job.aspect, m.w, m.h));
+      const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img') && orientationOk(flowAspect(job.media, job.aspect), m.w, m.h));
       if (fresh) { src = fresh.src; break; }
     }
     if (!src) { await dbg('nenhuma mídia nova'); throw new Error(`o Flow não entregou ${job.media === 'image' ? 'imagem' : 'vídeo'} em ${job.timeoutSec}s`); }
@@ -390,7 +390,7 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
       if (t) {
         await wait(4000);
         const ms = await evaluate<{ medias: Array<{ tag: string; src: string; w?: number; h?: number }> }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000).then((r) => r.medias).catch(() => [] as Array<{ tag: string; src: string; w?: number; h?: number }>);
-        const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img') && orientationOk(job.aspect, m.w, m.h));
+        const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img') && orientationOk(flowAspect(job.media, job.aspect), m.w, m.h));
         if (fresh) src = fresh.src;
       }
       try {
