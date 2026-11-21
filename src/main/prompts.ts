@@ -1141,6 +1141,9 @@ export function buildPromptMarked(c: ExecContext): string {
           ? `LOOP PERFEITO: a cena será repetida em loop; seek(0) e seek(${dur}) devem ser visualmente idênticos (ciclo fechado), sem reverse, sem saltos e sem movimento que atravesse a borda. `
           : `CENA LINEAR: a animação acompanha a fala do começo ao fim — revele os elementos progressivamente (no instante em que a palavra correspondente é dita) e mantenha-os na tela; o último quadro mostra a composição completa (NÃO volte ao início). Nada atravessa a borda; texto sempre legível. `) +
         `Não use animação em tempo real, Date.now/performance.now nem Math.random sem seed: o único relógio é o t de seek(). ` +
+        /* bateria dark54: texto encostado na borda (stickman) e cena desenhada num quadro menor com bordas pretas (história em código) */
+        `QUADRO CHEIO: o fundo/cenário ocupa 100% da área ${p.aspect === '9:16' ? '1080×1920' : '1920×1080'} — nunca desenhe a cena dentro de uma moldura/janela menor com bordas pretas ou vazias. ` +
+        `MARGEM SEGURA: todo texto e todo elemento importante fica a pelo menos 6% da largura das bordas laterais e 5% da altura do topo/base; meça o texto (measureText) e reduza a fonte se não couber. ` +
         /* legendas são opção do projeto: a cena não transcreve a fala na tela por conta própria */
         (p.subtitles && !isLyricVideo(p)
           ? `NÃO escreva na tela o texto que está sendo narrado (nada de legenda, karaokê ou frases da narração palavra por palavra): textos na tela só como títulos curtos, números, rótulos e palavras-chave de até 4 palavras.${p.subtitles === 'burn' ? ' As legendas serão gravadas depois: deixe livre a faixa inferior (15% da altura).' : ''} `
