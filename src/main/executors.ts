@@ -758,6 +758,13 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     const refFiles = c.scene ? charactersInScene(c.projectDir, c.scene, 9)
       .map((ch) => characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name))
       .filter((f) => !!f && f !== img && fs.existsSync(f)).slice(0, 9) : [];
+    /* sem personagem na biblioteca: a 1ª cena é a referência da protagonista (no anime da bateria o Muse trocou a
+       protagonista por outra de cabelo roxo numa cena) — mesma regra do Flow; o podcast ilustra o assunto */
+    const first = c.project.scenes[0];
+    if (!refFiles.length && c.scene && first && first.id !== c.scene.id && c.project.skill?.id !== 'podcast-16-9') {
+      const f0 = path.join(c.projectDir, 'scenes', first.id, 'frames', 'frame.png');
+      if (fs.existsSync(f0) && f0 !== img) { refFiles.push(f0); c.log(`Snapgen ${model}: 1ª cena como referência da protagonista`); }
+    }
     if (refFiles.length) c.log(`Snapgen ${model}: ${refFiles.length} referência(s) de personagem(ens) da biblioteca`);
     await prov.snapgenVideo(p, model, prompt, { imagePath: img, imagePaths: refFiles, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
     if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
