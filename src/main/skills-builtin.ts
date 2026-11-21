@@ -76,7 +76,7 @@ function fromType(v: (typeof VIDEO_TYPES)[number]): Skill {
       `⏱ Ritmo: ${cp.pace}`,
       `🎙 ${v.id === 'music_lyric' ? 'Áudio' : 'Narração'}: ${cp.voice}`,
       `🎬 Cenas: ${cp.scenes}`,
-      `📦 Saída: final.mp4 (${v.defaultAspect}, ≈ ${v.defaultDurationSec}s) + legendas .srt + ${cover} + título/descrição/tags.`,
+      `📦 Saída: final.mp4 (${v.defaultAspect}, ≈ ${v.defaultDurationSec}s) + legendas .srt (se ativadas no projeto/editor) + ${cover} + título/descrição/tags.`,
     ].join('\n'),
     steps: {
       script: `${cp.voice} ${cp.pace}`,
@@ -93,11 +93,11 @@ function fromType(v: (typeof VIDEO_TYPES)[number]): Skill {
 /** Estilo de saída das skills de formato (as 3 originais) — complementa o que elas já definem. */
 const BASE_EXTRA: Record<string, Partial<Skill>> = {
   'explicativo-codigo': { appearance: 'vector', routeId: 'explainer-mixed', aspect: '16:9', durationSec: 120, presentation: 'mixed', mediaSources: [...STOCK], mixSources: ['motion', 'stock'],
-    outputStyle: '🎨 Visual: animações desenhadas por código, texto grande (≤ 6 palavras), clipes curtos de YouTube (2–4 s) inseridos no motion graphics quando útil; na reserva, imagens/vídeos de Pexels, Pixabay, Wikimedia, Openverse, NASA, Internet Archive, Smithsonian e Unsplash.\n⏱ Ritmo: cenas de 4–8 s, um conceito por cena, revelação sincronizada com a fala.\n🎙 Narração: calma e clara, pausas curtas.\n📦 Saída: final.mp4 (16:9, ≈ 120 s) + legendas + thumbnail + metadados SEO.' },
+    outputStyle: '🎨 Visual: animações desenhadas por código, texto grande (≤ 6 palavras), clipes curtos de YouTube (2–4 s) inseridos no motion graphics quando útil; na reserva, imagens/vídeos de Pexels, Pixabay, Wikimedia, Openverse, NASA, Internet Archive, Smithsonian e Unsplash.\n⏱ Ritmo: cenas de 4–8 s, um conceito por cena, revelação sincronizada com a fala.\n🎙 Narração: calma e clara, pausas curtas.\n📦 Saída: final.mp4 (16:9, ≈ 120 s) + legendas (se ativadas no projeto/editor) + thumbnail + metadados SEO.' },
   'shorts-viral': { appearance: 'cartoon_3d', routeId: 'shorts-autopilot', aspect: '9:16', durationSec: 60, presentation: 'generated',
-    outputStyle: '🎨 Visual: vertical, legenda grande no centro-inferior.\n⏱ Ritmo: corte a cada 2–4 s; gancho em 3 s; final que emenda com o início (loop).\n🎙 Narração: frases de até 12 palavras.\n📦 Saída: final.mp4 (9:16, 30–60 s) + legendas + capa vertical + título curto e ≤ 5 hashtags.' },
+    outputStyle: '🎨 Visual: vertical, legenda grande no centro-inferior.\n⏱ Ritmo: corte a cada 2–4 s; gancho em 3 s; final que emenda com o início (loop).\n🎙 Narração: frases de até 12 palavras.\n📦 Saída: final.mp4 (9:16, 30–60 s) + legendas (se ativadas no projeto/editor) + capa vertical + título curto e ≤ 5 hashtags.' },
   'documentario': { appearance: 'doc_netflix', routeId: 'documentario-3d', aspect: '16:9', durationSec: 300, presentation: 'mixed', mediaSources: [...STOCK], mixSources: ['motion', 'stock', 'ai'],
-    outputStyle: '🎨 Visual: B-roll de bancos de mídia + infográficos por código (mapas, linhas do tempo, números) + reconstituições em vídeo IA só onde não há arquivo.\n⏱ Ritmo: três atos, respiros entre revelações.\n🎙 Narração: séria, factual, com fatos e datas verificados.\n📦 Saída: final.mp4 (16:9, ≈ 5 min) + legendas + thumbnail + descrição com fontes e créditos.' },
+    outputStyle: '🎨 Visual: B-roll de bancos de mídia + infográficos por código (mapas, linhas do tempo, números) + reconstituições em vídeo IA só onde não há arquivo.\n⏱ Ritmo: três atos, respiros entre revelações.\n🎙 Narração: séria, factual, com fatos e datas verificados.\n📦 Saída: final.mp4 (16:9, ≈ 5 min) + legendas (se ativadas no projeto/editor) + thumbnail + descrição com fontes e créditos.' },
 };
 
 /* ── histórias com elenco: bíblia de personagens (aparência + voz), uma voz por personagem ── */
@@ -123,7 +123,7 @@ const castStory = (o: { id: string; name: string; description: string; global: s
     `🎨 Visual: ${o.visual}`,
     `🎭 Elenco: bíblia de personagens (aparência + voz) → elenco montado sozinho, uma voz por personagem (pasta voices ou voz da API).`,
     o.code ? '🎬 Cenas: animadas por código com os personagens desenhados sempre iguais.' : '🎬 Cenas: quadro da cena + vídeo no MiniMax H3 ref2video com os retratos do elenco como referência.',
-    `📦 Saída: final.mp4 (${o.aspect}, ≈ ${o.durationSec}s) + legendas + capa + metadados.`,
+    `📦 Saída: final.mp4 (${o.aspect}, ≈ ${o.durationSec}s) + legendas (se ativadas no projeto/editor) + capa + metadados.`,
   ].join('\n'),
 });
 
@@ -214,7 +214,7 @@ const LINK_EXPLAINER: Skill = {
     metadata: 'Título até 60 caracteres com o nome do site/produto e o benefício; descrição com o LINK na primeira linha (vários links: todos, um por linha, na ordem do vídeo), capítulos com um capítulo por link (tempo do início do bloco de cada link) além da abertura e do fechamento, resumo em 2 linhas, capítulos e hashtags; 10–15 tags.',
   },
   appearance: 'motion_graphics', routeId: 'explicativo-link', aspect: '16:9', durationSec: 90, language: 'pt-BR', presentation: 'mixed', mediaSources: [], mixSources: ['motion'],
-  outputStyle: '🌐 Entrada: um ou vários links na ideia (ex.: "explique https://site.com/produto" ou "compare https://a.com e https://b.com") — até 20 links, explicados na ordem (com muitos links, cada página é lida e gravada de forma mais curta). Vídeos que tocam na página viram trechos curtos.\n🎥 Captura: o app abre a página num navegador invisível (sem os seus logins), grava a página rolando com paradas em cada seção e tira prints.\n🧠 Análise: o roteiro sai do conteúdo da página (títulos, seções e texto).\n🎨 Visual: motion graphics por código com trechos da página numa moldura de navegador, destaques, zoom e setas no instante da fala.\n📦 Saída: final.mp4 (16:9, ≈ 90 s) + legendas + thumbnail (print da página) + metadados com o link.',
+  outputStyle: '🌐 Entrada: um ou vários links na ideia (ex.: "explique https://site.com/produto" ou "compare https://a.com e https://b.com") — até 20 links, explicados na ordem (com muitos links, cada página é lida e gravada de forma mais curta). Vídeos que tocam na página viram trechos curtos.\n🎥 Captura: o app abre a página num navegador invisível (sem os seus logins), grava a página rolando com paradas em cada seção e tira prints.\n🧠 Análise: o roteiro sai do conteúdo da página (títulos, seções e texto).\n🎨 Visual: motion graphics por código com trechos da página numa moldura de navegador, destaques, zoom e setas no instante da fala.\n📦 Saída: final.mp4 (16:9, ≈ 90 s) + legendas (se ativadas no projeto/editor) + thumbnail (print da página) + metadados com o link.',
 };
 
 /** Skills especiais: vídeo livre (vazia) e o misto motion + bancos + vídeo IA. */
@@ -303,12 +303,11 @@ const CARTOON_SHORT_STUDIO: Skill = {
     code_scene: 'Cartoon 3D com contorno a tinta, mundo pintado, câmera viva e sem descrição visual redundante na narração. Um plano = 100% engine ou 100% gerado, nunca misturado. Último segundo = virada visual.',
     narration: 'Narrador profundo, PT-BR, 3,7 palavras/s, ritmo de história, sem CTA final.',
     music: 'Trilha discreta sob a voz, com queda/no intervalo no mecanismo e um ponto no payoff.',
-    subtitles: 'Legenda curta, sincronizada à palavra, sem repetir o que está na tela.',
     edit: 'Corte no quadro da frase, não no meio; sem "obrigado por assistir"; o vídeo acaba no twist e volta ao começo para incentivar releitura.',
   },
   reviewCriteria: 'Pauta com score ≥7 e selo; hook na frase 1; twist nas últimas palavras; 3,7 palavras/s; um plano por frase; sem CTA falado; personagem idêntico em todos os planos; áudio abaixo da voz; revisão por métrica (corte, retenção, clareza do twist).',
   appearance: 'cartoon_3d', routeId: 'curta-cartoon-3d', aspect: '9:16', durationSec: 30, language: 'pt-BR', presentation: 'generated', mediaSources: [],
-  outputStyle: '🎬 Cartoon short 9:16, 30 fps, 30 s (110 palavras, 10–13 planos).\n📐 Pauta pontuada (≥7) + selo de veracidade + 5 beats.\n🎤 Narração única a 3,7 palavras/s; twist irônico nas últimas palavras; sem CTA falado.\n🎨 Personagem-cartão num mundo 3D pintado, um plano por frase.\n📤 Saída: final.mp4 + legendas + thumbnail + metadados.',
+  outputStyle: '🎬 Cartoon short 9:16, 30 fps, 30 s (110 palavras, 10–13 planos).\n📐 Pauta pontuada (≥7) + selo de veracidade + 5 beats.\n🎤 Narração única a 3,7 palavras/s; twist irônico nas últimas palavras; sem CTA falado.\n🎨 Personagem-cartão num mundo 3D pintado, um plano por frase.\n📤 Saída: final.mp4 + legendas (se ativadas no projeto/editor) + thumbnail + metadados.',
 };
 
 /** Cartoon-to-Real: sem narração, motor é a música + piada visual, 16:9, lineup de 4–8 pares. */
@@ -351,7 +350,7 @@ const PODCAST_PIP_SLIDESHOW: Skill = {
 const LISTA_JOGOS_AFILIADO: Skill = {
   id: 'lista-jogos-afiliado', name: 'Lista de Jogos com Afiliado', builtin: true,
   description: 'Lista 8-12 jogos a partir de links de trailer/gameplay; diz o que é bom e o que é ruim e marca produtos no Shopping. (estilo gamer_review)',
-  global: 'Contrato do episódio (18-22 min): entrada = tema + lista de links (trailer/gameplay) + plataforma alvo. Introdução de 40-60 s com gancho em 5 s (pergunta ou afirmação surpreendente). Um capítulo por jogo, 90-150 s: o que prometeu, o que entrega, o que falha, para quem vale. Nunca invente dado de vendas, nota ou recurso — use o que aparece no material. Cada capítulo termina com ponte para o próximo; o último com pergunta para comentários. O produto marcado precisa aparecer no capítulo correspondente; #publi no começo e "recebo comissão" na mesma linha do link; no máximo 3 produtos por capítulo, verifique disponibilidade regional. Não prometer "o melhor jogo" como fato: opinião refundada no que foi visto. Paleta azul-marinho + laranja (prós/contras) fixa; legenda 4 palavras/linha; thumbnail com o jogo mais polêmico + até 3 palavras. Crítica com critério vende mais que entusiasmo genérico.',
+  global: 'Contrato do episódio (18-22 min): entrada = tema + lista de links (trailer/gameplay) + plataforma alvo. Introdução de 40-60 s com gancho em 5 s (pergunta ou afirmação surpreendente). Um capítulo por jogo, 90-150 s: o que prometeu, o que entrega, o que falha, para quem vale. Nunca invente dado de vendas, nota ou recurso — use o que aparece no material. Cada capítulo termina com ponte para o próximo; o último com pergunta para comentários. O produto marcado precisa aparecer no capítulo correspondente; #publi no começo e "recebo comissão" na mesma linha do link; no máximo 3 produtos por capítulo, verifique disponibilidade regional. Não prometer "o melhor jogo" como fato: opinião refundada no que foi visto. Paleta azul-marinho + laranja (prós/contras) fixa; legenda opcional de 4 palavras/linha (escolha do projeto/editor); thumbnail com o jogo mais polêmico + até 3 palavras. Crítica com critério vende mais que entusiasmo genérico.',
   steps: {
     script: 'Gancho em 5 s ("Esse jogo custa R$ 349 e quase ninguém lembra que ele existe."), introdução 40-60 s com o critério da lista, e um capítulo por jogo (promessa/entrega/falha/público) com frases curtas e opinião explícita. Ponte no fim de cada capítulo.',
     scene_plan: '40% stock (gameplay/trailer do link, searchTerms com nome do jogo), 30% image (comparativos, mapas, tabelas), 20% code_scene (gráficos de preço e prós/contras), 10% video IA só para o que não existe em material real. Cenas de 4-8 s, uma ideia por cena.',
@@ -369,7 +368,7 @@ const FEED_NOTICIAS_MIDIA: Skill = {
   global: 'Entrada em qualquer combinação: URLs (imagem/vídeo, uma por linha), caminho de pasta local (.jpg/.png/.mp4/.webm) e tema + duas cores hex do canal. Cada item vira bloco de 25-45 s, do mais impactante ao mais leve. Nunca afirmar dado fora do material ou de fonte citada; se for rumor, dizer "rumor" na narração; crédito da fonte sempre visível na barra inferior. Imagem pede explicação (narração 60-110 palavras, Ken Burns leve); vídeo pede curiosidade (narração 15-30 palavras, primeiro quadro congelado 1,5-2 s, depois clipe em moldura 80% da largura, cantos 12 px, sombra, fundo gradiente nas 2 cores do canal, barra de cor no topo). Áudio original do clipe abaixo da narração com ducking; se não houver, trilha leve. Gancho antes da mídia, nunca depois; ponte no fim de todo bloco; fonte de cada item na descrição com timestamp.',
   steps: {
     script: 'Para cada item da lista/pasta: tipo (imagem|vídeo), fonte (URL/caminho), gancho de até 12 palavras, narração longa para imagem ou curta para vídeo, crédito (autor/sub/canal + link). Ordem por impacto; nenhum fato fora da fonte.',
-    asset_design: 'Duas cores do canal + uma fonte de legenda; moldura de vídeo 80% da largura, 12 px de raio, sombra; índice da pasta local por extensão/sha256 — o tratamento é o mesmo venha de URL ou do disco.',
+    asset_design: 'Duas cores do canal + uma fonte para a legenda, quando ativada; moldura de vídeo 80% da largura, 12 px de raio, sombra; índice da pasta local por extensão/sha256 — o tratamento é o mesmo venha de URL ou do disco.',
     code_scene: 'HTML/Canvas com <video>: poster do primeiro frame em PNG; seek(0) e pausa até o timecode da narração curta; play() no fim do gancho; CSS width 80%, border-radius 12px, box-shadow, background linear-gradient(cor1, cor2). Sincronize com window.__forge.seek(t).',
     metadata: 'Descrição com fonte e timestamp de cada item, créditos visíveis e link original.',
     review: 'Reprovar se o gancho vier depois da mídia, se faltar crédito visível, se houver dado inventado ou se o bloco terminar sem ponte.',
@@ -382,19 +381,18 @@ const FEED_NOTICIAS_MIDIA: Skill = {
 const CORTES_VIRAIS_LIVES: Skill = {
   id: 'cortes-virais-lives', name: 'Cortes Virais de Lives', builtin: true,
   description: 'Live longa vira vários vídeos curtos com gancho, edição leve e publicação pronta; a skill decide quantos cortes, onde começam e se entram avatar/narração. (estilo short_viral)',
-  global: 'O usuário informa: link/arquivo da live (obrigatório), intervalo minuto inicial/final (opcional, padrão live inteira), quantidade de clipes (padrão 3, máximo 10), avatar (padrão não), narração de início (padrão sim, 1 frase) e estilo (engraçado/polêmico/ensino/emoção). Um corte viral tem pico de energia no áudio, rajada no chat no mesmo instante (>3× a mediana em 10 s), frase completa (não corta no meio da palavra), autossuficiente e uma emoção por clipe. Estrutura de cada clipe: 0-3 s gancho (narração/avatar/texto), 3-45 s corte da live com áudio original integral e legenda queimada de 4 palavras/linha, 45-50 s fecho. Trilha -20 a -24 LUFS sob a voz da live (8-12%), ducking de 6-10 dB, master final -14 LUFS. Avatar opcional 6-8 s no canto inferior direito; mesmo timbre em toda a série; rótulo de IA se sintético. Crédito ao canal e link original na descrição; corte de live é reused content se não houver transformação — o gancho, a legenda e a edição são a transformação.',
+  global: 'O usuário informa: link/arquivo da live (obrigatório), intervalo minuto inicial/final (opcional, padrão live inteira), quantidade de clipes (padrão 3, máximo 10), avatar (padrão não), narração de início (padrão sim, 1 frase) e estilo (engraçado/polêmico/ensino/emoção). Um corte viral tem pico de energia no áudio, rajada no chat no mesmo instante (>3× a mediana em 10 s), frase completa (não corta no meio da palavra), autossuficiente e uma emoção por clipe. Estrutura de cada clipe: 0-3 s gancho (narração/avatar/texto), 3-45 s corte da live com áudio original integral e legenda opcional de 4 palavras/linha (ativada no projeto/editor), 45-50 s fecho. Trilha -20 a -24 LUFS sob a voz da live (8-12%), ducking de 6-10 dB, master final -14 LUFS. Avatar opcional 6-8 s no canto inferior direito; mesmo timbre em toda a série; rótulo de IA se sintético. Crédito ao canal e link original na descrição; corte de live é reused content se não houver transformação — o gancho, a edição e (se ativada no projeto/editor) a legenda são a transformação.',
   steps: {
     script: 'Escolha os momentos por energia e frase completa (dedupe por trecho, sem sobreposição); escreva gancho, legenda e fecho de cada clipe.',
     scene_plan: 'Um plano por clipe com timecodes de entrada/saída da live; marque avatar e narração somente quando pedidos.',
     video: 'Corte a live com -ss/-t, converta para 9:16 com crop central/reframe; versão horizontal 16:9 opcional com a paleta do canal nas laterais.',
     narration: 'Gere a frase de abertura gravada ANTES do vídeo (a frase define a duração do gancho) somente quando marcada.',
-    subtitles: 'Legenda queimada, 4 palavras por linha, na paleta do canal.',
     music: 'Trilha baixa 8-12% com ducking automático sob a voz da live.',
     edit: 'Monte, normalize a -14 LUFS e exporte um MP4 por clipe.',
     metadata: 'Título com gancho, capítulos, crédito ao canal e link da live, #publi se houver afiliado.',
   },
   appearance: 'custom', routeId: 'shorts-autopilot', aspect: '9:16', durationSec: 45, language: 'pt-BR', presentation: 'mixed', mediaSources: ['youtube'], mixSources: ['stock', 'ai'], scriptEnding: 'next', multiVoice: false, plugins: ['youtube'],
-  outputStyle: '✂️ Gancho 1-3 s · legenda 4 palavras · trilha 8-12% · avatar/narração opcionais · um MP4 por clipe. Live longa, clipe curto: um momento, uma emoção, um gancho.',
+  outputStyle: '✂️ Gancho 1-3 s · legenda opcional 4 palavras · trilha 8-12% · avatar/narração opcionais · um MP4 por clipe. Live longa, clipe curto: um momento, uma emoção, um gancho.',
 };
 
 /** Pág. 147 — avatar reativo (folha de PNGs, rota documentario-3d). */
@@ -404,7 +402,7 @@ const AVATAR_REATIVO_VIDEO: Skill = {
   global: 'Entrada: tema/filme/resumo (obrigatório), tom do canal, quantidade de avatares (1-3), posição (terço direito padrão ou inferior esquerdo). O avatar é IMAGEM ESTÁTICA, não vídeo falante: a narração é a do vídeo. Aparece entre 20% e 35% do tempo — acento, não segundo apresentador. Nos primeiros 3 s o gancho é do vídeo, nunca do avatar. Ritmo de aparição 2-4 s, espalhados. Identidade estável: mesmo rosto/cabelo/roupa/paleta em todas as poses. Bíblia: 6-8 poses fixas (neutro, surpreso, cético, medo, riso, pensativo, apontando, perfil), PNG transparente 1024x1024 com nomes avatar_neutro.png etc. Gere primeiro a folha de contato, aprove a identidade, depois exporte os individuais; se duas poses saírem com rostos diferentes, refaça a folha. Avatar sintético: rótulo de IA; pessoa real: consentimento por escrito. O avatar não apresenta — ele reage.',
   steps: {
     script: 'Marque a pose ao lado da frase: "Os animatrônicos se movem sozinhos. [AVATAR:medo]". No máximo 1 marcação por bloco de 8-12 s; nenhuma nos primeiros 3 s; sem marcação, o vídeo segue sem avatar.',
-    scene_plan: 'Por marcação: caminho do PNG, posição, altura 25-35%, duração 2-4 s, efeito de entrada/saída. Avatar acima do vídeo e abaixo da legenda, fora da zona segura central.',
+    scene_plan: 'Por marcação: caminho do PNG, posição, altura 25-35%, duração 2-4 s, efeito de entrada/saída. Avatar acima da zona de legenda, quando houver, fora da zona segura central.',
     code_scene: '<img> sobre o vídeo: opacity 0→1 em 0,3 s, scale 0,92→1 + translateY 8px→0, blur 6px→0 na entrada; saída invertida em 0,25 s; sincronize com window.__forge.seek(t); sem animação contínua de "respiração".',
     review: 'Reprovar se avatar >35% do tempo, entrada/saída sem efeito, pose contradiz a frase, rosto diferente entre poses, cobre legenda ou rótulo de IA ausente.',
   },
@@ -445,7 +443,7 @@ const SPECIAL: Skill[] = [
     },
     appearance: 'motion_graphics', routeId: 'misto-motion-banco-ia', aspect: '16:9', durationSec: 120, language: 'pt-BR',
     presentation: 'mixed', mediaSources: [...STOCK], mixSources: ['motion', 'stock', 'ai'],
-    outputStyle: '🎨 Visual: motion graphics por código + fotos/vídeos de bancos + vídeo IA (MiniMax).\n⏱ Ritmo: cenas de 4–8 s; vídeo IA nos momentos de impacto.\n🎙 Narração: didática e clara, sincronizada com os gráficos.\n📦 Saída: final.mp4 (16:9, ≈ 120 s) + legendas + thumbnail + metadados SEO.' },
+    outputStyle: '🎨 Visual: motion graphics por código + fotos/vídeos de bancos + vídeo IA (MiniMax).\n⏱ Ritmo: cenas de 4–8 s; vídeo IA nos momentos de impacto.\n🎙 Narração: didática e clara, sincronizada com os gráficos.\n📦 Saída: final.mp4 (16:9, ≈ 120 s) + legendas (se ativadas no projeto/editor) + thumbnail + metadados SEO.' },
   { id: 'remake-viggle', name: 'Remake de vídeo curto (Viggle)', builtin: true,
     description: 'Clona um vídeo curto trocando personagens, objetos, cenário, clima ou luz (Viggle Remake no Wan2GP), mantendo o movimento, a câmera, o tempo e o som do original.',
     global: 'Você refaz um VÍDEO CURTO anexado (até 15 s): o movimento, a câmera, os cortes, o tempo e o som vêm do vídeo original; só muda o que o pedido diz (pessoa/personagem → Viggle Swap; objeto, cenário, clima, luz ou estilo → Viggle Edit). As fotos anexadas como referência mostram o novo personagem/objeto. Se houver um quadro já editado anexado (nota "quadro editado"), ele manda no visual.',
@@ -506,7 +504,7 @@ CAPTURA DE TELA / OBS: comece depois que a janela do OBS sair da tela. Se a barr
   },
   appearance: 'motion_graphics', routeId: 'shorts-autopilot', aspect: '16:9', durationSec: 180, language: 'pt-BR',
   presentation: 'mixed', mediaSources: [], mixSources: ['motion'],
-  outputStyle: '🎨 Visual: motion graphics explicando + trechos reais dos vídeos enviados (sem narração sobre o clipe).\n🎙 Narração: tutorial claro e direto, com pausas para as demonstrações.\n📎 Entrada: um ou mais vídeos anexados no Novo projeto (seção "Arquivos para o vídeo" → "Arquivos.") — eles são transcritos para o roteiro saber o que mostram.\n📦 Saída: final.mp4 (16:9) + legendas + thumbnail + metadados.',
+  outputStyle: '🎨 Visual: motion graphics explicando + trechos reais dos vídeos enviados (sem narração sobre o clipe).\n🎙 Narração: tutorial claro e direto, com pausas para as demonstrações.\n📎 Entrada: um ou mais vídeos anexados no Novo projeto (seção "Arquivos para o vídeo" → "Arquivos.") — eles são transcritos para o roteiro saber o que mostram.\n📦 Saída: final.mp4 (16:9) + legendas (se ativadas no projeto/editor) + thumbnail + metadados.',
 };
 
 export const BUILTIN_SKILLS: Skill[] = [
