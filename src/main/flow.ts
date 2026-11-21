@@ -96,6 +96,24 @@ const ENSURE_PROJECT = `(async () => { ${PAGE_HELPERS}
  * e "Confirmar antes de gerar: Nunca" — a automação já decidiu gerar; com "Sempre" o agente para e pergunta.
  */
 const configure = (media: 'image' | 'video', aspect: string) => `(async () => { ${PAGE_HELPERS}
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  /* tela nova (nov/2026): chip "Gatilho de configurações" na barra do pedido ("Nano Banana 2.1 ▭ x2") abre um popover
+     com Imagem/Vídeo, 16:9·4:3·1:1·3:4·9:16 e x1..x4. O click() simples não abre: precisa da sequência de ponteiro. */
+  const press = (el) => { const r = el.getBoundingClientRect(); const o = { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) el.dispatchEvent(t.startsWith('pointer') ? new PointerEvent(t, o) : new MouseEvent(t, o)); };
+  const trig = [...document.querySelectorAll('button')].filter(vis).find((x) => /Gatilho de configura|settings trigger/i.test(x.getAttribute('aria-label') || '') || /crop_\\d+_\\d+|crop_square|crop_portrait|crop_landscape/.test(x.innerText || ''));
+  if (trig) {
+    const out = [];
+    press(trig); await wait(900);
+    const opt = (re) => [...document.querySelectorAll('button, [role=tab], [role=radio], [role=option]')].filter(vis).find((x) => x !== trig && re.test((x.innerText || x.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim()));
+    const tab = opt(${media === 'image' ? '/(^|\\s)(Imagem|Image)$/i' : '/(^|\\s)(V[ií]deo|Video)$/i'}); if (tab) { press(tab); await wait(400); out.push(${JSON.stringify(media)}); }
+    const ar = opt(new RegExp('(^|\\\\s)' + ${JSON.stringify(aspect)}.replace(':', '\\\\:') + '$')); if (ar) { press(ar); await wait(300); out.push(${JSON.stringify(aspect)}); }
+    const one = opt(/^x1$/i); if (one) { press(one); await wait(300); out.push('x1'); }
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    await wait(400);
+    const now = (trig.innerText || '').replace(/\\s+/g, ' ');
+    return (out.join(', ') || 'popover sem opções') + ' → ' + now;
+  }
   const b = [...document.querySelectorAll('button')].filter(vis).find((x) => /^Configura|^Settings/i.test(x.getAttribute('aria-label') || '') && /tune/.test(x.innerText || ''));
   if (!b) return 'sem-configurações';
   b.click(); await new Promise((r) => setTimeout(r, 1200));
