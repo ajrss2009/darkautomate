@@ -333,6 +333,24 @@ const CARTOON_TO_REAL: Skill = {
 
 /* SKILLS REGISTRADAS DO CATÁLOGO (págs. 135-149): são padrão do app, com rota própria quando o catálogo exige. */
 
+/** Podcast 16:9 — PiP do vídeo original + imagens do Google Flow baseadas no que é falado, com editor completo. */
+const PODCAST_16_9: Skill = {
+  id: 'podcast-16-9', name: 'Podcast 16:9 (imagens do falado + PiP)', builtin: true,
+  description: 'Podcast vertical original em PiP sobre imagens geradas no Google Flow a cada 6-12 s, uma por bloco falado, com filtros, texturas e montagem do editor. 16:9, menos de 1 minuto.',
+  global: 'Entrada: link do podcast + minuto inicial/final + canto do PiP (padrão: inferior esquerdo) no campo ideia. Quebre o trecho em blocos de 6 a 12 segundos. Cada bloco tem UMA frase falada e UMA imagem. A imagem é gerada no Google Flow e deve retratar EXATAMENTE o que é falado naquele bloco: a pessoa citada, o assunto da frase, o cenário mencionado — nunca texto escrito dentro da imagem. Mantenha a mesma aparência do apresentador em todos os blocos. O vídeo original do podcast entra em PiP de ~25% da largura no canto pedido, sem cobrir rosto ou legenda. Aplique filtros e texturas discretas do editor. Crédito ao podcast e link original SEMPRE na descrição. Sem narração adicional: a voz é a do trecho original.',
+  steps: {
+    script: 'Escreva `script.md` com 4 a 6 blocos de 6 a 12 segundos (total ≤ 60 s), um por frase do trecho citado na ideia. Para cada bloco: `FALA:` com o que é dito, `IMAGEM:` com a descrição visual daquilo que está sendo falado (pessoa, objeto, cenário) e `TEMPO:` a duração. Respeite o link, o minuto inicial/final e o canto do PiP da ideia. Nada de dado inventado.',
+    scene_plan: 'Uma cena por bloco, 6 a 12 s, todas "kind":"image". `narration` = a fala daquele bloco (para o Flow saber o que é falado). `visualIntent` em inglês = exatamente a imagem do que é falado, com a aparência fixa do apresentador, paleta e luz coerentes, sem texto. A soma das cenas ≤ 60 s.',
+    image: 'Gere no Google Flow, em 16:9, UMA imagem por cena baseada EXATAMENTE na narração daquela cena (o assunto falado), com o mesmo apresentador em todas, sem texto escrito na imagem e com espaço livre no canto do PiP.',
+    code_scene: 'HTML/Canvas 16:9 determinístico (só `t` de `window.__forge`, 30 fps): pinte a imagem gerada em `frame.png` como fundo full-frame e sobreponha o vídeo original do podcast em PiP de ~25% da largura no canto pedido (padrão: inferior esquerdo), com cantos arredondados, sombra e borda. Use `<video src="web/podcast.mp4">` com `currentTime = t + inicioDoTrecho`, `pause()`/`seek(t)` sincronizados via `window.__forge.seek`. A PiP nunca cobre o rosto do apresentador na imagem de fundo. Sem texto inventado.',
+    narration: 'Sem narração adicional: a voz é a do trecho original do podcast em PiP.',
+    metadata: 'Descrição com o link original em primeiro lugar, crédito ao podcast e os tempos dos blocos.',
+  },
+  reviewCriteria: 'Cada imagem muda a cada 6-12 s e retrata o que é falado; o mesmo apresentador em todas as imagens; PiP no canto pedido e sincronizada com a fala; 16:9; menos de 60 s; sem texto inventado nas imagens; crédito e link originais na descrição.',
+  appearance: 'custom', routeId: 'podcast-16-9', aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'mixed', mediaSources: ['youtube'], mixSources: ['stock', 'ai'], scriptEnding: 'conclusion', multiVoice: false, plugins: ['youtube'], storyboard: false,
+  outputStyle: '🎙️ PiP do podcast original (~25%, canto pedido) · 🖼️ imagens no Google Flow a cada 6-12 s, baseadas no que é falado · 🎨 filtros e texturas do editor · 📤 final.mp4 16:9 <60 s + descrição com crédito e link.',
+};
+
 /** Pág. 135 — skill órfã: só funciona com a rota free podcast-pip-slideshow (presente em presets). */
 const PODCAST_PIP_SLIDESHOW: Skill = {
   id: 'podcast-pip-slideshow', name: 'Podcast PiP + Slideshow', builtin: true, freeform: true,
@@ -415,6 +433,7 @@ const SPECIAL: Skill[] = [
   MUSICA_LIPSYNC,
   CARTOON_SHORT_STUDIO,
   CARTOON_TO_REAL,
+  PODCAST_16_9,
   PODCAST_PIP_SLIDESHOW,
   LISTA_JOGOS_AFILIADO,
   FEED_NOTICIAS_MIDIA,

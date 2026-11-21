@@ -448,6 +448,21 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'podcast-16-9', name: 'Podcast 16:9 (PiP + imagens do falado, editor completo)',
+    description: 'Link de podcast + minuto inicial/final + canto do PiP: roteiro em blocos de 6-12 s, narração OmniVoice, UMA imagem por bloco no Google Flow baseada exatamente no que é falado, cena por código que compõe o PiP do vídeo original sobre a imagem, trilha Wan2GP, efeitos/filtros/texturas do editor e montagem final. 16:9, menos de 1 minuto.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro do podcast (blocos de 6-12 s)', scope: 'project', bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Cenas de 6-12 s (uma imagem por fala)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'narration', kind: 'narration', label: 'Narração OmniVoice', scope: 'scene', dependsOn: ['scene_plan'], bindings: castTtsChain, concurrency: 2 }),
+      transcribeStep(),
+      step({ id: 'image', kind: 'image', label: 'Imagem do que é falado (Google Flow)', scope: 'scene', dependsOn: ['scene_plan', 'transcribe'], bindings: [{ type: 'flow' } as never, ...imageChain] }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena com PiP do podcast sobre a imagem', scope: 'scene', dependsOn: ['scene_plan', 'transcribe', 'image'], bindings: textChain }),
+      sfxStep(false, ['code_scene']),
+      ...tail(['narration', 'code_scene', 'sfx'], {}, codeMusicChain),
+    ],
+  },
+  {
     id: 'podcast-pip-slideshow', name: 'Podcast PiP + Slideshow (rota free)',
     description: 'Link de podcast + minuto inicial/final + canto do PiP no campo ideia: o harness baixa o trecho com yt-dlp/ffmpeg, grava o vídeo em PiP e intercala slideshow de 8-12 s com blocos fullscreen aleatórios de 30-55 s. Crédito e link originais na descrição.',
     videoTypes: [],
