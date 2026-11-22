@@ -434,7 +434,8 @@ export class ForgeDb {
         if (this.indexProject(p, path.join(dir, id), { mtime, silent: true })) {
           if (isNew) added++; else updated++;
         }
-      } catch (e) { o.log?.(`banco: ${id} ignorado (${(e as Error).message.slice(0, 80)})`); }
+      /* o erro pode não ser Error (sem .message): antes isso derrubava a indexação inteira e o espelho da biblioteca */
+      } catch (e) { o.log?.(`banco: ${id} ignorado (${String((e as Error)?.message ?? e).slice(0, 80)})`); }
     }
     /* projetos que existiam no índice e cuja pasta não está mais lá */
     for (const row of this.all<{ id: string }>(`SELECT id FROM project WHERE deleted_at IS NULL`)) {

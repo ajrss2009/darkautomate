@@ -2876,7 +2876,8 @@ app.whenReady().then(async () => {
   const httpArg = process.argv.find((a) => a === '--mcp-http' || a.startsWith('--mcp-http='));
   if (httpArg) {
     headless = true;
-    const eq = httpArg.includes('=') ? httpArg.split('=')[1] : '';
+    void openDbHeadless();
+    const eq =httpArg.includes('=') ? httpArg.split('=')[1] : '';
     const next = process.argv[process.argv.indexOf(httpArg) + 1];
     const port = Math.max(0, Math.min(65535, Math.round(Number(eq || (next && /^\d+$/.test(next) ? next : process.env.FILMFORGE_MCP_PORT || 3333)) || 3333)));
     const hostAt = process.argv.indexOf('--mcp-host');
@@ -2890,6 +2891,7 @@ app.whenReady().then(async () => {
   }
   if (process.argv.includes('--mcp') || process.argv.includes('--mcp-server')) {
     headless = true;
+    void openDbHeadless();
     runMcpStdio(mcpDeps());
     return;
   }
@@ -2922,6 +2924,7 @@ app.whenReady().then(async () => {
   }
   if (runAt >= 0) {
     headless = true;
+    void openDbHeadless();
     registerProtocols();
     const id = process.argv[runAt + 1];
     if (!id) { console.error('uso: --run-project <id>'); app.exit(2); return; }
@@ -2952,8 +2955,9 @@ app.whenReady().then(async () => {
     const db = await openDb({ root: dataRoot?.root ?? app.getPath('userData'), workspace: settings.workspace });
     setProjectCostProvider((pr) => costOfProject(pr));
     splashProgress(20, 'abrindo o banco');
-    const idx = db.syncIndex(settings, { log: (l) => console.log(`[FilmForge] ${l}`) });
+    /* espelho da biblioteca PRIMEIRO e à parte: uma falha no índice de projetos não pode deixá-lo de fora */
     try { syncLibraryDb(); } catch (e) { dumpErr('library-db', e); }
+    const idx = db.syncIndex(settings, { log: (l) => console.log(`[FilmForge] ${l}`) });
     console.log(`[FilmForge] banco: ${db.file} · ${idx.total} projeto(s) no índice (${idx.added} novos, ${idx.updated} alterados, ${idx.removed} removidos)`);
     if (db.restoredBackup) console.log(`[FilmForge] banco restaurado do backup ${db.restoredBackup}`);
   } catch (e) { dumpErr('db', e); }
@@ -3014,6 +3018,22 @@ function syncLibraryDb(): void {
     const kits = fs.existsSync(kroot) ? fs.readdirSync(kroot).flatMap((d) => { try { return [JSON.parse(fs.readFileSync(path.join(kroot, d, 'kit.json'), 'utf8')) as { id: string; name: string }]; } catch { return []; } }) : [];
     syncRecordsQuiet('kit', kits.map((k) => ({ id: k.id, title: k.name, data: k })));
   } catch { /* sem kits */ }
+}
+/**
+ * Modos sem janela (--run-project, --mcp, --mcp-http) saíam antes de abrir o banco: o espelho da biblioteca (skills,
+ * rotas, personagens, kits) nunca era gravado — na pasta portátil da dark55 havia 0 skills no banco. Log no stderr:
+ * no MCP stdio o stdout é o canal do protocolo.
+ */
+async function openDbHeadless(): Promise<void> {
+  try {
+    const db = await openDb({ root: dataRoot?.root ?? app.getPath('userData'), workspace: settings.workspace });
+    setProjectCostProvider((pr) => costOfProject(pr));
+    /* índice de projetos e espelho da biblioteca são independentes: um projeto ilegível não pode deixar a biblioteca de fora */
+    try { db.syncIndex(settings, { log: (l) => console.error(`[FilmForge] ${l}`) }); } catch (e) { dumpErr('index-headless', e); }
+    try { syncLibraryDb(); } catch (e) { dumpErr('library-db-headless', e); }
+    /* sem janela o processo pode ser encerrado logo após a resposta: grava já, não em 350 ms */
+    db.flushNow();
+  } catch (e) { dumpErr('db-headless', e); }
 }
 let libraryDbTimer: NodeJS.Timeout | undefined;
 function scheduleLibraryDb(): void { if (libraryDbTimer) clearTimeout(libraryDbTimer); libraryDbTimer = setTimeout(() => { try { syncLibraryDb(); } catch (e) { dumpErr('library-db', e); } }, 800); }
