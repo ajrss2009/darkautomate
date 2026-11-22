@@ -337,6 +337,18 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'pov-cartoon-story', name: 'POV Cartoon Story (estilo Viral Instagram — vários nichos)',
+    description: 'História em primeira pessoa com cartoon 2D de contorno fino, olhos gigantes, POV distorcido, POV do espectador com braços/mãos, transição de luz, interface de celular, legendas coloridas por personagem e card de escolha final. Serve para horror, romance, suspense, comédia, drama — o nicho vem da ideia. 9:16 ou 16:9, sem IA de imagem/vídeo.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro POV (planos, falas, virada)', scope: 'project', bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planos POV + interface + legendas', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena cartoon POV (Canvas/SVG + overlays)', scope: 'scene', dependsOn: ['scene_plan'], bindings: textChain, timeoutSec: 1800 }),
+      step({ id: 'sfx', kind: 'sfx', label: 'Efeitos sonoros (gerados por código)', scope: 'scene', dependsOn: ['code_scene'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'sfx-code' }], params: { auto: false } }),
+      ...tail(['code_scene', 'sfx'], {}, codeMusicChain).map((st) => st.kind === 'thumbnail' ? ({ ...st, bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] } as RouteStep) : st),
+    ],
+  },
+  {
     id: 'cutscene-3d-glb', name: 'Cutscene 3D com GLBs da Biblioteca (Three.js + GLTFLoader)',
     description: 'Cutscene com modelos 3D reais da Biblioteca (.glb): carrega personagem e cenário com GLTFLoader, anima caminhada/pose com AnimationMixer ou por t, várias câmeras, efeitos sonoros e trilha. Determinístico via window.__forge.seek(t), sem IA de imagem/vídeo.',
     videoTypes: ['custom'],

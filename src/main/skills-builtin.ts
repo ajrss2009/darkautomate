@@ -352,6 +352,22 @@ const PODCAST_16_9: Skill = {
   outputStyle: '🔗 Entrada: link real + minuto inicial/final + canto do PiP (ides baixa com yt-dlp). 🎙️ PiP ~25% no canto pedido, quadro fixo · 🖼️ imagens no Flow a cada 6-12 s do falado, com zoom lento (Ken Burns) · ⛶ 1-2 idas a TELA CHEIA 10-25 s sem zoom · 🎵 trilha de suspense baixa · 📤 final.mp4 16:9 <60 s + descrição com crédito e link.',
 };
 
+/** POV Cartoon Story — formato viral de histórias em primeira pessoa (vários nichos). */
+const POV_CARTOON_STORY: Skill = {
+  id: 'pov-cartoon-story', name: 'POV Cartoon Story (história em 1ª pessoa)', builtin: true,
+  description: 'História POV em cartoon 2D de contorno: olhos gigantes, braços do espectador, mudança de luz, celular com mensagens, legendas coloridas por personagem e card de escolha. Funciona para horror, suspense, comédia, romance ou drama — o nicho vem da ideia. 9:16 ou 16:9.',
+  global: 'ESTILO (obrigatório): cartoon 2D intencionalmente simples — cores chapadas e dessaturadas, contorno escuro fino, olhos brancos MUITO grandes com pupilas minúsculas, cabeças arredondadas, mãos arredondadas, detalhes faciais mínimos, animação rígida e contida (respiração, piscar, virar olhos/cabeça, boca que se move). NUNCA realista, Pixar, stick figure, Roblox ou slideshow de imagens paradas. CÂMERA POV: o espectador é um personagem — mostre mangas azul-acinzentadas, mãos, papel/lápis ou celular na primeira pessoa; perspectiva ampla levemente distorcida, deriva/handheld suave por t, sem shake excessivo. ELEMENTOS DE HISTÓRIA (use 4 a 6, conforme o nicho): (1) ESTABELECIMENTO — o lugar e a situação; (2) ALGO ERRADO — um detalhe/som fora do lugar; (3) REAÇÃO — olhares, silêncio, suspensão; (4) MENSAGEM/REVELAÇÃO — interface de celular com bolhas cinza (entrada) e azul (saída), avatar colorido, notificações progressivas; (5) MUDANÇA DE LUZ — de quente/claro para frio/escuro no momento de tensão (mantendo rostos legíveis e fontes de luz visíveis: porta, janela, tela do celular); (6) CLIFFHANGER — card final com pergunta e 2 botões de escolha + "Comment for Part 2", sem resolver. LEGENDAS: negrito com contorno grosso e sombra, blocos curtos frase a frase, cor por falante (ex.: amarelo=autoridade, ciano=amigo, branco=POV, laranja=anúncio, rosa=voz de fora) — defina as cores na ideia. ÁUDIO: use a voz/efeitos do trecho se houver; se não, projete falas curtas e pausas — SEM música que mude o clima. ROTEIRO: uma frase por plano, timing apertado, revelação no último segundo. Adapte o cenário e os personagens ao nicho da ideia (sala de aula, escritório, rua, hospital, festa...).',
+  steps: {
+    script: 'Escreva `script.md`: nicho, duração, personagens (com cores de legenda), cenário e sequência de PLANOS com (a) tipo — estabelecimento, algo errado, reação, mensagem, virada de luz, cliffhanger; (b) o que a câmera POV vê; (c) fala exata e cor da legenda; (d) efeito sonoro; (e) tempo de entrada/saída. Sem inventar dados fora da ideia.',
+    scene_plan: 'Um plano por bloco: enquadramento POV, posição dos personagens (use os da Biblioteca quando houver), fala/cor da legenda, texto do celular se houver, luz do plano e sfx. Soma = duração.',
+    code_scene: 'Canvas/SVG determinístico (window.__forge.seek(t), 30 fps): desenhe o cenário com formas simples e contorno, personagens com olhos gigantes e boca que se move, braços/mãos POV na borda. Câmera POV por t (deriva suave, leve wide-angle). Overlays HTML para legendas coloridas com contorno e para o celular (bolhas cinza/azul, avatar, notificações progressivas). Transição de luz gradual por t (não retângulo preto). Card final de escolha com 2 botões e "Comment for Part 2".',
+    metadata: 'Título curto e duração real.',
+  },
+  reviewCriteria: 'Cartoon 2D simples com olhos gigantes e contorno; POV com braços/mãos; legendas coloridas por falante; celular legível quando usado; transição de luz visível; card de escolha no fim; 30 fps determinístico; nicho da ideia respeitado.',
+  appearance: 'custom', routeId: 'pov-cartoon-story', aspect: '9:16', durationSec: 30, language: 'pt-BR', presentation: 'generated', mediaSources: [], scriptEnding: 'next', multiVoice: false, storyboard: false,
+  outputStyle: '🎭 POV Cartoon Story · 👀 olhos gigantes e contorno fino · 📱 celular com mensagens · 🎨 legendas coloridas + luz que muda · ❓ card de escolha final · 📤 final.mp4 (9:16 ou 16:9).',
+};
+
 /** Cutscene 3D com modelos GLB reais da Biblioteca — não desenha com primitivas. */
 const CUTSCENE_3D_GLB: Skill = {
   id: 'cutscene-3d-glb', name: 'Cutscene 3D (GLBs da Biblioteca)', builtin: true,
@@ -451,6 +467,7 @@ const SPECIAL: Skill[] = [
   CARTOON_SHORT_STUDIO,
   CARTOON_TO_REAL,
   CUTSCENE_3D_GLB,
+  POV_CARTOON_STORY,
   PODCAST_16_9,
   PODCAST_PIP_SLIDESHOW,
   LISTA_JOGOS_AFILIADO,
