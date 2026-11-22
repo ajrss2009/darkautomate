@@ -337,6 +337,18 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'cutscene-3d-glb', name: 'Cutscene 3D com GLBs da Biblioteca (Three.js + GLTFLoader)',
+    description: 'Cutscene com modelos 3D reais da Biblioteca (.glb): carrega personagem e cenário com GLTFLoader, anima caminhada/pose com AnimationMixer ou por t, várias câmeras, efeitos sonoros e trilha. Determinístico via window.__forge.seek(t), sem IA de imagem/vídeo.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro da cutscene (planos e duração)', scope: 'project', bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planos de câmera (enquadramento, movimento, foco)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena 3D com GLBs (Three.js + GLTFLoader)', scope: 'scene', dependsOn: ['scene_plan'], bindings: textChain, timeoutSec: 3600 }),
+      sfxStep(false, ['code_scene']),
+      ...tail(['code_scene', 'sfx'], {}, codeMusicChain).map((st) => st.kind === 'thumbnail' ? ({ ...st, bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] } as RouteStep) : st),
+    ],
+  },
+  {
     id: 'curta-cartoon-3d', name:'Curta cartoon 3D (personagens 2D em mundo 3D, Three.js local)',
     description: 'Roteiro com gancho e virada → cenas → narração → tempos das palavras → cada cena em Three.js com a biblioteca local cartoon3d (personagens 2D com contorno num mundo 3D pintado, contorno a tinta, desfoque de fundo, câmera deslizando) → efeitos e trilha por código → montagem. Sem IA de imagem ou vídeo.',
     videoTypes: ['cartoon_3d', 'custom'],

@@ -352,6 +352,22 @@ const PODCAST_16_9: Skill = {
   outputStyle: '🔗 Entrada: link real + minuto inicial/final + canto do PiP (ides baixa com yt-dlp). 🎙️ PiP ~25% no canto pedido, quadro fixo · 🖼️ imagens no Flow a cada 6-12 s do falado, com zoom lento (Ken Burns) · ⛶ 1-2 idas a TELA CHEIA 10-25 s sem zoom · 🎵 trilha de suspense baixa · 📤 final.mp4 16:9 <60 s + descrição com crédito e link.',
 };
 
+/** Cutscene 3D com modelos GLB reais da Biblioteca — não desenha com primitivas. */
+const CUTSCENE_3D_GLB: Skill = {
+  id: 'cutscene-3d-glb', name: 'Cutscene 3D (GLBs da Biblioteca)', builtin: true,
+  description: 'Cutscene com personagens e cenários GLB reais da Biblioteca, carregados com Three.js + GLTFLoader. Caminhada/poses com AnimationMixer, várias câmeras, efeitos sonoros e trilha. 16:9, sem IA de imagem/vídeo.',
+  global: 'Use SEMPRE os arquivos .glb da Biblioteca listados no prompt (personagem e cenário). NUNCA desenhe o personagem com formas geométricas (BoxGeometry/esferas) — o modelo GLB É o personagem. Carregue com GLTFLoader ANTES do primeiro quadro. Elementos de CUTSCENE (use 4 ou 5): (1) ESTABELECIMENTO — plano aberto do cenário GLB mostrando onde se passa; (2) CAMINHADA — plano médio do personagem andando, pernas/bracos alternando, leve balanço do corpo e do ombro; (3) DETALHE/INSERT — close em algo que conta a história (a cabeça de TV brilhando, a mão, um objeto cenográfico); (4) REAÇÃO/OLHAR — contra-plano ou close do rosto/olho com mudança de luz; (5) SAÍDA — personagem cruza o quadro/sai de cena ou a câmera o perde entre ruínas. Ritmo: plano aberto (mais longo) → médio → inserts curtos → close → saída. Cada troca de plano marca um efeito sonoro (passo, vento, zumbido, impacto). CINEMATOGRAFIA (decida por plano): LENTE — grande-angular no estabelecimento (24–35 mm, grande angular); normal 50 mm na caminhada; tele 85–135 mm no insert/close (fundo desfocado); contra-plano com 50 mm. MOVIMENTO DE CÂMERA — dolly-in lento na caminhada (a câmera acompanha o personagem em parallax), pan suave no estabelecimento, leve push-in no close, handheld mínimo e determinístico por t (seno de baixa frequência, nunca Math.random solto) no momento de tensão; travamento na saída. ILUMINAÇÃO — HemisphereLight (céu/frio vs chão/quente) + DirectionalLight como sol baixo; no insert acenda um ponto de luz na cabeça de TV; no close muda a intensidade/temperatura da luz (key mais fria, rim quente); mantenha sombra suave. MOVIMENTAÇÃO DO PERSONAGEM — caminhada com pernas alternando em seno, braços em contrafase, leve subida do torso e rotação do ombro; ao olhar, gire a cabeça/câmera do rosto antes do corte. Respeite a Box3 do modelo para enquadrar e manter escala. Se o GLB tiver animações use AnimationMixer e mixer.setTime(t) em seek(t); se não tiver, anime pernas/braços/rotação por t. Luz: HemisphereLight + DirectionalLight, com mudança sutil de intensidade no close. Contrato rígido: window.__forge = { duration, fps: 30, seek(t), pause(), sfx } — único relógio é t, sem Date.now/performance.now/Math.random não-seedado.',
+  steps: {
+    script: 'Escreva `script.md` com a cutscene: duração total e a sequência de PLANOS com (a) tipo — estabelecimento, caminhada, insert, reação/olhar, saída; (b) LENTE em mm (24–35 aberta, 50 caminhada/contra-plano, 85–135 insert/close) e MOVIMENTO DE CÂMERA (dolly, pan, push-in, handheld determinístico, travamento); (c) ILUMINAÇÃO do plano (Hemisphere + Directional, key/rim, ponto de luz no detalhe, mudança de temperatura no close); (d) MOVIMENTAÇÃO do personagem (pernas alternando, braços em contrafase, subida do torso, giro da cabeça antes do corte); (e) tempo de entrada/saída; (f) efeito sonoro. Use os nomes dos GLBs da Biblioteca.',
+    scene_plan: 'Um plano por bloco de tempo. Para cada um: tipo de plano, enquadramento (Box3 do personagem ou do objeto), instante de entrada/saída, ação e sfx. A soma = duração da cutscene.',
+    code_scene: 'Página HTML com <script type="module">: import * as THREE from "three"; import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js". Carregue os .glb com await loader.loadAsync(caminho relativo). Monte cenário GLB + personagem GLB. CINEMATOGRAFIA por plano: defina camera.fov pela lente (24–35mm ≈ 70–50°, 50mm ≈ 39°, 85–135mm ≈ 24–15°), posicione pela Box3 do modelo; dolly/pan/push-in/handheld determinístico em seek(t) por t (use senos de baixa frequência, sem Math.random solto); HemisphereLight + DirectionalLight com key/rim e um PointLight na cabeça de TV, mudando intensidade/temperatura no close. MOVIMENTAÇÃO: AnimationMixer se houver animações; senão alterne pernas (seno), braços em contrafase, subida do torso e giro da cabeça por t. Implemente estabelecimento → caminhada → insert → reação → saída. seek(t) seta câmera/poses/luz e chama renderer.render. sfx com passos/vento/zumbido nos instantes marcados.',
+    metadata: 'Título da cutscene e duração real.',
+  },
+  reviewCriteria: 'Modelos GLB da Biblioteca carregados e visíveis; nenhum personagem desenhado com primitivas; caminhada/pose animada por t; lentes eFOV variados por plano; movimento de câmera (dolly/pan/push-in/handheld) presente; iluminação com key/rim e mudança no close; efeitos sonoros; 30 fps determinístico.',
+  appearance: 'custom', routeId: 'cutscene-3d-glb', aspect: '16:9', durationSec: 30, language: 'pt-BR', presentation: 'generated', mediaSources: [], scriptEnding: 'conclusion', multiVoice: false, storyboard: false,
+  outputStyle: '🎬 Cutscene 3D com GLBs reais da Biblioteca · 🎥 várias câmeras · 🚶 caminhada animada · 🔊 efeitos sonoros · 📤 final.mp4 16:9 determinístico.',
+};
+
 /** Pág. 135 — skill órfã: só funciona com a rota free podcast-pip-slideshow (presente em presets). */
 const PODCAST_PIP_SLIDESHOW: Skill = {
   id: 'podcast-pip-slideshow', name: 'Podcast PiP + Slideshow', builtin: true, freeform: true,
@@ -434,6 +450,7 @@ const SPECIAL: Skill[] = [
   MUSICA_LIPSYNC,
   CARTOON_SHORT_STUDIO,
   CARTOON_TO_REAL,
+  CUTSCENE_3D_GLB,
   PODCAST_16_9,
   PODCAST_PIP_SLIDESHOW,
   LISTA_JOGOS_AFILIADO,
