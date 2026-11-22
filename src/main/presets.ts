@@ -624,7 +624,17 @@ export const ROUTES: Route[] = ([
       step({ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail (quadro do remake)', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }, { type: 'flow' }] }),
     ],
   },
-] as Route[]).map(withAllMediaRoutes);
+] as Route[]).map(withAllMediaRoutes).map(editWaitsForMedia);
+
+/** A montagem espera TODA etapa de mídia da rota (auditoria dark54: podcast/lipsync/microdrama/ia-video montavam sem esperar "image"/"video"). */
+export function editWaitsForMedia(r: Route): Route {
+  const MEDIA = new Set(['image', 'video', 'code_scene', 'motion_graphics', 'stock_media', 'narration', 'music', 'sfx']);
+  return { ...r, steps: r.steps.map((st) => {
+    if (st.kind !== 'edit') return st;
+    const miss = r.steps.filter((x) => MEDIA.has(x.kind) && x.id !== st.id && !st.dependsOn.includes(x.id)).map((x) => x.id);
+    return miss.length ? { ...st, dependsOn: [...st.dependsOn, ...miss] } : st;
+  }) };
+}
 
 /**
  * Toda etapa de imagem, capa ou vídeo aceita as quatro rotas: ComfyUI, Wan2GP, Flow (navegador) e API (Snapgen).
