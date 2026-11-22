@@ -480,6 +480,28 @@ const CORTES_DE_LIVE: Skill = {
   outputStyle: '✂️ Link da live → momentos interessantes por energia/frase completa → corte viral 20–40 s 9:16 · gancho 1–3 s · legenda curta · áudio original · crédito e link na descrição.',
 };
 
+/** Música natalina retrô — clipe de 1 minuto com clipes no Google Flow AI e ACE-Step XL. */
+const MUSICA_NATALINA_RETRO: Skill = {
+  id: 'musica-natalina-retro', name: 'Música natalina retrô (anos 50/60)', builtin: true,
+  description: 'Videoclipe natalino de 1 minuto com estética dos anos 50/60: filmagem colorida saturada, grão de película, luzes quentes, árvore e enfeites de época, figurinos retrô. Música natalina composta no ACE-Step XL no estilo da época e clipes gerados no Google Flow AI (reserva: SnapGen Muse).',
+  global: 'Você dirige um VIDEoclIPE NATALINO RETRÔ de exatamente 60 segundos. A referência é o visual de filmes e comerciais de Natal dos anos 1950/1960: CORES SATURADAS (vermelho natalino, verde pinheiro, creme, dourado), GRÃO DE FILME 16 mm, luz quente de lâmpadas incandescentes, reflexos de neon/vingadores de luz, neve artificial, árvore enfeitada com bolas de vidro e estrelas, papelaria de época, vestidos de festa, ternos, gravatas, penteados e óculos da época. Nada de CGI moderno, nada de estética de smartphone, nada de saturar até virar neon moderno. ' +
+    'ESTRUTURA: 6 cenas de 10 s (ou 8 cenas de 7,5 s), cada cena com UMA ideia visual clara — abertura com letreiro/árvore, família reunida, cidade nevada com lojas iluminadas, dança/drinks de festa, crianças e presentes, fechamento com cartão natalino. Os cortes acompanham o COMPÁS da música (cada cena começa num tempo forte). ' +
+    'MÚSICA: canção natalina original composta no ACE-Step XL — estilo big band/swing, crooner dos anos 50, doo-wop ou rock n roll natalino dos anos 60, com metais, piano, orquestra e vozes de apoio; ritmo alegre e nostálgico, 60 s exatos, sem rap, sem EDM, sem autotune. ' +
+    'SEM narração e SEM diálogos: a música manda. Legendas desligadas. Capa com tipografia retrô (serifa ou script elegante) e uma frase curta de Natal.',
+  steps: {
+    script: 'Escreva `script.md`: título da canção, estilo musical (swing/crooner/doo-wop/rock n roll 60s), letra curta e repetitiva de refrão natalino, e 6 cenas de 10 s com a ação visual de cada uma. Marcadores de tempo para a montagem.',
+    bible: 'Bíblia visual 50s/60s: paleta (vermelho natalino, verde pinheiro, creme, dourado), textura de filme 16 mm com grão, figurinos (vestidos de festa, ternos, gravatas, penteados). Motivos recorrentes OBRIGATÓRIOS: (a) rua principal de cidade pequena com carros dos anos 50, diner e loja de brinquedos, guirlandas e sinos gigantes iluminados atravessando a rua, neve; (b) árvore de Natal clássica com velas e enfeites de vidro antigo, cortinas de veludo vermelho, móveis antigos, retratos na parede, luz de velas quente; (c) casal caminhando sob cordões de lâmpadas coloridas; (d) missa/culto em igreja com vitrais e velas. Um letreiro de abertura e um cartão de fechamento com tipografia retrô.',
+    scene_plan: '6 cenas de 10 s, kind "video". Para cada cena: visualIntent EM INGLÊS descrevendo a ação, o enquadramento, a luz quente, o grão de filme, os figurinos de época e os enfeites natalinos — sem texto escrito na imagem. Cena 1 = gancho visual forte; cena 6 = cartão final de Natal.',
+    image: 'Quadro-chave de cada cena no Google Flow: fotograma colorido saturado com grão de filme, luz de lâmpadas natalinas, cenário e figurino dos anos 50/60, sem texto.',
+    video: 'Clipe de 10 s no Google Flow AI: câmera de época (lente 35 mm, leve tremor de câmera de filme), movimento suave, personagens em figurino retrô, luzes piscando, neve caindo. Sem texto, sem marca d’água, sem estética moderna.',
+    music: 'Canção natalina de 60 s no ACE-Step XL: swing/crooner/doo-wop/rock n roll dos anos 50/60, metais e piano, refrão cantável, alegria nostálgica, sem rap/EDM/autotune.',
+    metadata: 'Título da canção + "(versão natalina retrô)", descrição com o estilo 50s/60s e 5 hashtags.',
+  },
+  reviewCriteria: '60 s exatos; estética 50s/60s com grão de filme e cores saturadas; 6 cenas de 10 s cortadas no ritmo da música; clipes no Google Flow AI; música natalina ACE-StepXL da época; sem narração/diálogos; capa tipográfica retrô.',
+  appearance: 'custom', routeId: 'musica-natalina-retro', aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'generated', mediaSources: [], scriptEnding: 'conclusion', multiVoice: false, storyboard: false,
+  outputStyle: '🎄 Clipe natalino retrô 50s/60s · grão de filme e cores saturadas · 🎵 ACE-StepXL swing/crooner · 🎬 clipes no Google Flow AI · ⏱ 60 s · sem narração.',
+};
+
 /** Pág. 147 — avatar reativo (folha de PNGs, rota documentario-3d). */
 const AVATAR_REATIVO_VIDEO: Skill = {
   id: 'avatar-reativo-video', name: 'Avatar Reativo sobre Vídeo', builtin: true,
@@ -503,6 +525,7 @@ const SPECIAL: Skill[] = [
   CUTSCENE_3D_GLB,
   POV_3D_STORY,
   CORTES_DE_LIVE,
+  MUSICA_NATALINA_RETRO,
   POV_CARTOON_STORY,
   PODCAST_16_9,
   PODCAST_PIP_SLIDESHOW,

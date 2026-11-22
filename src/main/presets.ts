@@ -484,6 +484,23 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'musica-natalina-retro', name: 'Música natalina retrô (anos 50/60 — clipes Flow AI)',
+    description: 'Videoclipe natalino de 1 minuto com estética dos anos 50/60: cores saturadas, grão de filme, luzes de Natal quentes, figurinos e cenários de época. Música ACE-Step XL no estilo da época, clipes gerados no Google Flow AI (com SnapGen Muse como reserva) e montagem no ritmo da música.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Conceito do clipe natalino retrô', scope: 'project', bindings: textChain }),
+      step({ id: 'bible', kind: 'asset_design', label: 'Bíblia visual 50s/60s (paleta, figurino, motivos)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: '6 cenas de 10 s no ritmo da música', scope: 'project', dependsOn: ['script', 'bible'], bindings: textChain }),
+      step({ id: 'image', kind: 'image', label: 'Quadro-chave de cada cena (Google Flow)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'], bindings: [{ type: 'flow', account: 'g1' } as never, ...imageChain], timeoutSec: 900 }),
+      step({ id: 'video', kind: 'video', label: 'Clipe da cena no Google Flow AI', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'],
+        bindings: [{ type: 'flow', account: 'g1' } as never, { type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, ...videoChain], timeoutSec: 2400, onFail: 'skip' }),
+      step({ id: 'music', kind: 'music', label: 'Canção natalina 50s/60s (ACE-Step XL)', scope: 'project', dependsOn: ['scene_plan'], bindings: musicChain, timeoutSec: 3000 }),
+      step({ id: 'edit', kind: 'edit', label: 'Montagem no ritmo da música', scope: 'project', dependsOn: ['video', 'music'], bindings: [{ type: 'builtin', tool: 'assemble' }] }),
+      step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),
+      step({ id: 'thumbnail', kind: 'thumbnail', label: 'Capa retrô (quadro do vídeo)', scope: 'project', dependsOn: ['edit', 'metadata'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] }),
+    ],
+  },
+  {
     id: 'cortes-de-live', name: 'Cortes de Live (link → vídeo viral dos melhores momentos)',
     description: 'Cole o link de uma live (ou arquivo de vídeo) no campo ideia; o harness baixa com yt-dlp, transcreve, detecta os momentos de maior energia/frase completa e monta UM corte viral de 20-40 s em 9:16 com gancho, legenda e áudio original. Rota livre determinística.',
     videoTypes: ['custom'],
