@@ -1,0 +1,16 @@
+{
+  "_doc": "Wan2GP OmniVoice — voz design da Maya (digital influencer): feminina, jovem adulta, sotaque português, timbre baixo e sussurrado, fala íntima de câmera. Tags válidas da OmniVoice.",
+  "model_type": "omnivoice",
+  "refAudio": "",
+  "settings": {
+    "prompt": "{{text}}",
+    "alt_prompt": "female, young adult, portuguese accent, low pitch, whisper",
+    "audio_prompt_type": "",
+    "model_mode": "{{language_name}}",
+    "duration_seconds": 0,
+    "num_inference_steps": 32,
+    "seed": "{{seed}}"
+  },
+  "label": "Wan2GP — voz Maya (OmniVoice female young adult whisper)",
+  "capability": "voice"
+}
