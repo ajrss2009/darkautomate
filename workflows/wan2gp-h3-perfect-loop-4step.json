@@ -1,0 +1,27 @@
+{
+  "_doc": "Wan2GP perfect loop with MiniMax H3 FL2VA Pruned PDD + Lightx2v FL2V 4-step LoRA. The SAME scene image is sent as image_start and image_end (image_prompt_type SE), so the last frame returns exactly to the first. The music-clip editor removes the duplicated final frame and joins the loop without a seam. Generated audio is discarded at assembly.",
+  "model_type": "minimax_h3_fl2va_pruned_pdd",
+  "megapixels": 0.6,
+  "multiple": 32,
+  "loop": true,
+  "settings": {
+    "prompt": "{{prompt}}. Seamless loop: the last frame returns exactly to the first frame, continuous gentle cyclic motion, fixed camera, no cuts, no zoom.",
+    "resolution": "{{resolution}}",
+    "video_length": "{{seconds_int}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}",
+    "image_prompt_type": "SE",
+    "image_start": "{{init_image}}",
+    "image_end": "{{init_image}}",
+    "activated_loras": ["minimax_h3_lightx2v_fl2v_turbo_4step_alpha128_v1.1_768p_bf16.safetensors"],
+    "loras_multipliers": "1.0",
+    "num_inference_steps": 4,
+    "guidance_scale": 1,
+    "flow_shift": 12,
+    "sample_solver": "euler",
+    "config": "gguf_q4_k_m",
+    "multi_prompts_gen_type": "FG"
+  },
+  "label": "Wan2GP - MiniMax H3 perfect loop (same first/last frame, 4 steps)",
+  "capability": "video"
+}
