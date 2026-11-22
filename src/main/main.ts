@@ -3018,6 +3018,11 @@ function syncLibraryDb(): void {
     const kits = fs.existsSync(kroot) ? fs.readdirSync(kroot).flatMap((d) => { try { return [JSON.parse(fs.readFileSync(path.join(kroot, d, 'kit.json'), 'utf8')) as { id: string; name: string }]; } catch { return []; } }) : [];
     syncRecordsQuiet('kit', kits.map((k) => ({ id: k.id, title: k.name, data: k })));
   } catch { /* sem kits */ }
+  /* mídia da biblioteca por sha256 (folhas, vozes, imagens e sons dos kits, prévias) */
+  try {
+    const r = getDb()?.syncLibraryAssets(path.join(settings.workspace, 'library'));
+    if (r && (r.hashed || r.removed)) console.error(`[FilmForge] biblioteca no banco: ${r.hashed} mídia(s) com hash novo, ${r.kept} sem mudança, ${r.removed} removida(s)`);
+  } catch (e) { dumpErr('library-assets', e); }
 }
 /**
  * Modos sem janela (--run-project, --mcp, --mcp-http) saíam antes de abrir o banco: o espelho da biblioteca (skills,

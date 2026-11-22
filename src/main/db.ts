@@ -297,6 +297,53 @@ export class ForgeDb {
     });
   }
 
+  /**
+   * Mídia da BIBLIOTECA no banco (catálogo pág. 151: "mídia endereçada por sha256, caminho tokenizado"): folhas e
+   * retratos de personagens, vozes, imagens/sons de kits e prévias. Caminho relativo ao workspace (library/…), sha256,
+   * tamanho e papel (`library:<pasta>`). Recalcula o hash só quando o tamanho muda; arquivo que sumiu vira deleted_at.
+   */
+  syncLibraryAssets(libraryDir: string): { hashed: number; kept: number; removed: number } {
+    const out = { hashed: 0, kept: 0, removed: 0 };
+    if (this.closed || !fs.existsSync(libraryDir)) return out;
+    const MEDIA = /\.(png|jpe?g|webp|gif|wav|mp3|m4a|flac|ogg|mp4|webm|mov|glb|gltf|bin|fbx|obj)$/i;
+    const seen = new Set<string>();
+    const walk = (d: string, depth: number): string[] => {
+      if (depth > 12) return [];   // kits importados chegam a 8 níveis (Roblox Story Kit)
+      let es: fs.Dirent[] = [];
+      try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return []; }
+      return es.flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name), depth + 1) : MEDIA.test(e.name) ? [path.join(d, e.name)] : []);
+    };
+    this.transaction(() => {
+      for (const abs of walk(libraryDir, 0)) {
+        const rel = relOrAbs(this.workspace, abs);
+        seen.add(rel);
+        let bytes = 0;
+        try { bytes = fs.statSync(abs).size; } catch { continue; }
+        const cur = this.first<{ sha256: string | null; bytes: number | null; deleted_at: string | null }>(`SELECT sha256, bytes, deleted_at FROM asset WHERE org_id = ? AND path = ?`, [this.orgId, rel]);
+        if (cur?.sha256 && cur.bytes === bytes && !cur.deleted_at) { out.kept++; continue; }
+        let sha: string;
+        try { sha = crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex'); } catch { continue; }
+        const role = `library:${path.relative(libraryDir, abs).split(path.sep)[0]}`;
+        this.db.run(`INSERT INTO asset (org_id, path, sha256, project_id, bytes, mime, role, created_at, deleted_at)
+          VALUES (?,?,?,NULL,?,?,?,?,NULL)
+          ON CONFLICT(org_id, path) DO UPDATE SET sha256 = excluded.sha256, bytes = excluded.bytes, role = excluded.role, deleted_at = NULL`,
+          [this.orgId, rel, sha, bytes, mimeOf(abs), role, nowIso()]);
+        out.hashed++;
+      }
+      for (const r of this.all<{ path: string }>(`SELECT path FROM asset WHERE org_id = ? AND role LIKE 'library:%' AND deleted_at IS NULL`, [this.orgId])) {
+        if (seen.has(r.path)) continue;
+        this.db.run(`UPDATE asset SET deleted_at = ? WHERE org_id = ? AND path = ?`, [nowIso(), this.orgId, r.path]);
+        out.removed++;
+      }
+    });
+    return out;
+  }
+
+  /** Mídia da biblioteca indexada (sem as removidas), por caminho. */
+  libraryAssets(): Array<{ path: string; sha256: string; bytes: number; role: string; mime: string | null }> {
+    return this.all(`SELECT path, sha256, bytes, role, mime FROM asset WHERE org_id = ? AND role LIKE 'library:%' AND deleted_at IS NULL ORDER BY path`, [this.orgId]);
+  }
+
   /** Arquivo por caminho; `sha256` fica nulo até alguém pedir (dedupe por hash em `ensureAsset`). */
   upsertAsset(file: string, o: { projectId?: string; role?: string } = {}) {
     if (this.closed) return;

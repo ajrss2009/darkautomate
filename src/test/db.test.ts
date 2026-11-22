@@ -138,6 +138,31 @@ async function main() {
   const fallback = [{ id: 'x', name: 'X', createdAt: '' }] as never;
   assert.deepEqual(listProjectsIndexed(s, () => fallback), fallback);
 
+  /* mídia da biblioteca por sha256: caminho relativo, hash só recalculado quando muda, sumiu = deleted_at */
+  {
+    const dbl = await ForgeDb.open({ root, workspace: ws });
+    const lib = path.join(ws, 'library');
+    fs.mkdirSync(path.join(lib, 'characters', 'tico'), { recursive: true });
+    fs.mkdirSync(path.join(lib, 'kits', 'k1'), { recursive: true });
+    fs.writeFileSync(path.join(lib, 'characters', 'tico', 'sheet.png'), 'png-a');
+    fs.writeFileSync(path.join(lib, 'characters', 'tico', 'voice.wav'), 'wav');
+    fs.writeFileSync(path.join(lib, 'characters', 'tico', 'character.json'), '{}');
+    fs.writeFileSync(path.join(lib, 'kits', 'k1', 'boom.wav'), 'boom');
+    let r = dbl.syncLibraryAssets(lib);
+    assert.deepEqual(r, { hashed: 3, kept: 0, removed: 0 }, 'só mídia (o JSON fica no record)');
+    const row = dbl.libraryAssets();
+    assert.deepEqual(row.map((x) => x.path), ['library/characters/tico/sheet.png', 'library/characters/tico/voice.wav', 'library/kits/k1/boom.wav'], 'caminho relativo ao workspace');
+    assert.equal(row[0]!.role, 'library:characters');
+    assert.match(row[0]!.sha256, /^[0-9a-f]{64}$/);
+    r = dbl.syncLibraryAssets(lib);
+    assert.deepEqual(r, { hashed: 0, kept: 3, removed: 0 }, 'sem mudança, sem recalcular');
+    fs.writeFileSync(path.join(lib, 'characters', 'tico', 'sheet.png'), 'png-alterado');
+    fs.rmSync(path.join(lib, 'kits', 'k1', 'boom.wav'));
+    r = dbl.syncLibraryAssets(lib);
+    assert.deepEqual(r, { hashed: 1, kept: 1, removed: 1 }, 'alterado ganha hash novo; apagado sai');
+    dbl.close();
+  }
+
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(ws, { recursive: true, force: true });
   console.log('db tests: OK');
