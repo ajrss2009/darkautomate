@@ -95,7 +95,7 @@ const ENSURE_PROJECT = `(async () => { ${PAGE_HELPERS}
  * Configurações do projeto (botão "Configurações · tune"): proporção e quantidade x1 da mídia pedida
  * e "Confirmar antes de gerar: Nunca" — a automação já decidiu gerar; com "Sempre" o agente para e pergunta.
  */
-const configure = (media: 'image' | 'video', aspect: string) => `(async () => { ${PAGE_HELPERS}
+const configure = (media: 'image' | 'video', aspect: string, model?: string) => `(async () => { ${PAGE_HELPERS}
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   /* tela nova (nov/2026): chip "Gatilho de configurações" na barra do pedido ("Nano Banana 2.1 ▭ x2") abre um popover
      com Imagem/Vídeo, 16:9·4:3·1:1·3:4·9:16 e x1..x4. O click() simples não abre: precisa da sequência de ponteiro. */
@@ -109,6 +109,11 @@ const configure = (media: 'image' | 'video', aspect: string) => `(async () => { 
     const tab = opt(${media === 'image' ? '/(^|\\s)(Imagem|Image)$/i' : '/(^|\\s)(V[ií]deo|Video)$/i'}); if (tab) { press(tab); await wait(400); out.push(${JSON.stringify(media)}); }
     const ar = opt(new RegExp('(^|\\\\s)' + ${JSON.stringify(aspect)}.replace(':', '\\\\:') + '$')); if (ar) { press(ar); await wait(300); out.push(${JSON.stringify(aspect)}); }
     const one = opt(/^x1$/i); if (one) { press(one); await wait(300); out.push('x1'); }
+    const modelName = ${JSON.stringify(model || '')};
+    if (media === 'video' && /lite/i.test(modelName)) {
+      const m = clickables().filter((x) => /veo\s*3/i.test(txt(x)) && /lite/i.test(txt(x)))[0];
+      if (m) { press(m); await wait(600); out.push('veo3-lite'); }
+    }
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
     await wait(400);
     const now = (trig.innerText || '').replace(/\\s+/g, ' ');
@@ -124,6 +129,11 @@ const configure = (media: 'image' | 'video', aspect: string) => `(async () => { 
   ${media === 'image'
     ? `pick(/Propor.*imagens|aspect.*image/i, ${JSON.stringify(aspect)}); pick(/Quantidade.*imagens|number.*images/i, 'x1');`
     : `pick(/Propor.*v[ií]deo|aspect.*video/i, ${JSON.stringify(aspect)}); pick(/Quantidade.*v[ií]deos|number.*videos/i, 'x1');`}
+  const modelName = ${JSON.stringify(model || '')};
+  if (media === 'video' && /lite/i.test(modelName)) {
+    const m = [...document.querySelectorAll('button, [role=radio], [role=option], [role=tab], [role=menuitem]')].filter(vis).find((x) => /veo\s*3/i.test(txt(x)) && /lite/i.test(txt(x)));
+    if (m) { if (m.getAttribute('aria-checked') !== 'true') m.click(); out.push('veo3-lite'); }
+  }
   const never = [...document.querySelectorAll('mat-radio-button, [role=radio], label')].filter(vis).find((x) => /^(Nunca|Never)\\b/.test((x.innerText || '').trim()));
   if (never) { const inp = never.querySelector('input') || never; if (!(inp.checked || never.getAttribute('aria-checked') === 'true')) inp.click(); out.push('sem confirmação'); }
   /* o painel é uma gaveta com "Salvar": só ao salvar ele fecha e o campo do agente volta */
@@ -183,6 +193,8 @@ export interface FlowJob {
   port: number; flowUrl: string; prompt: string; media: 'image' | 'video'; dest: string; timeoutSec: number; signal?: AbortSignal; log: (l: string) => void; debugDir?: string;
   /** proporção do projeto (16:9, 9:16, 1:1, 4:5) e duração do vídeo */
   aspect?: string; seconds?: number;
+  /** modelo de vídeo no Flow (ex.: 'veo3-lite' → Veo 3.1 Lite). Selecionado na UI e citado no prompt. */
+  model?: string;
   /** projeto do Flow já usado por esta conta (abre direto nele) e aviso do projeto atual para lembrar */
   projectUrl?: string; onProject?: (url: string) => void;
   /** folhas/retratos dos personagens da cena (na ordem em que aparecem): enviadas como referência antes do pedido */
@@ -212,11 +224,12 @@ export function flowAspect(media: 'image' | 'video', aspect = '16:9'): string {
   return aspect === '4:5' ? '3:4' : ['16:9', '9:16', '1:1'].includes(aspect) ? aspect : '16:9';
 }
 /** O Flow agora é um agente: o pedido diz o que gerar (1 mídia, proporção, duração). */
-export function flowPrompt(job: Pick<FlowJob, 'prompt' | 'media' | 'aspect' | 'seconds'>): string {
+export function flowPrompt(job: Pick<FlowJob, 'prompt' | 'media' | 'aspect' | 'seconds' | 'model'>): string {
   const a = flowAspect(job.media, job.aspect);
+  const model = job.media === 'video' && /lite/i.test(job.model || '') ? ' Use o modelo Veo 3.1 Lite (Veo3 Lite) — não use Veo 3.1 Pro nem outro modelo.' : '';
   return job.media === 'image'
     ? `Gere 1 imagem na proporção ${a}, sem texto escrito na imagem: ${job.prompt}`
-    : `Gere 1 vídeo de ${Math.max(4, Math.min(10, Math.round(job.seconds ?? 8)))} segundos na proporção ${a}, sem texto na tela: ${job.prompt}`;
+    : `Gere 1 vídeo de ${Math.max(4, Math.min(10, Math.round(job.seconds ?? 8)))} segundos na proporção ${a}, sem texto na tela:${model} ${job.prompt}`;
 }
 
 /** Gera UMA mídia no Flow e grava em `dest` (extensão ajustada ao tipo baixado). */
@@ -257,7 +270,7 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     const here = await evaluate<string>(cdp, session, 'location.href', 5000);
     if (/\/project\//.test(here)) job.onProject?.(here);
     // 2) configurações: proporção, quantidade x1, sem pedido de confirmação
-    const cfgDone = await evaluate<string>(cdp, session, configure(job.media, flowAspect(job.media, job.aspect)), 15_000).catch((e) => `falhou (${(e as Error).message})`);
+    const cfgDone = await evaluate<string>(cdp, session, configure(job.media, flowAspect(job.media, job.aspect), job.model), 15_000).catch((e) => `falhou (${(e as Error).message})`);
     job.log(`Flow: configurações → ${cfgDone}`);
     await wait(500);
     /* personagens: envia as folhas pelo campo de arquivo do Flow (melhor esforço — sem o campo, segue só com o texto) */

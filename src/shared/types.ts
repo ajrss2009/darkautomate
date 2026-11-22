@@ -84,7 +84,7 @@ export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble'
 export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool }
 export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */
-export interface FlowBinding { type: 'flow'; account?: string }
+export interface FlowBinding { type: 'flow'; account?: string; /** modelo de vídeo do Flow, ex.: 'veo3-lite' (Veo 3.1 Lite) */ model?: string }
 /** mistura de skills: sequencial (blocos, na ordem), intercaladas (alternância pela cota) ou mesclada (a mais adequada à cena, dentro das cotas) */
 /** visualizador da música: showwaves do ffmpeg (line, p2p, cline, dot) ou desenhado pelo app (bars, mirror, circle, peaks, smooth, dots); none = sem */
 export type WaveformStyle = 'line' | 'bar' | 'p2p' | 'cline' | 'dot' | 'bars' | 'mirror' | 'circle' | 'peaks' | 'smooth' | 'dots' | 'none';

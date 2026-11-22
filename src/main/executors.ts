@@ -1302,7 +1302,7 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
     const port = await ensureFlowBrowser(c.settings, acc.id, c.log);
     const media = k === 'video' ? 'video' : 'image';
     const prompt = k === 'thumbnail' ? thumbnailPrompt(c) : visualPrompt(c);   // proporção, duração e "1 mídia" entram no pedido ao agente (flowPrompt)
-    c.log(`Flow (conta "${acc.label}"): gerando ${media === 'image' ? 'imagem' : 'vídeo'}…`);
+    c.log(`Flow (conta "${acc.label}"): gerando ${media === 'image' ? 'imagem' : 'vídeo'}${b.model ? ` — modelo ${b.model}` : ''}…`);
     const dest = primaryFile(k, c);
     /* personagens da cena (biblioteca/elenco): folha ou retrato como referência, na ordem em que aparecem */
     const styleRefImg = k === 'thumbnail' ? thumbStyleImage(c.settings, c.project) : undefined;
@@ -1332,7 +1332,7 @@ const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
     /* só em pedido de IMAGEM: no de vídeo a palavra "imagem" fazia o agente do Flow devolver imagem */
     const noText = k === 'thumbnail' || media !== 'image' ? '' : ' Sem nenhuma letra, palavra, rótulo, legenda, número ou marca d\'água na imagem (no text, no letters, no labels, no captions).';
     const gen = (extra = '') => flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + onlyHer + extra + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
-      aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
+      aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, model: b.model, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });
     let got = await gen();
     /* conferência por visão: mesmo com a referência e a instrução, o Flow às vezes desenha OUTRA pessoa (um rapaz na cena 4
