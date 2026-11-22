@@ -361,6 +361,18 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'pov-3d-story', name: 'POV 3D Story (história em 1ª pessoa com GLBs da Biblioteca)',
+    description: 'História POV com ambientes e personagens 3D REAIS da Biblioteca (.glb): câmera na primeira pessoa, braços/mãos do espectador, olhares e reações dos atores 3D, mudança de luz, celular com mensagens, legendas coloridas e card de escolha final. Three.js + GLTFLoader determinístico via window.__forge.seek(t), 9:16 ou 16:9, vários nichos (horror, suspense, romance, comédia, drama). Sem IA de imagem/vídeo.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'script', kind: 'script', label: 'Roteiro POV 3D (planos, falas, virada)', scope: 'project', bindings: textChain }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planos POV 3D + celular + legendas', scope: 'project', dependsOn: ['script'], bindings: textChain }),
+      step({ id: 'code_scene', kind: 'code_scene', label: 'Cena POV 3D com GLBs (Three.js + GLTFLoader)', scope: 'scene', dependsOn: ['scene_plan'], bindings: textChain, timeoutSec: 3600 }),
+      step({ id: 'sfx', kind: 'sfx', label: 'Efeitos sonoros (gerados por código)', scope: 'scene', dependsOn: ['code_scene'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'sfx-code' }], params: { auto: false } }),
+      ...tail(['code_scene', 'sfx'], {}, codeMusicChain).map((st) => st.kind === 'thumbnail' ? ({ ...st, bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] } as RouteStep) : st),
+    ],
+  },
+  {
     id: 'curta-cartoon-3d', name:'Curta cartoon 3D (personagens 2D em mundo 3D, Three.js local)',
     description: 'Roteiro com gancho e virada → cenas → narração → tempos das palavras → cada cena em Three.js com a biblioteca local cartoon3d (personagens 2D com contorno num mundo 3D pintado, contorno a tinta, desfoque de fundo, câmera deslizando) → efeitos e trilha por código → montagem. Sem IA de imagem ou vídeo.',
     videoTypes: ['cartoon_3d', 'custom'],
@@ -469,6 +481,14 @@ export const ROUTES: Route[] = ([
     videoTypes: ['custom'],
     steps: [
       step({ id: 'free', kind: 'free', label: 'Vídeo livre (harness executa o prompt)', scope: 'project', bindings: [H('auto')], timeoutSec: 3600, retry: { max: 1, backoffMs: 1000 } }),
+    ],
+  },
+  {
+    id: 'cortes-de-live', name: 'Cortes de Live (link → vídeo viral dos melhores momentos)',
+    description: 'Cole o link de uma live (ou arquivo de vídeo) no campo ideia; o harness baixa com yt-dlp, transcreve, detecta os momentos de maior energia/frase completa e monta UM corte viral de 20-40 s em 9:16 com gancho, legenda e áudio original. Rota livre determinística.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'free', kind: 'free', label: 'Baixar live, achar momentos e montar corte viral', scope: 'project', bindings: [H('auto')], timeoutSec: 3600, retry: { max: 1, backoffMs: 1000 } }),
     ],
   },
   {
