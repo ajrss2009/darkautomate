@@ -344,7 +344,7 @@ export const ROUTES: Route[] = ([
       step({ id: 'script', kind: 'script', label: 'Roteiro da cutscene (planos e duração)', scope: 'project', bindings: textChain }),
       step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planos de câmera (enquadramento, movimento, foco)', scope: 'project', dependsOn: ['script'], bindings: textChain }),
       step({ id: 'code_scene', kind: 'code_scene', label: 'Cena 3D com GLBs (Three.js + GLTFLoader)', scope: 'scene', dependsOn: ['scene_plan'], bindings: textChain, timeoutSec: 3600 }),
-      sfxStep(false, ['code_scene']),
+      step({ id: 'sfx', kind: 'sfx', label: 'Efeitos sonoros (gerados por código)', scope: 'scene', dependsOn: ['code_scene'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'sfx-code' }], params: { auto: false } }),
       ...tail(['code_scene', 'sfx'], {}, codeMusicChain).map((st) => st.kind === 'thumbnail' ? ({ ...st, bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] } as RouteStep) : st),
     ],
   },
