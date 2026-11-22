@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Project, Settings } from '../shared/types';
+import type { FxTransition, Project, RefEditRhythm, Settings } from '../shared/types';
 import * as ff from './ffmpeg';
 import { measurePalette, normalizeStyleRef, styleRequest } from './style-ref';
 import { describeImage } from './vision';
@@ -71,6 +71,8 @@ export async function prepareReferences(s: Settings, p: Project, projectDir: str
         catch { if (d <= 0) break; }
       }
       if (!p.refVideo.frames.length) p.refVideo.note = 'não foi possível extrair quadros (ffmpeg)';
+      /* RITMO DA EDIÇÃO: cortes e fades do vídeo de referência viram o ritmo do plano de cenas e as transições da montagem */
+      try { const r = await measureEditRhythm(s.ffmpeg, copy, d, dir, signal); if (r) p.refVideo.edit = r; } catch (e) { if (signal.aborted) throw e; }
       /* A APARÊNCIA DO VÍDEO VIRA O ESTILO DO PROJETO: paleta medida nos quadros + descrição
          (visão local, se houver). Sem isso o vídeo só era citado no prompt e o modelo de
          imagem nunca via a aparência dele. Um estilo escolhido à mão pelo usuário vence. */
@@ -111,4 +113,50 @@ export async function prepareReferences(s: Settings, p: Project, projectDir: str
     } catch (e) { p.refVideo.note = (e as Error).message; }
   }
   return p;
+}
+
+/** Tempos (s) dos cortes no arquivo do filtro metadata=print (linhas "frame:N pts:… pts_time:X"). Função pura. */
+export function parseCutTimes(txt: string): number[] {
+  const out: number[] = [];
+  for (const m of txt.matchAll(/pts_time:([\d.]+)/g)) { const v = Number(m[1]); if (Number.isFinite(v) && (!out.length || v - out[out.length - 1]! > 0.2)) out.push(v); }
+  return out;
+}
+/** Quantos trechos pretos (fade para o preto) o blackdetect achou. Função pura. */
+export const countBlacks = (stderr: string): number => (stderr.match(/black_start:/g) ?? []).length;
+
+/** Ritmo a partir dos cortes: plano médio, cortes por minuto e a transição que imita a referência. Função pura. */
+export function editRhythm(cutTimes: number[], durationSec: number, blacks: number): RefEditRhythm | undefined {
+  if (!(durationSec > 0)) return undefined;
+  const cuts = cutTimes.length;
+  const shotSec = Math.round((durationSec / (cuts + 1)) * 10) / 10;
+  const cutsPerMin = Math.round((cuts / durationSec) * 60 * 10) / 10;
+  /* muitos pretos entre planos = fade para o preto; planos longos sem preto = fusão suave; o resto = corte seco */
+  const transition: FxTransition = blacks >= 2 && blacks >= (cuts + 1) * 0.2 ? 'fadeblack' : shotSec >= 6 ? 'fade' : 'none';
+  return { cuts, shotSec, cutsPerMin, fades: blacks, transition };
+}
+
+/** Mede o ritmo com o ffmpeg: scene detection (corte > 0,3) + blackdetect, numa passada. */
+export async function measureEditRhythm(ffmpeg: string, file: string, durationSec: number, dir: string, signal: AbortSignal): Promise<RefEditRhythm | undefined> {
+  if (!(durationSec > 0)) return undefined;
+  const meta = path.join(dir, 'cuts.txt');
+  fs.rmSync(meta, { force: true });
+  const metaArg = meta.replace(/\\/g, '/').replace(/:/g, '\\:');
+  const { stderr } = await ff.run(ffmpeg, ['-hide_banner', '-nostats', '-i', file, '-an', '-vf',
+    `blackdetect=d=0.08:pix_th=0.10,select='gt(scene,0.3)',metadata=print:file='${metaArg}'`, '-f', 'null', '-'], signal);
+  const txt = fs.existsSync(meta) ? fs.readFileSync(meta, 'utf8') : '';
+  return editRhythm(parseCutTimes(txt), durationSec, countBlacks(stderr));
+}
+
+/** Parâmetros da montagem com o ritmo da referência: a transição dela vence o padrão da rota (a cena que define a sua continua valendo). */
+export function editParamsFromRef(p: Pick<Project, 'refVideo'>, params: Record<string, unknown>): Record<string, unknown> {
+  const e = p.refVideo?.edit;
+  if (!e) return params;
+  return { ...params, defaultTransition: e.transition, transitionSec: e.transition === 'none' ? 0 : Math.min(1, Math.max(0.3, e.shotSec / 8)) };
+}
+
+/** Texto do ritmo para as etapas que planejam/geram cenas. Função pura. */
+export function rhythmText(e: RefEditRhythm | undefined): string {
+  if (!e) return '';
+  const tr = e.transition === 'none' ? 'cortes secos' : e.transition === 'fadeblack' ? 'fades para o preto entre os planos' : 'fusões suaves entre os planos';
+  return `RITMO DE EDIÇÃO DO VÍDEO DE REFERÊNCIA (medido): ${e.cuts} cortes, plano médio de ≈ ${e.shotSec} s (${e.cutsPerMin} cortes/min), ${tr}. Planeje cenas/planos com essa duração média (cenas longas viram vários planos) e o mesmo tipo de transição.`;
 }

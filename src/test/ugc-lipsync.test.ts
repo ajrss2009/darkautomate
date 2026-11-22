@@ -54,7 +54,10 @@ function main() {
   assert.deepEqual(validateRoute(mus), []);
   const song = mus.steps.find((s) => s.id === 'song')!;
   assert.equal((song.params as Record<string, unknown>)['template'], 'wan2gp-music-ace.json');
-  assert.deepEqual(mus.steps.find((s) => s.id === 'video')!.bindings[0], { type: 'wan2gp', template: 'wan2gp-h3-lipsync-4step.json' });
+  /* clipe: SnapGen Muse primeiro, depois o lipsync H3 no Wan2GP (com a voz do cantor) */
+  const mv = mus.steps.find((s) => s.id === 'video')!.bindings;
+  assert.deepEqual(mv[0], { type: 'api', provider: 'snapgen', model: 'muse-ai-video' });
+  assert.deepEqual(mv[1], { type: 'wan2gp', template: 'wan2gp-h3-lipsync-4step.json' });
   assert.equal(mus.steps.find((s) => s.id === 'edit')!.params['musicVolume'], 1);
   const uv = ugc.steps.find((s) => s.id === 'video')!;
   assert.deepEqual(uv.bindings[0], { type: 'wan2gp', template: 'wan2gp-h3-ugc-4step.json' });

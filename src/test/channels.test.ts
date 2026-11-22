@@ -115,11 +115,12 @@ async function main() {
   assert.throws(() => getChannel(s, a.id), /não encontrado/);
 
   /* ───────── adaptadores ───────── */
-  assert.deepEqual(readyPlatforms(), ['youtube'], 'só o YouTube está pronto nesta versão');
-  assert.equal(PLATFORM_ADAPTERS.tiktok.ready, false);
+  assert.deepEqual([...readyPlatforms()].sort(), ['facebook', 'instagram', 'kwai', 'tiktok', 'youtube'], 'todas as redes publicam (YouTube por API/navegador; as outras pelo navegador da conta)');
+  assert.equal(PLATFORM_ADAPTERS.tiktok.ready, true);
   assert.ok(PLATFORM_INFO.youtube.loginUrl.startsWith('https://'), 'cada plataforma tem URL de login');
   for (const p of ['youtube', 'tiktok', 'instagram', 'facebook'] as const) assert.ok(PLATFORM_INFO[p], `info de ${p}`);
-  await assert.rejects(PLATFORM_ADAPTERS.instagram.upload({} as never), /não implementada/, 'adaptador pendente falha com mensagem clara');
+  /* sem conta/arquivo o adaptador falha com mensagem clara (não fica pendurado) */
+  await assert.rejects(PLATFORM_ADAPTERS.instagram.upload({ port: 1, file: path.join(ws, 'nao-existe.mp4'), title: 'x', visibility: 'UNLISTED', log: () => {} } as never), /vídeo não encontrado/);
 
   fs.rmSync(ws, { recursive: true, force: true });
   console.log('channels (cadastro, marca, publicações, projetos, adaptadores) tests: OK');

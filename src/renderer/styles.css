@@ -1385,3 +1385,9 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 /* importar kit */
 .ki-kit { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
 .ki-rules { max-height: 220px; overflow: auto; margin: 4px 0; padding-left: 18px; font-size: 12.5px; }
+
+/* aba Telegram: conversa com o assistente */
+.tg-chat { max-height:360px; overflow:auto; display:flex; flex-direction:column; gap:6px; margin:8px 0; }
+.tg-msg { padding:8px 10px; border-radius:10px; white-space:pre-wrap; max-width:85%; border:1px solid var(--line); }
+.tg-msg.user { align-self:flex-end; background:var(--accent, #7c5cff); color:#fff; border-color:transparent; }
+.tg-msg.assistant { align-self:flex-start; background:var(--panel); }

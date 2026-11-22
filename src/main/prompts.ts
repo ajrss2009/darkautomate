@@ -23,6 +23,7 @@ import { SFX_LIBRARY, sfxCatalogText } from './sfx';
 import { RETENTION_RULES, TITLE_RULES } from './youtube-rules';
 import { cartoon3dScenePrompt, storyboardFor, storyboardPrompt } from './cartoon3d';
 import { allThumbTemplates } from './thumb-render';
+import { rhythmText } from './references';
 import { mark, stripMarks } from '../shared/strict';
 
 /** Arquivo principal que cada etapa deve produzir. */
@@ -139,6 +140,7 @@ export function mergeShortCodeScenes<T extends PlanScene>(list: T[], min = CODE_
   });
 }
 
+const RHYTHM_KINDS = new Set<string>(['brief', 'scene_plan', 'video', 'free', 'motion_graphics', 'code_scene']);
 const VISUAL_KINDS = new Set<string>(['brief', 'scene_plan', 'asset_design', 'image', 'video', 'code_scene', 'motion_graphics', 'thumbnail', 'free']);
 function excerpt(file: string | undefined, max: number): string {
   if (!file) return '';
@@ -158,7 +160,8 @@ export function referenceText(p: Project, kind: string): string {
   if (p.refVideo && VISUAL_KINDS.has(kind)) {
     out.push(`VÍDEO DE REFERÊNCIA — ${p.refVideo.file}${p.refVideo.durationSec ? ` (≈ ${Math.round(p.refVideo.durationSec)} s)` : ''}. ` +
       (p.refVideo.frames.length ? `Quadros-chave para observar: ${p.refVideo.frames.join(' | ')}. ` : '') +
-      'Inspire-se nele para paleta, composição, enquadramento, tipografia, ritmo de cortes e movimento de câmera do vídeo final, sem copiar marcas, logotipos ou personagens.');
+      'Inspire-se nele para paleta, composição, enquadramento, tipografia, ritmo de cortes e movimento de câmera do vídeo final, sem copiar marcas, logotipos ou personagens.' +
+      (p.refVideo.edit && RHYTHM_KINDS.has(kind) ? ' ' + rhythmText(p.refVideo.edit) : ''));
   }
   return out.join('\n');
 }

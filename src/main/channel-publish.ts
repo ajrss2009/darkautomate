@@ -3,7 +3,8 @@ import * as path from 'node:path';
 import type { ChannelPlatform, PublishRecord, Settings } from '../shared/types';
 import { ensureFlowBrowser, flowAccount } from './automations';
 import { youtubeUpload, uploadMeta } from './youtube-upload';
-import { getChannel, markPublished, appendPublish, PLATFORM_INFO } from './channels';
+import { getChannel, listChannels, markPublished, appendPublish, PLATFORM_INFO } from './channels';
+import { socialCaption, socialUpload, type SocialPlatform } from './social-upload';
 
 /**
  * PUBLICAÇÃO POR CANAL: um adaptador por plataforma, todos dirigindo o navegador da conta
@@ -50,13 +51,24 @@ const youtubeAdapter: PlatformAdapter = {
   },
 };
 
+/* TikTok, Instagram, Facebook e Kwai: mesmo motor (navegador da conta via CDP), uma especificação por plataforma */
+const socialAdapter = (id: SocialPlatform): PlatformAdapter => ({
+  id, ready: true,
+  upload: async (job) => {
+    const r = await socialUpload({ platform: id, port: job.port, file: job.file, visibility: job.visibility,
+      caption: socialCaption(id, { title: job.title, description: job.description, tags: job.tags }),
+      log: job.log, signal: job.signal, debugDir: job.debugDir, uploadUrl: job.uploadUrl });
+    return { url: r.url ?? null };
+  },
+});
+
 /** UUID estável por plataforma; um adaptador novo entra aqui e passa a aparecer pronto na UI. */
 export const PLATFORM_ADAPTERS: Record<ChannelPlatform, PlatformAdapter> = {
   youtube: youtubeAdapter,
-  tiktok: { id: 'tiktok', ready: false, upload: async () => { throw new Error('publicação no TikTok ainda não implementada'); } },
-  instagram: { id: 'instagram', ready: false, upload: async () => { throw new Error('publicação no Instagram ainda não implementada'); } },
-  facebook: { id: 'facebook', ready: false, upload: async () => { throw new Error('publicação no Facebook ainda não implementada'); } },
-  kwai: { id: 'kwai', ready: false, upload: async () => { throw new Error('publicação no Kwai ainda não implementada'); } },
+  tiktok: socialAdapter('tiktok'),
+  instagram: socialAdapter('instagram'),
+  facebook: socialAdapter('facebook'),
+  kwai: socialAdapter('kwai'),
 };
 
 export interface PublishOptions {
@@ -109,6 +121,37 @@ export async function publishToChannel(s: Settings, o: PublishOptions): Promise<
   markPublished(s, channel.id);
   o.log(`enviado${result.url ? `: ${result.url}` : ''}`);
   return rec;
+}
+
+/**
+ * Destinos de publicação de um projeto: os canais escolhidos + os PERFIS LIGADOS a eles (um canal do YouTube com
+ * TikTok/Instagram/Facebook/Kwai da mesma marca publica em todos). Sem repetição, na ordem escolhida. Função pura.
+ */
+export function expandTargets(channels: Array<{ id: string; linked?: string[] }>, targets: string[]): string[] {
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  const out: string[] = [];
+  for (const id of targets) {
+    if (!byId.has(id) || out.includes(id)) continue;
+    out.push(id);
+    for (const l of byId.get(id)!.linked ?? []) if (byId.has(l) && !out.includes(l)) out.push(l);
+  }
+  return out;
+}
+
+/**
+ * Publica o projeto em VÁRIAS redes: um destino por vez (o navegador da conta é um só), e a falha de uma rede não
+ * impede as outras — o resultado diz o que entrou e o que falhou.
+ */
+export async function publishEverywhere(s: Settings, o: Omit<PublishOptions, 'channelId'> & { targets: string[] }): Promise<Array<{ channelId: string; ok: boolean; record?: PublishRecord; error?: string }>> {
+  const ids = expandTargets(listChannels(s), o.targets);
+  if (!ids.length) throw new Error('nenhum canal/perfil de destino (escolha em "Publicar em" no projeto)');
+  const out: Array<{ channelId: string; ok: boolean; record?: PublishRecord; error?: string }> = [];
+  for (const channelId of ids) {
+    if (o.signal?.aborted) break;
+    try { out.push({ channelId, ok: true, record: await publishToChannel(s, { ...o, channelId }) }); }
+    catch (e) { const error = (e as Error).message; o.log(`✗ ${channelId}: ${error}`); out.push({ channelId, ok: false, error }); }
+  }
+  return out;
 }
 
 /** Plataformas que já podem publicar (a UI usa para esconder as que ainda não têm adaptador). */

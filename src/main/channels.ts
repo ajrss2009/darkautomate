@@ -93,7 +93,7 @@ export function addChannel(s: Settings, input: { name?: string; platform?: Chann
   return ch;
 }
 
-export type ChannelPatch = Partial<Pick<Channel, 'name' | 'platform' | 'accountId' | 'handle' | 'url' | 'type' | 'language' | 'identity' | 'thumbnailTemplate'>> & {
+export type ChannelPatch = Partial<Pick<Channel, 'name' | 'platform' | 'accountId' | 'handle' | 'url' | 'type' | 'language' | 'identity' | 'thumbnailTemplate' | 'linked'>> & {
   /** o usuário confirma que fez o login na conta do navegador */
   authConfirmed?: boolean;
 };
@@ -118,6 +118,12 @@ export function updateChannel(s: Settings, id: string, patch: ChannelPatch): Cha
   if (patch.identity && typeof patch.identity === 'object') c.identity = normalizeIdentity(patch.identity);
   if (typeof patch.authConfirmed === 'boolean') c.auth = { status: patch.authConfirmed ? 'confirmed' : 'pending', at: new Date().toISOString() };
   if (typeof patch.thumbnailTemplate === 'string') c.thumbnailTemplate = patch.thumbnailTemplate.trim().slice(0, 120) || undefined;
+  /* perfis da mesma marca em outras redes: só canais que existem, nunca ele mesmo nem outro da mesma plataforma */
+  if (Array.isArray(patch.linked)) {
+    const all = config(s);
+    const ok = [...new Set(patch.linked.map(String))].filter((x) => x !== c.id && all.some((o) => o.id === x && o.platform !== c.platform));
+    c.linked = ok.length ? ok : undefined;
+  }
   /* trocar o tipo ou o estilo de thumbnail com o modelo ainda no padrão (ou vazio): o padrão acompanha */
   const isDefault = !c.thumbnailTemplate || Object.values(THUMB_STYLE_TEMPLATE).includes(c.thumbnailTemplate);
   if (isDefault && typeof patch.thumbnailTemplate !== 'string') c.thumbnailTemplate = defaultThumbTemplateId(c);

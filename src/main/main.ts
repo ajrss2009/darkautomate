@@ -11,9 +11,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Binding, ChannelPlatform, EngineEvent, HarnessId, Project, Route, Settings, HarnessBinding } from '../shared/types';
+import type { Binding, ChannelPlatform, EngineEvent, HarnessId, Project, Route, Settings, HarnessBinding, TelegramConfig } from '../shared/types';
 import * as myChannels from './channels';
 import * as myChannelPub from './channel-publish';
+import { TelegramBot, type TgRow } from './telegram';
+import { assistantReply, forgetMemory, listMemories, readHistory, saveMemory } from './assistant';
 import { generateBrand as generateChannelBrand, renderBrandFiles, type BrandInput } from './channel-brand';
 import { CHANNEL_TYPES, THUMB_STYLES, channelType, parseChannelLink, recreateNote } from './channel-setup';
 import { analyticsLine, analyzeChannel } from './channel-analytics';
@@ -279,6 +281,7 @@ function loadSettings(): Settings {
       stock: Object.fromEntries(STOCK_SOURCES.map((x) => x.id).map((k) => [k, { ...(def.stock?.[k] ?? {}), ...(raw.stock?.[k] ?? {}), apiKey: dec(raw.stock?.[k]?.apiKey ?? '') }])),
       providers: (raw.providers ?? def.providers).map((p) => ({ ...p, apiKey: dec(p.apiKey) })),
       channelApis: mapChannelApis(raw.channelApis, dec),
+      telegram: raw.telegram ? { ...raw.telegram, token: dec(raw.telegram.token ?? ''), allowChats: (raw.telegram.allowChats ?? []).map(Number).filter(Number.isFinite) } : undefined,
     };
     /* chaves antigas (cifradas pelo Windows, presas a este PC) passam a usar a chave portátil */
     const legacyKeys = JSON.stringify(rawFile).includes('"enc:');
@@ -420,7 +423,9 @@ function mapChannelApis(c: Settings['channelApis'], f: (v: string) => string): S
 function saveSettings(s: Settings) {
   fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
   const out = { ...s, providers: s.providers.map((p) => ({ ...p, apiKey: enc(p.apiKey) })), stock: Object.fromEntries(Object.entries(s.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: enc(v?.apiKey ?? '') }])),
-    channelApis: mapChannelApis(s.channelApis, enc) };
+    channelApis: mapChannelApis(s.channelApis, enc),
+    /* token do bot do Telegram: cifrado como as chaves de API */
+    telegram: s.telegram ? { ...s.telegram, token: enc(s.telegram.token ?? '') } : undefined };
   /* gravação atômica (arquivo temporário + troca): uma queda no meio não apaga as configurações */
   const tmp = settingsFile() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(dataRoot ? tokenize(out, dataRoot.root) : out, null, 2));
@@ -474,7 +479,8 @@ function importPortableProfile(src: string): { from: string; copied: string[] } 
   settings = { ...settings, ...raw, workspace: settings.workspace, projectsDir: settings.projectsDir, pluginsDir: settings.pluginsDir,
     providers: (raw.providers ?? settings.providers).map((p) => ({ ...p, apiKey: open(p.apiKey) })),
     stock: Object.fromEntries(Object.entries(raw.stock ?? {}).map(([k, v]) => [k, { ...v, apiKey: open(v?.apiKey ?? '') }])),
-    channelApis: mapChannelApis(raw.channelApis, open) } as Settings;
+    channelApis: mapChannelApis(raw.channelApis, open),
+    telegram: raw.telegram ? { ...raw.telegram, token: open(raw.telegram.token ?? '') } : settings.telegram } as Settings;
   saveSettings(settings);
   return { from: root, copied };
 }
@@ -639,6 +645,60 @@ async function projectRow(id: string) {
     plugins: pr?.plugins ?? [], cost: pr ? costOfProject(pr) : undefined };
 }
 
+/* ───────── Telegram + assistente com memória (menu lateral "Telegram") ───────── */
+
+let tgBot: TelegramBot | undefined;
+const TG_DEFAULT: TelegramConfig = { enabled: false, token: '', allowChats: [], notify: true, approveStoryboards: true };
+
+/** Projetos em texto para o assistente e o /projetos: nome, status e progresso (os 25 mais recentes). */
+async function projectsDigest(): Promise<{ rows: TgRow[]; text: string }> {
+  /* leve: sem projectRow (que extrai o 1º quadro de cada vídeo) */
+  const all = listProjects(settings).map((p) => {
+    const dir = projectDirOf(settings, p.id);
+    let pr: Project | undefined; try { pr = ops.readProject(settings, p.id); } catch { /* ilegível */ }
+    const lastRun = pr?.production?.runs?.[pr.production.runs.length - 1];
+    const hasFinal = fs.existsSync(path.join(dir, 'out', 'final.mp4'));
+    const isRunning = running.has(p.id);
+    let at = pr?.createdAt ?? ''; try { at = fs.statSync(path.join(dir, 'project.json')).mtime.toISOString(); } catch { /* ignora */ }
+    const status = isRunning ? 'rodando' : hasFinal ? 'pronto' : lastRun && !lastRun.ok ? 'falhou' : lastRun ? 'parcial' : 'novo';
+    const pg = progressByProject.get(p.id) as { done?: number; total?: number; label?: string } | undefined;
+    const progress = isRunning && pg?.total ? `${pg.done ?? 0}/${pg.total}${pg.label ? ` · ${pg.label}` : ''}` : undefined;
+    return { id: p.id, name: pr?.name ?? p.id, status, progress, at };
+  }).sort((x, y) => y.at.localeCompare(x.at)).slice(0, 25);
+  const rows: TgRow[] = all.map((r) => ({ id: r.id, name: r.name, status: r.status, progress: r.progress }));
+  return { rows, text: rows.map((r) => `- ${r.name} (${r.id}): ${r.status}${r.progress ? ` — ${r.progress}` : ''}`).join('\n') };
+}
+
+/** Cria um projeto a partir de uma ideia (Telegram /novo e /lote): skill padrão do Telegram ou "vídeo livre". */
+function quickProject(o: { name: string; idea: string; skillId?: string }): { id: string; name: string } {
+  const skillId = o.skillId && lib.getSkill(settings, o.skillId) ? o.skillId : (settings.telegram?.defaultSkill && lib.getSkill(settings, settings.telegram.defaultSkill) ? settings.telegram.defaultSkill : 'video-livre');
+  const skill = lib.getSkill(settings, skillId)!;
+  const p = createProject(settings, { name: o.name, idea: o.idea, videoType: (skill.appearance ?? 'custom') as Project['videoType'], skillId, routeId: skill.routeId ?? 'video-livre' });
+  return { id: p.id, name: p.name };
+}
+
+function startTelegram(): void {
+  if (!tgBot) {
+    tgBot = new TelegramBot({
+      config: () => settings.telegram,
+      saveConfig: (c) => { settings.telegram = c; saveSettings(settings); send({ t: 'telegram.changed' } as never); },
+      rows: async () => (await projectsDigest()).rows,
+      createProject: quickProject,
+      runProject: (id) => { void startRun(id).catch((e) => console.error(`[Telegram] ${id}: ${(e as Error).message}`)); },
+      runBatch: (ids) => {
+        if (batch) { for (const id of ids) void startRun(id).catch(() => {}); return; }
+        batch = new BatchRunner((id) => startRun(id), (e) => send(e), (id) => running.get(id)?.abort());
+        void batch.run(ids, 1, Math.max(0, Math.min(3, settings.batchRetries ?? 1))).finally(() => { batch = null; });
+      },
+      approve: (id, ok) => { const w = approvals.get(id); if (!w) return false; approvals.delete(id); w(ok); send({ t: 'telegram.approved', projectId: id, ok } as never); return true; },
+      storyboardPng: (id) => storyboardPng(id),
+      assistant: async (conv, text) => assistantReply(settings, conv, text, { projects: (await projectsDigest()).text }),
+      log: (l) => { console.log(`[FilmForge] ${l}`); send({ t: 'telegram.log', line: l } as never); },
+    });
+  }
+  if (settings.telegram?.enabled && settings.telegram.token) tgBot.start();
+}
+
 /** custo estimado por vídeo (selo $): preços do clone associado ao canal do projeto, se houver; senão os padrões */
 function costOfProject(pr: Project): { perVideo: number; currency: string; lines: Array<{ item: string; qty: string; cost: number }>; assumptions: string[] } | undefined {
   try {
@@ -711,7 +771,9 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
       case 'run.preflight':
         project.log!.push(`${stamp()} ▸ pré-checagem: ${ev.steps.map((s) => `${s.id}=${s.binding}${s.harness ? ` (${s.harness}${s.model ? '/' + s.model : ''})` : ''}${s.ok === false ? ' ⚠' : ''}`).join(' · ')}`);
         break;
-      case 'run.done': project.log!.push(`${stamp()} ${ev.ok ? '■ concluído' : `■ falhou: ${ev.error}`}`); persistLog(); break;
+      case 'run.done': project.log!.push(`${stamp()} ${ev.ok ? '■ concluído' : `■ falhou: ${ev.error}`}`); persistLog();
+        void tgBot?.notifyRun({ id, name: project.name, ok: ev.ok, error: ev.ok ? undefined : ev.error, thumbnail: path.join(projectDirOf(settings, id), 'out', 'thumbnail.png') }).catch(() => {});
+        break;
       case 'run.progress':
         progressByProject.set(id, { done: ev.done, total: ev.total, mode: ev.mode, etaMs: ev.etaMs, elapsedMs: ev.elapsedMs, label: ev.label, at: new Date().toISOString() });
         if (ev.done >= ev.total) persistLog();
@@ -750,7 +812,10 @@ async function startRun(id: string, only?: Only, noCache = false): Promise<{ ok:
       approvals.set(id, done);
       emitEvent({ t: 'log', line: `⏸ aguardando sua aprovação (${stepId}) — abra o storyboard e aprove para continuar` });
       /* storyboard também em IMAGEM (out/storyboard.png) para ver/compartilhar enquanto espera */
-      void storyboardPng(id).then((f) => emitEvent({ t: 'log', line: `🖼 storyboard em imagem: ${f}` })).catch((e) => emitEvent({ t: 'log', line: `storyboard em imagem indisponível (${(e as Error).message.slice(0, 120)})` }));
+      void storyboardPng(id).then((f) => { emitEvent({ t: 'log', line: `🖼 storyboard em imagem: ${f}` }); return f; })
+        .catch((e) => { emitEvent({ t: 'log', line: `storyboard em imagem indisponível (${(e as Error).message.slice(0, 120)})` }); return undefined; })
+        /* Telegram: o storyboard vai com ✅/❌ — a resposta chega em approvals (mesma promessa da tela) */
+        .then((png) => tgBot?.askApproval({ id, name: project.name, stepId, png }).catch(() => {}));
       /* sem janela (--run-project): a resposta vem por arquivo — out/approve.json com {"ok": true|false} */
       if (headless) {
         const f = path.join(projectDirOf(settings, id), 'out', 'approve.json');
@@ -1471,6 +1536,56 @@ function registerIpc() {
     const cost = estimateCost(costInput);
     c.business = { ...(c.business ?? {}), cost, costInput };
     return store.save(c);
+  });
+
+  /* ── Telegram + assistente com memória ── */
+  h('telegram:get', () => {
+    const t = { ...TG_DEFAULT, ...(settings.telegram ?? {}) };
+    return { ...t, token: t.token ? `${t.token.slice(0, 6)}…${t.token.slice(-4)}` : '', hasToken: !!t.token, running: !!tgBot?.running };
+  });
+  h('telegram:set', async (patch: Partial<TelegramConfig> & { token?: string }) => {
+    const cur = { ...TG_DEFAULT, ...(settings.telegram ?? {}) };
+    const next: TelegramConfig = { ...cur,
+      ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}),
+      ...(typeof patch.notify === 'boolean' ? { notify: patch.notify } : {}),
+      ...(typeof patch.approveStoryboards === 'boolean' ? { approveStoryboards: patch.approveStoryboards } : {}),
+      ...(typeof patch.defaultSkill === 'string' ? { defaultSkill: patch.defaultSkill.trim() || undefined } : {}),
+      ...(patch.assistant ? { assistant: { harness: patch.assistant.harness || undefined, model: patch.assistant.model || undefined } } : {}),
+      /* token: só troca quando vem um token novo (a tela mostra o atual mascarado) */
+      ...(typeof patch.token === 'string' && patch.token.trim() && !patch.token.includes('…') ? { token: patch.token.trim() } : {}),
+    };
+    settings.telegram = next; saveSettings(settings);
+    if (tgBot?.running) await tgBot.stop();
+    startTelegram();
+    return { ok: true, running: !!tgBot?.running };
+  });
+  /* chat pendente → autorizado (ou recusado) */
+  h('telegram:allow', (chatId: number, allow: boolean) => {
+    const t = { ...TG_DEFAULT, ...(settings.telegram ?? {}) };
+    const pending = (t.pending ?? []).filter((p) => p.chatId !== chatId);
+    const allowChats = allow ? [...new Set([...t.allowChats, Number(chatId)])] : t.allowChats.filter((x) => x !== Number(chatId));
+    settings.telegram = { ...t, pending, allowChats }; saveSettings(settings);
+    if (allow) void tgBot?.send(Number(chatId), '✅ Chat autorizado. Mande /ajuda para ver o que posso fazer.').catch(() => {});
+    return settings.telegram;
+  });
+  h('telegram:test', async () => {
+    if (!tgBot?.running) throw new Error('ligue o bot primeiro (token + "Ligado")');
+    await tgBot.broadcast('🔔 Teste do Dark Automate: o bot está falando com este chat.');
+    return { sent: settings.telegram?.allowChats.length ?? 0 };
+  });
+  /* conversa com o assistente pela própria tela (mesma memória do Telegram) */
+  h('assistant:chat', async (text: string) => assistantReply(settings, 'app', String(text ?? ''), { projects: (await projectsDigest()).text }));
+  h('assistant:history', () => readHistory(settings, 'app', 60));
+  h('assistant:memories', () => listMemories(settings));
+  h('assistant:remember', (content: string, type?: 'user' | 'feedback' | 'project' | 'reference') => saveMemory(settings, { content, type }));
+  h('assistant:forget', (name: string) => forgetMemory(settings, name));
+
+  /* ── publicar o projeto em VÁRIAS redes (escolhidas no projeto + perfis ligados) ── */
+  h('project:publish-all', async (id: string, targets?: string[], visibility?: 'UNLISTED' | 'PRIVATE' | 'PUBLIC') => {
+    const p = ops.readProject(settings, id);
+    const t = targets?.length ? targets : (p.publishTargets?.length ? p.publishTargets : p.channelId ? [p.channelId] : []);
+    return myChannelPub.publishEverywhere(settings, { targets: t, projectId: id, projectDir: projectDirOf(settings, id), projectName: p.name, visibility: visibility ?? 'UNLISTED',
+      log: (line) => send({ t: 'log', line, projectId: id } as EngineEvent & { projectId: string }) });
   });
 
   /* ── aprovação do storyboard (pausa da execução) ── */
@@ -2993,6 +3108,8 @@ app.whenReady().then(async () => {
   registerIpc();
   splashProgress(80, 'conectando a interface');
   createWindow();
+  /* bot do Telegram só no app com janela (os modos sem janela não fazem long polling em dobro) */
+  try { startTelegram(); } catch (e) { dumpErr('telegram', e); }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('before-quit', () => { try { closeDb(); } catch { /* já fechou */ } Wan2gpClient.shutdownAll(); });

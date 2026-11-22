@@ -80,7 +80,7 @@ export interface ApiBinding { type: 'api'; provider: string; model: string; voic
  * - lyric-words: grava os tempos da letra de cada cena (audio/words.json) para a cena por código;
  * - frame-thumbnail: thumbnail a partir de um quadro real do final.mp4 + texto do SEO.
  */
-export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'wan2gp-showrunner' | 'viggle-remake';
+export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'social-publish' | 'wan2gp-showrunner' | 'viggle-remake';
 export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool }
 export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */
@@ -209,6 +209,8 @@ export type FxMove = 'none' | 'in' | 'out' | 'pan_left' | 'pan_right' | 'pan_up'
 export type FxTexture = 'none' | 'static' | 'vhs' | 'dust' | 'old_film' | 'crt' | 'glitch' | 'paper';
 /** Transições do ffmpeg xfade (da cena para a próxima). */
 export type FxTransition = 'none' | 'fade' | 'fadeblack' | 'fadewhite' | 'dissolve' | 'wipeleft' | 'wiperight' | 'slideleft' | 'slideup' | 'circleopen' | 'circleclose' | 'radial' | 'pixelize' | 'zoomin' | 'hblur';
+/** Ritmo de edição medido no vídeo de referência (cortes por detecção de cena, fades por quadros pretos). */
+export interface RefEditRhythm { cuts: number; shotSec: number; cutsPerMin: number; fades: number; transition: FxTransition }
 export interface SceneEffects {
   filter?: FxFilter;
   zoom?: FxMove;                       // Ken Burns e panorâmicas
@@ -506,7 +508,7 @@ export interface Project {
   refScript?: { file: string; textFile?: string; transcribed?: boolean; note?: string;  // roteiro de referência (texto ou transcrição)
     /** true = é O roteiro do vídeo (a etapa de roteiro usa o texto como está); false/ausente = só modelo de estilo */
     useAsScript?: boolean };
-  refVideo?: { file: string; frames: string[]; durationSec?: number; note?: string }; // vídeo de referência + quadros-chave
+  refVideo?: { file: string; frames: string[]; durationSec?: number; note?: string; edit?: RefEditRhythm }; // vídeo de referência + quadros-chave + ritmo de edição
   maxProductionMin?: number;           // tempo máximo de UMA execução (0/vazio = sem limite)
   sceneConcurrency?: number;           // cenas processadas ao mesmo tempo (pipeline por cena)
   /** narração + transcrição de todas as cenas antes dos clipes (ausente = padrão das Configurações, ligado) */
@@ -530,6 +532,8 @@ export interface Project {
   flowAccount?: string;
   /** canal (aba Canais) de destino deste vídeo; vazio = pergunta na hora de publicar */
   channelId?: string;
+  /** VÁRIAS redes: canais/perfis onde o vídeo é publicado (YouTube, TikTok, Instagram, Facebook, Kwai) — os perfis ligados entram junto */
+  publishTargets?: string[];
   /** storyboard depois do plano de cenas (opcionalmente com aprovação do usuário) */
   storyboard?: StoryboardOptions;
   /** personagens da biblioteca usados neste projeto (cópia congelada) */
@@ -658,6 +662,8 @@ export interface ThumbnailTemplate { id: string; name: string; prompt: string; l
 
 export interface Settings {
   workspace: string;
+  /** bot do Telegram (menu lateral Telegram) */
+  telegram?: TelegramConfig;
   ffmpeg: string;
   ffprobe: string;
   harnesses: Record<HarnessId, HarnessConfig>;
@@ -837,8 +843,28 @@ export interface Channel {
   thumbnailTemplate?: string;
   /** arquivos gerados, relativos a workspace/channels/mine/<id>/ */
   assets?: { banner?: string; avatar?: string; thumb?: string };
+  /** PERFIS DA MESMA MARCA em outras redes (ids de canais TikTok/Instagram/Facebook/Kwai): publicar neste canal publica neles também */
+  linked?: string[];
   createdAt: string;
   lastPublishAt?: string;
+}
+
+/** Bot do Telegram: conversar com o app, receber atualizações, criar projetos em lote e aprovar storyboards. */
+export interface TelegramConfig {
+  enabled: boolean;
+  /** token do @BotFather (cifrado no settings.json como as chaves de API) */
+  token: string;
+  /** chats autorizados (só eles falam com o app); pedidos de outros chats ficam em `pending` para aprovar na tela */
+  allowChats: number[];
+  pending?: Array<{ chatId: number; name: string; at: string }>;
+  /** avisos de execução concluída/falha */
+  notify: boolean;
+  /** envia o storyboard com ✅/❌ quando uma execução para esperando aprovação */
+  approveStoryboards: boolean;
+  /** skill dos projetos criados por /novo e /lote */
+  defaultSkill?: string;
+  /** harness/modelo do assistente (padrão: antigravity) */
+  assistant?: { harness?: string; model?: string };
 }
 
 /**

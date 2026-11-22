@@ -31,7 +31,8 @@ async function main() {
 
   /* ───────── tipos e estilos ───────── */
   assert.ok(CHANNEL_TYPES.length >= 8 && CHANNEL_TYPES.every((t) => THUMB_STYLES.some((s) => s.id === t.thumbStyle)), 'todo tipo aponta para um estilo de thumbnail existente');
-  assert.ok(PLATFORM_INFO.kwai && PLATFORM_ADAPTERS.kwai && !PLATFORM_ADAPTERS.kwai.ready, 'Kwai existe (publicação em breve)');
+  assert.ok(PLATFORM_INFO.kwai && PLATFORM_ADAPTERS.kwai && PLATFORM_ADAPTERS.kwai.ready, 'Kwai existe e publica (upload pelo navegador da conta)');
+  assert.ok((['tiktok', 'instagram', 'facebook'] as const).every((p) => PLATFORM_ADAPTERS[p]?.ready), 'TikTok, Instagram e Facebook publicam');
 
   /* ───────── paletas: contraste WCAG, papéis, modo ───────── */
   assert.equal(contrastRatio('#000000', '#ffffff'), 21);

@@ -3,6 +3,7 @@ import { KIND_LABEL as KIND_LABEL_NP } from './library-ui';
 import { LANGUAGES, renderRoutesLib, renderSettings, renderSkills, openSkillFromVideos, type Ctx } from './library-ui';
 import { artIcon, bindingArt, effectiveByCategory, fallbackChips, openProjectExecutorsModal, openProvidersModal, renderProvidersPage, type ProvidersChoice } from './providers-ui';
 import { renderAutomations, type AutoCtx } from './automations-ui';
+import { renderTelegramPage, type TelegramCtx } from './telegram-page';
 import { renderPluginsPage, type PluginsCtx } from './plugins-page';
 import { designTemplateCards, openThumbStudio, thumbPreview } from './thumb-studio';
 import { promptComposer } from './prompt-composer';
@@ -1012,6 +1013,9 @@ async function renderNew() {
   const agySel = agyAccountSelect('np-agy');
   const flowSel = agyAccountSelect('np-flow', '', undefined, 'flow');
   const chSel = channelSelect('np-channel');
+  /* PUBLICAR EM VÁRIAS REDES: o canal de destino e os perfis ligados a ele já vêm marcados */
+  const pub = publishTargetsBox('np-publish');
+  chSel.addEventListener('change', () => pub.selectChannel(chSel.value));
   if (pendingIdea) { (idea as HTMLTextAreaElement).value = pendingIdea; pendingIdea = undefined; }
   const episode = pendingEpisode; pendingEpisode = undefined;
   if (episode) { (name as HTMLInputElement).value = episode.name; (idea as HTMLTextAreaElement).value = episode.idea; }
@@ -1757,7 +1761,9 @@ async function renderNew() {
       noFallback: npNoFallback !== !!cfg?.noFallback ? npNoFallback : undefined,
       cast: cast.filter((m) => m.speaker.trim()),
       narrationVoice: npVoice.refAudio || npVoice.apiVoice ? npVoice : undefined,
-      autoUpload: autoUp.checked ? { visibility: 'UNLISTED' } : undefined,
+      autoUpload: autoUp.checked && !pub.targets().length ? { visibility: 'UNLISTED' } : undefined,
+      publishTargets: pub.targets().length ? pub.targets() : undefined,
+      publishVisibility: pub.targets().length ? pub.visibility() as 'UNLISTED' : undefined,
       agyAccount: agySel.value || undefined,
       flowAccount: flowSel.value || undefined,
       channelId: chSel.value || undefined,
@@ -1808,6 +1814,7 @@ async function renderNew() {
     orchestratorId: orch.value || undefined, workerIds: workerBoxes.filter((x) => x.cb.checked).map((x) => x.a.id),
     sceneConcurrency: Number(conc.value) || undefined, maxProductionMin: Number(maxMin.value) || undefined,
     agyAccount: agySel.value || undefined, flowAccount: flowSel.value || undefined, channelId: chSel.value || undefined, autoUpload: autoUp.checked || undefined,
+    publishTargets: pub.targets().length ? pub.targets() : undefined, publishVisibility: pub.targets().length ? pub.visibility() : undefined,
     skillMix: mixRows.length ? { main: Number(mainPct.value) || 60, mode: mixMode.value, items: mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 0 })) } : undefined,
     styleRef: styleRef ? JSON.parse(JSON.stringify(styleRef)) : undefined,
     titleModel: titlePick ? JSON.parse(JSON.stringify(titlePick)) : undefined,
@@ -1881,6 +1888,7 @@ async function renderNew() {
     if ('agyAccount' in t) agySel.value = String(t['agyAccount'] ?? ''); if ('flowAccount' in t) flowSel.value = String(t['flowAccount'] ?? '');
     if ('channelId' in t) { chSel.value = String(t['channelId'] ?? ''); chSel.dispatchEvent(new Event('change')); }
     if ('autoUpload' in t) autoUp.checked = !!t['autoUpload'];
+    if ('publishTargets' in t) pub.set((t['publishTargets'] as string[] | undefined) ?? [], t['publishVisibility'] as string | undefined);
     const mix = t['skillMix'] as { main?: number; mode?: string; items?: Array<{ skillId: string; pct: number }> } | undefined;
     if (mix?.items?.length) {
       while (mixRows.length) { mixRows.pop(); } mixList.replaceChildren();
@@ -1943,6 +1951,7 @@ async function renderNew() {
       h('label', { title: 'Etapas do Google Flow deste projeto usam esta conta (vence a conta escolhida na etapa da rota)' }, '🌊 Conta do Flow', flowSel),
       h('label', { title: 'Canal de destino (aba Canais). Ao publicar, o vídeo vai para ele — a conta e a marca vêm do canal.' }, '📺 Canal de destino', chSel),
       h('label', { class: 'inline chk', title: 'Acrescenta à rota a etapa "Enviar ao YouTube": ao terminar, o vídeo vai como NÃO LISTADO com título, descrição e thumbnail do SEO (conta Google das Automações)' }, autoUp, '⬆ Enviar ao YouTube ao terminar (não listado)'),
+      pub.el,
       h('h3', {}, 'Produção'),
       h('div', { class: 'row' },
         h('label', { title: 'Uma execução é interrompida ao atingir este tempo (o que já foi gerado fica em cache).' }, 'Tempo máximo (min)', h('span', { class: 'row' }, maxMin, noLimit.parentElement!)),
@@ -2249,7 +2258,7 @@ async function renderNew() {
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
       drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb), wmRow),
       drawer('np-g-catalog', 'Diretrizes 11/2026 · disclosure · gerador', () => `${discLabel.value.trim() || 'sem disclosure'}${genOn.checked ? ` · ${genFamily.value}/${genModel.value.trim() || 'sem ID'}` : ''}`, catalogBox),
-      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp),
+      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el,
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),
       drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
@@ -3752,6 +3761,38 @@ function agyAccountSelect(id: string, value = '', onChange?: (v: string) => void
 }
 
 /** Canal de destino (aba Canais): vazio = pergunta na hora de publicar. Preenchido de forma assíncrona. */
+/** "Publicar em": um checkbox por canal/perfil (YouTube, TikTok, Instagram, Facebook, Kwai) + visibilidade.
+ *  Ao escolher o canal de destino, marca ele e os perfis ligados a ele (aba Canais → Perfis ligados). */
+function publishTargetsBox(id: string): { el: HTMLElement; targets: () => string[]; visibility: () => string; selectChannel: (cid: string) => void; set: (ids: string[], vis?: string) => void } {
+  const list = h('div', { class: 'pchips', id: `${id}-list` }, h('span', { class: 'muted' }, 'carregando canais…'));
+  const vis = h('select', { id: `${id}-vis` }, h('option', { value: 'UNLISTED' }, 'não listado'), h('option', { value: 'PRIVATE' }, 'privado'), h('option', { value: 'PUBLIC' }, 'público')) as HTMLSelectElement;
+  let channels: Array<{ id: string; name: string; platform: string; linked?: string[] }> = [];
+  let wanted: string[] = [];
+  const boxes = () => Array.from(list.querySelectorAll<HTMLInputElement>('input[type=checkbox]'));
+  const apply = () => { for (const b of boxes()) b.checked = wanted.includes(b.value); };
+  void (forge as unknown as { channelsGet: () => Promise<unknown> }).channelsGet().then((raw) => {
+    const st = raw as { list?: typeof channels; platforms?: Record<string, { label: string; icon: string }> };
+    channels = st.list ?? [];
+    list.replaceChildren(...(channels.length ? channels.map((c) => {
+      const cb = h('input', { type: 'checkbox', value: c.id, 'data-publish': c.id }) as HTMLInputElement;
+      cb.addEventListener('change', () => { wanted = boxes().filter((b) => b.checked).map((b) => b.value); });
+      return h('label', { class: 'chip' }, cb, ` ${st.platforms?.[c.platform]?.icon ?? '📺'} ${c.name}`);
+    }) : [h('span', { class: 'muted' }, 'nenhum canal criado (aba Canais)')]));
+    apply();
+  }).catch(() => {});
+  const el = h('div', { class: 'refbox', id }, h('strong', { title: 'Ao terminar, o vídeo é publicado em cada rede marcada (uma depois da outra; se uma falhar as outras continuam). Cada perfil usa o login dele no navegador da conta.' }, '🌐 Publicar em'),
+    list, h('label', { class: 'inline' }, 'Visibilidade', vis));
+  return {
+    el, targets: () => [...wanted], visibility: () => vis.value,
+    selectChannel: (cid) => {
+      const c = channels.find((x) => x.id === cid);
+      wanted = c ? [c.id, ...(c.linked ?? []).filter((l) => channels.some((x) => x.id === l))] : [];
+      apply();
+    },
+    set: (ids, v) => { wanted = [...ids]; if (v) vis.value = v; apply(); },
+  };
+}
+
 function channelSelect(id: string, value = '', onChange?: (v: string) => void): HTMLSelectElement {
   const sel = h('select', { id }, h('option', { value: '' }, '— nenhum (escolher ao publicar) —')) as HTMLSelectElement;
   void (forge as unknown as { channelsGet: () => Promise<unknown> }).channelsGet().then((raw) => {
@@ -4471,6 +4512,7 @@ async function render() {
   else if (tab === 'channels') await renderChannelsPage({ forge: forge as unknown as ChannelsCtx['forge'], toast, main, guard, pickThumb: (cur, onPick) => void openThumbModal(cur, onPick) });
   else if (tab === 'characters') await renderCharactersPage({ forge: forge as unknown as CharactersCtx['forge'], toast, main, guard, openEpisode: (ep) => openEpisodeInNew(ep as never) });
   else if (tab === 'automations') await renderAutomations({ forge: forge as unknown as AutoCtx['forge'], toast, main });
+  else if (tab === 'telegram') await renderTelegramPage({ forge: forge as unknown as TelegramCtx['forge'], toast, main });
   else if (tab === 'videos') await renderVideosPage({ forge: forge as unknown as VideosCtx['forge'], toast, main, guard, newProject: (idea, skillId, foldId) => { pendingIdea = idea; pendingSkill = skillId; pendingFold = foldId; go('new'); },
     skillFromVideo: (url, ai) => { go('skills'); setTimeout(() => void openSkillFromVideos(ctx, () => go('skills'), [url], ai), 300); },
     openSkills: () => go('skills'), openRoutes: () => go('routes'),

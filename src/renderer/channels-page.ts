@@ -44,7 +44,7 @@ interface ChannelView {
   id: string; name: string; platform: string; accountId?: string; handle?: string; url?: string;
   brand?: ChannelBrand; brandHistory?: ChannelBrand[]; assets?: { banner?: string; avatar?: string; thumb?: string };
   type?: string; language?: string; auth?: { status: 'pending' | 'opened' | 'confirmed'; at?: string }; identity?: Identity; analytics?: Analytics; cloneIds?: string[];
-  platformId?: string; fromClone?: string; thumbnailTemplate?: string;
+  platformId?: string; fromClone?: string; thumbnailTemplate?: string; linked?: string[];
   createdAt: string; lastPublishAt?: string;
   dir: string; hasBrand: boolean; hasAssets: { banner: boolean; avatar: boolean; thumb: boolean }; projects: number;
   setup?: { done: SetupStep[]; next?: SetupStep };
@@ -220,6 +220,31 @@ function channelCard(c: ChannelsCtx, ch: ChannelView, st: State, onPick: () => v
   );
 }
 
+/** PERFIS LIGADOS: um canal do YouTube leva junto os perfis de TikTok, Instagram, Facebook e Kwai. Ao escolher este canal
+ *  como destino do projeto, todos já vêm marcados em "Publicar em" (cada perfil publica com o login dele). */
+function linkedSection(c: ChannelsCtx, ch: ChannelView, st: State, again: () => void): HTMLElement | null {
+  const others = st.list.filter((x) => x.platform !== ch.platform);
+  if (!others.length && ch.platform !== 'youtube') return null;
+  const linked = new Set(ch.linked ?? []);
+  const owner = st.list.find((x) => x.id !== ch.id && x.linked?.includes(ch.id));
+  const boxes = others.map((o) => {
+    const cb = h('input', { type: 'checkbox', 'data-link': o.id }) as HTMLInputElement;
+    cb.checked = linked.has(o.id);
+    cb.addEventListener('change', () => void c.guard(async () => {
+      const next = others.filter((x) => (x.id === o.id ? cb.checked : linked.has(x.id))).map((x) => x.id);
+      await c.forge['channelsUpdate'](ch.id, { linked: next });
+      c.toast(cb.checked ? `${o.name} ligado a ${ch.name}` : `${o.name} desligado`); again();
+    }));
+    const info = st.platforms[o.platform] ?? { icon: '📺', label: o.platform };
+    return h('label', { class: 'chip' }, cb, ` ${info.icon} ${o.name}${o.handle ? ` · ${o.handle}` : ''}`);
+  });
+  return h('div', { class: 'ch-sec' }, h('h4', {}, '🔗 Perfis ligados'),
+    h('p', { class: 'muted small' }, ch.platform === 'youtube'
+      ? 'Marque os perfis das outras redes que publicam junto com este canal. No Novo projeto, ao escolher este canal, eles já vêm marcados em "Publicar em".'
+      : owner ? `Este perfil está ligado ao canal "${owner.name}".` : 'Ligue este perfil a um canal do YouTube (no canal) ou marque aqui outros perfis que publicam junto.'),
+    others.length ? h('div', { class: 'pchips' }, ...boxes) : h('p', { class: 'muted' }, 'Adicione perfis de TikTok, Instagram, Facebook ou Kwai para ligá-los aqui.'));
+}
+
 function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => void): HTMLElement {
   const { forge, toast, guard } = c;
   const info = st.platforms[ch.platform] ?? { icon: '📺', label: ch.platform, loginUrl: '' };
@@ -356,6 +381,7 @@ function channelDetail(c: ChannelsCtx, ch: ChannelView, st: State, again: () => 
       ),
     ),
     authSec,
+    linkedSection(c, ch, st, again) ?? '',
     h('div', { class: 'ch-sec' }, h('h4', {}, '🎨 Marca e configuração'),
       h('p', { class: 'muted small' }, 'A IA sugere nome, descrição, tags, cores, fontes e a identidade (paletas e thumbnail) a partir do tipo e da ideia; depois desenha banner, avatar e uma thumbnail modelo por código.'),
       brandBox,
