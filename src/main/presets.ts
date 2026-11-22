@@ -257,7 +257,7 @@ export const ROUTES: Route[] = ([
     steps: [
       ...base(castTtsChain, { multiVoice: true }),
       step({ id: 'image', kind: 'image', label: 'Frame da cena (elenco consistente)', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['image', 'video'], bindings: imageChain }),
-      step({ id: 'video', kind: 'video', label: 'Vídeo da cena (Sora 2 via SnapGen, prompt JSON)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'], bindings: [{ type: 'api', provider: 'snapgen', model: 'sora-2' }, { type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, ...videoChain], timeoutSec: 2400, onFail: 'skip' }),
+      step({ id: 'video', kind: 'video', label: 'Vídeo da cena (muse.ai, prompt JSON estilo Sora 2)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'], bindings: [{ type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, { type: 'api', provider: 'snapgen', model: 'sora-2' }, ...videoChain], timeoutSec: 2400, onFail: 'skip' }),
       ...tail(['narration', 'image', 'video']),
     ],
   },
@@ -278,7 +278,7 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
-    id: 'dorama-elenco', name: 'Dorama / história com elenco (Sora 2 + JSON prompt)',
+    id: 'dorama-elenco', name: 'Dorama / história com elenco (muse.ai + JSON prompt)',
     description: 'Roteiro em falas "NOME: fala" → bíblia de personagens (aparência + voz) → elenco montado sozinho (uma voz por personagem) → uma fala por cena → quadro da cena → vídeo no MiniMax H3 ref2video com o quadro E os retratos dos personagens como referência (mesmo rosto e figurino em todas as cenas) → montagem.',
     videoTypes: ['micro_drama', 'interactive_story', 'custom'],
     steps: [
@@ -289,7 +289,7 @@ export const ROUTES: Route[] = ([
       step({ id: 'narration', kind: 'narration', label: 'Vozes do elenco (TTS)', scope: 'scene', dependsOn: ['scene_plan'], bindings: castTtsChain, concurrency: 2, params: { multiVoice: true } }),
       step({ id: 'image', kind: 'image', label: 'Quadro da cena (elenco consistente)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'], bindings: imageChain }),
       step({ id: 'video', kind: 'video', label: 'Vídeo da cena (MiniMax H3 ref2video + retratos)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'],
-        bindings: [{ type: 'api', provider: 'snapgen', model: 'sora-2' }, { type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, ...videoChain], timeoutSec: 2400, onFail: 'skip' }),
+        bindings: [{ type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, { type: 'api', provider: 'snapgen', model: 'sora-2' }, ...videoChain], timeoutSec: 2400, onFail: 'skip' }),
       ...tail(['narration', 'image', 'video']),
     ],
   },
