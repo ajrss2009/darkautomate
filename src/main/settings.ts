@@ -135,6 +135,8 @@ export interface NewProjectInput {
   /** publicar em VARIAS redes ao terminar (canais/perfis da aba Canais; os perfis ligados entram junto) */
   publishTargets?: string[];
   publishVisibility?: 'UNLISTED' | 'PRIVATE' | 'PUBLIC';
+  /** música do projeto: um ARQUIVO de áudio (trilha) ou uma PASTA (coletânea) */
+  musicSource?: string;
   /** clip de venda de produto (o arquivo é copiado para assets/product do projeto) */
   productClip?: import('../shared/types').ProductClip;
   /** conta (Automações) do Antigravity para este projeto */

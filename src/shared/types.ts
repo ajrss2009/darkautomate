@@ -554,6 +554,8 @@ export interface Project {
   publishTargets?: string[];
   /** clip de venda de produto inserido no vídeo final (início, meio, fim ou segundo) + link na descrição */
   productClip?: ProductClip;
+  /** música do projeto vinda de uma PASTA = coletânea (faixas em ordem, transições suaves); o arquivo montado é o anexo "trilha sonora" */
+  musicCompilation?: { dir: string; total: number; tracks: Array<{ title: string; file: string; start: number; seconds: number }> };
   /** storyboard depois do plano de cenas (opcionalmente com aprovação do usuário) */
   storyboard?: StoryboardOptions;
   /** personagens da biblioteca usados neste projeto (cópia congelada) */

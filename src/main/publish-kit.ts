@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { chapterLines } from './music-compilation';
 import { readProductClipInfo, withProductLink } from './product-clip';
 import type { Project } from '../shared/types';
 import { readTimeline } from './timeline';
@@ -165,7 +166,10 @@ export function writePublishKit(projectDir: string, p: Project, durationSec?: nu
     sc.splice(i, 0, { title: pc.name ? `🛍 ${pc.name}` : '🛍 Produto', seconds: pc.seconds });
   }
   const sum = sc.reduce((q, x) => q + x.seconds, 0), k = durationSec && sum > 0 && Math.abs(durationSec / sum - 1) < 0.05 ? durationSec / sum : 1;
-  const meta2 = pc?.link ? { ...meta, description: withProductLink(meta.description?.trim() || p.idea, pc) } : meta;
+  let meta2 = pc?.link ? { ...meta, description: withProductLink(meta.description?.trim() || p.idea, pc) } : meta;
+  /* coletânea: as faixas viram os capítulos da descrição (quando o SEO não os escreveu) */
+  const comp = (p as Project & { musicCompilation?: { tracks: Array<{ title: string; start: number }> } }).musicCompilation;
+  if (comp?.tracks?.length && !/^\s*0?0:00\b/m.test(meta2.description ?? '')) meta2 = { ...meta2, description: `${(meta2.description ?? p.idea).trim()}\n\nFaixas:\n${chapterLines(comp.tracks).join('\n')}` };
   for (const [name, text] of Object.entries(publishTexts(p, meta2, durationSec, sc.map((x) => ({ ...x, seconds: x.seconds * k }))))) { const f = path.join(dir, name); fs.writeFileSync(f, '﻿' + text, 'utf8'); files.push(f); }
   return { dir, video, files };
 }

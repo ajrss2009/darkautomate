@@ -91,6 +91,7 @@ import { insightsToHtml, insightsToText, readFavoriteChannels, removeFavoriteCha
 import { h3Options, scanH3Loras } from './h3accel';
 import { scanSpecialModels } from './wan2gp-special';
 import { CATEGORY_LABEL, mergeWan2gpModels, scanWan2gpCatalog } from './wan2gp-catalog';
+import { AUDIO_EXT, buildCompilation } from './music-compilation';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
@@ -644,6 +645,24 @@ async function projectRow(id: string) {
     typeId: pr?.typeId, language: pr?.language, status, runs: pr?.production?.runs?.length ?? 0, lastRunAt: lastRun?.endedAt, lastRunOk: lastRun?.ok, updatedAt,
     skillId: pr?.skillId ?? pr?.skill?.id, skillName: pr?.skill?.name, routeName: pr?.route?.name, aspect: pr?.aspect, targetDurationSec: pr?.targetDurationSec, dir,
     plugins: pr?.plugins ?? [], cost: pr ? costOfProject(pr) : undefined };
+}
+
+/** Música do projeto: ARQUIVO → anexo "trilha sonora"; PASTA → coletânea (assets/user/music/coletanea.mp3) como trilha. */
+async function applyMusicSource(p: Project, src: string): Promise<void> {
+  if (!fs.existsSync(src)) throw new Error(`música não encontrada: ${src}`);
+  const dir = projectDirOf(settings, p.id);
+  for (const a of p.attachments ?? []) if (a.use === 'music') a.use = 'reference';   // só uma trilha
+  if (fs.statSync(src).isDirectory()) {
+    const c = await buildCompilation({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, dir: src, outDir: path.join(attachments.userDir(dir), 'music'), log: (l) => console.log(`[FilmForge] ${l}`) });
+    const rel = 'music/coletanea.mp3';
+    p.attachments = [...(p.attachments ?? []).filter((a) => a.file !== rel), { file: rel, kind: 'audio', use: 'music', note: `Coletânea de ${c.tracks.length} faixa(s) da pasta "${path.basename(src)}": ${c.tracks.map((t) => t.title).join(' · ').slice(0, 400)}` }];
+    p.musicCompilation = { dir: src, total: Math.round(c.total * 100) / 100, tracks: c.tracks };
+  } else {
+    if (!AUDIO_EXT.test(src)) throw new Error('música: use um arquivo de áudio (mp3, wav, m4a, flac, ogg, aac, opus) ou uma pasta');
+    const [a] = attachments.addAttachments(p, dir, [src]);
+    if (a) attachments.updateAttachment(p, a.file, { use: 'music' });
+    delete p.musicCompilation;
+  }
 }
 
 /** Junta o catálogo do Wan2GP em settings.wan2gpModels; devolve quantos modelos entraram. */
@@ -2242,6 +2261,8 @@ function registerIpc() {
     for (const f of [input.refScriptFile, input.refVideoFile]) if (f && !fs.existsSync(f)) throw new Error(`arquivo de referência não encontrado: ${f}`);
     const p = createProject(settings, input);
     if (input.attachFiles?.length) { attachments.addAttachments(p, projectDirOf(settings, p.id), input.attachFiles); ops.saveProjectFile(settings, p); }
+    /* música do projeto: arquivo = trilha; pasta = coletânea montada aqui (faixas em ordem, transições suaves) */
+    if (input.musicSource) { await applyMusicSource(p, input.musicSource); ops.saveProjectFile(settings, p); }
     /* thumbnail de referência (imagem ou link de vídeo): baixa, mede a paleta e anexa; o prompt da thumbnail segue ela */
     if (input.thumbRef?.file || input.thumbRef?.url) {
       try { await prepareThumbRef(settings, p, projectDirOf(settings, p.id), input.thumbRef, AbortSignal.timeout(90_000)); ops.saveProjectFile(settings, p); }
@@ -2260,6 +2281,14 @@ function registerIpc() {
   h('projects:root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return projectsDir(settings); });
   h('projects:open-root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return shell.openPath(projectsDir(settings)); });
   h('project:get', (id: string) => ops.readProject(settings, id));
+  /* música de um projeto existente: arquivo ou pasta (coletânea); null tira a trilha do usuário */
+  h('project:music-source', async (id: string, src: string | null) => {
+    const p = ops.readProject(settings, id);
+    if (src) await applyMusicSource(p, src);
+    else { for (const a of p.attachments ?? []) if (a.use === 'music') a.use = 'reference'; delete p.musicCompilation; }
+    ops.saveProjectFile(settings, p);
+    return { attachments: p.attachments ?? [], compilation: p.musicCompilation ?? null };
+  });
   /* clip de venda de produto num projeto existente (null = tira); vale na próxima montagem */
   h('project:product-clip', (id: string, clip: import('../shared/types').ProductClip | null) => {
     const p = ops.readProject(settings, id);

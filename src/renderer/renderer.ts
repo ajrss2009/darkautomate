@@ -1017,6 +1017,8 @@ async function renderNew() {
   const pub = publishTargetsBox('np-publish');
   /* CLIP DE VENDA: um vídeo do produto (arquivo ou vídeo pronto de outro projeto, ex.: um UGC) entra no vídeo final */
   const prod = productClipBox('np-product');
+  /* MÚSICA DO PROJETO: um arquivo (trilha) ou uma pasta (coletânea: as faixas em ordem, com transições) */
+  const mus = musicSourceBox('np-music');
   chSel.addEventListener('change', () => pub.selectChannel(chSel.value));
   if (pendingIdea) { (idea as HTMLTextAreaElement).value = pendingIdea; pendingIdea = undefined; }
   const episode = pendingEpisode; pendingEpisode = undefined;
@@ -1765,6 +1767,7 @@ async function renderNew() {
       narrationVoice: npVoice.refAudio || npVoice.apiVoice ? npVoice : undefined,
       autoUpload: autoUp.checked && !pub.targets().length ? { visibility: 'UNLISTED' } : undefined,
       productClip: prod.value(),
+      musicSource: mus.value(),
       publishTargets: pub.targets().length ? pub.targets() : undefined,
       publishVisibility: pub.targets().length ? pub.visibility() as 'UNLISTED' : undefined,
       agyAccount: agySel.value || undefined,
@@ -1955,7 +1958,7 @@ async function renderNew() {
       h('label', { title: 'Etapas do Google Flow deste projeto usam esta conta (vence a conta escolhida na etapa da rota)' }, '🌊 Conta do Flow', flowSel),
       h('label', { title: 'Canal de destino (aba Canais). Ao publicar, o vídeo vai para ele — a conta e a marca vêm do canal.' }, '📺 Canal de destino', chSel),
       h('label', { class: 'inline chk', title: 'Acrescenta à rota a etapa "Enviar ao YouTube": ao terminar, o vídeo vai como NÃO LISTADO com título, descrição e thumbnail do SEO (conta Google das Automações)' }, autoUp, '⬆ Enviar ao YouTube ao terminar (não listado)'),
-      pub.el, prod.el,
+      pub.el, prod.el, mus.el,
       h('h3', {}, 'Produção'),
       h('div', { class: 'row' },
         h('label', { title: 'Uma execução é interrompida ao atingir este tempo (o que já foi gerado fica em cache).' }, 'Tempo máximo (min)', h('span', { class: 'row' }, maxMin, noLimit.parentElement!)),
@@ -2262,7 +2265,7 @@ async function renderNew() {
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
       drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb), wmRow),
       drawer('np-g-catalog', 'Diretrizes 11/2026 · disclosure · gerador', () => `${discLabel.value.trim() || 'sem disclosure'}${genOn.checked ? ` · ${genFamily.value}/${genModel.value.trim() || 'sem ID'}` : ''}`, catalogBox),
-      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el, prod.el,
+      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el, prod.el, mus.el,
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),
       drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
@@ -3765,6 +3768,21 @@ function agyAccountSelect(id: string, value = '', onChange?: (v: string) => void
 }
 
 /** Canal de destino (aba Canais): vazio = pergunta na hora de publicar. Preenchido de forma assíncrona. */
+/** "Música do projeto": ARQUIVO de áudio (a trilha) ou PASTA (coletânea — as faixas em ordem, com transições suaves). */
+function musicSourceBox(id: string): { el: HTMLElement; value: () => string | undefined } {
+  let src = '', isDir = false;
+  const lbl = h('span', { class: 'muted', id: `${id}-lbl` }, 'nenhuma — a rota gera ou escolhe a trilha');
+  const paint = () => { lbl.textContent = src ? `${isDir ? '📁 coletânea: ' : '🎵 '}${basename(src)}` : 'nenhuma — a rota gera ou escolhe a trilha'; clr.style.display = src ? '' : 'none'; };
+  const clr = h('button', { class: 'small', title: 'Tirar', onclick: () => { src = ''; paint(); } }, '✕') as HTMLButtonElement;
+  const el = h('div', { class: 'refbox', id }, h('strong', { title: 'Arquivo: a música vira a trilha do vídeo. Pasta: as faixas da pasta (em ordem de nome) viram uma COLETÂNEA com transições suaves; a lista de faixas com os tempos vai para a descrição como capítulos.' }, '🎵 Música do projeto'),
+    h('div', { class: 'row' },
+      h('button', { id: `${id}-file`, onclick: () => void guard(async () => { const f = await forge.openFile({ title: 'Música do projeto', filters: [{ name: 'Áudio', extensions: ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'opus'] }] }); if (f) { src = f; isDir = false; paint(); } }) }, '🎵 Arquivo…'),
+      h('button', { id: `${id}-dir`, onclick: () => void guard(async () => { const d = (await (forge as unknown as { openDir: (o: unknown) => Promise<string | null> }).openDir({ title: 'Pasta de músicas (coletânea)' })); if (d) { src = d; isDir = true; paint(); } }) }, '📁 Pasta (coletânea)…'),
+      lbl, clr));
+  paint();
+  return { el, value: () => src || undefined };
+}
+
 /** "Clip de venda de produto": vídeo (arquivo ou o final de um projeto pronto), posição e link/chamada do produto. */
 function productClipBox(id: string): { el: HTMLElement; value: () => { file: string; position: 'start' | 'middle' | 'end' | number; name?: string; link?: string; cta?: string } | undefined; set: (c?: { file?: string; position?: unknown; name?: string; link?: string; cta?: string }) => void } {
   let file = '';

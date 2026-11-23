@@ -24,6 +24,7 @@ import { RETENTION_RULES, TITLE_RULES } from './youtube-rules';
 import { cartoon3dScenePrompt, storyboardFor, storyboardPrompt } from './cartoon3d';
 import { allThumbTemplates } from './thumb-render';
 import { rhythmText } from './references';
+import { chapterLines } from './music-compilation';
 import { mark, stripMarks } from '../shared/strict';
 
 /** Arquivo principal que cada etapa deve produzir. */
@@ -194,6 +195,10 @@ export function referenceText(p: Project, kind: string): string {
   } else if (p.refScript && SCRIPT_KINDS.has(kind)) {
     const t = excerpt(p.refScript.textFile, 6000);
     out.push(`ROTEIRO DE REFERÊNCIA${p.refScript.transcribed ? ' (transcrição de vídeo)' : ''} — arquivo completo: ${p.refScript.textFile ?? p.refScript.file}. Use-o como MODELO DE ESTILO: estrutura, ritmo, tamanho das frases, ganchos, tom e vocabulário. Adapte esse estilo ao tema deste projeto; NÃO copie frases nem o conteúdo.${t ? '\n---\n' + t + '\n---' : ''}`);
+  }
+  /* COLETÂNEA (música do projeto vinda de uma pasta): a descrição traz a lista de faixas com o início de cada uma */
+  if (p.musicCompilation?.tracks?.length && kind === 'metadata') {
+    out.push(`COLETÂNEA: o vídeo usa ${p.musicCompilation.tracks.length} faixa(s) em sequência. Inclua na descrição a lista de faixas com os tempos EXATOS abaixo (viram capítulos):\n${chapterLines(p.musicCompilation.tracks).join('\n')}`);
   }
   /* clip de venda de produto: entra no vídeo na montagem; a descrição cita o produto (o app põe o link no topo) */
   if (p.productClip && (kind === 'metadata' || kind === 'script')) {
