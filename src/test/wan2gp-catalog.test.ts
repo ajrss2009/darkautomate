@@ -7,7 +7,7 @@ import { ROUTES } from '../main/presets';
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
 import { hyperflowFor, mergeWan2gpModels, scanWan2gpCatalog, wan2gpCategory } from '../main/wan2gp-catalog';
 import { applyHyperflowDefault, h3Distilled, h3Family } from '../main/h3accel';
-import { fitSceneKinds, lyricSceneRule, routeSceneKinds, splitLongScenes } from '../main/prompts';
+import { fitSceneKinds, h3SpeechMinRule, lyricSceneRule, routeSceneKinds, splitLongScenes } from '../main/prompts';
 
 /**
  * CATÁLOGO WAN2GP (todos os modelos de imagem, vídeo, música, voz, efeitos, 3D e mundos), regra do MiniMax H3
@@ -168,6 +168,11 @@ function main() {
     for (const a of asked) assert.ok(rk.has(a), `skill ${k.id} pede cenas "${a}" mas a rota ${r.id} só produz ${[...rk].join(', ')}`);
   }
   console.log('✓ tipos de cena: lyric video segue a rota (vídeo ≤ 10 s), cenas longas divididas, skills coerentes com as rotas');
+
+  /* fala gerada no vídeo H3: cenas de no mínimo 4,5 s (o clipe mínimo do H3 esticava o microdrama de 15 s para 26 s) */
+  assert.match(h3SpeechMinRule({ h3Speech: true, h3SpeechMode: 'internal', targetDurationSec: 15 }), /NO MÍNIMO 4\.5 s[\s\S]*no máximo 3 cena/);
+  assert.equal(h3SpeechMinRule({ h3Speech: true, h3SpeechMode: 'dub', targetDurationSec: 15 }), '', 'dublagem: a cena segue a narração');
+  assert.equal(h3SpeechMinRule({ targetDurationSec: 15 }), '');
 }
 
 main();

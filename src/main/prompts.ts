@@ -274,6 +274,18 @@ export function lyricSceneRule(p: Project, sceneKinds: Set<string>): string {
     : `Crie UMA cena "kind":"${kind}" por bloco da letra, na ordem. ${base}`;
 }
 
+/** Clipe mínimo do MiniMax H3 no Wan2GP: 107 quadros a 24 fps (≈ 4,5 s) — pedidos menores saem com esse tamanho. */
+export const H3_MIN_CLIP_SEC = 4.5;
+/**
+ * Fala gerada pelo próprio vídeo do H3 (modo interno ou clone): a cena dura o clipe, então cenas menores que o clipe
+ * mínimo esticam o vídeo (microdrama de 15 s em 6 cenas de 2–3 s saiu com 26 s). Pede cenas de ≥ 4,5 s. Função pura.
+ */
+export function h3SpeechMinRule(p: Pick<Project, 'h3Speech' | 'h3SpeechMode' | 'targetDurationSec'>): string {
+  if (!p.h3Speech || (p.h3SpeechMode !== 'internal' && p.h3SpeechMode !== 'clone')) return '';
+  const n = Math.max(1, Math.floor((p.targetDurationSec || 15) / H3_MIN_CLIP_SEC));
+  return `FALA GERADA NO VÍDEO (MiniMax H3, vence a skill): cada cena com NO MÍNIMO ${H3_MIN_CLIP_SEC} s (o clipe do H3 nunca é menor — cena curta estica o vídeo), ou seja no máximo ${n} cena(s); junte falas seguidas na mesma cena`;
+}
+
 /** Lyric video = a rota gera a canção com a letra (lyric-song). */
 export function isLyricVideo(p: Project): boolean {
   return !!p.route?.steps?.some((s) => s.enabled && s.bindings.some((b) => b.type === 'builtin' && b.tool === 'lyric-song'));
@@ -1117,7 +1129,7 @@ export function buildPromptMarked(c: ExecContext): string {
         ? `DURAÇÃO DEFINIDA NO PROJETO (vence a skill): cada cena com ≈ ${p.sceneSec} s, ou seja ≈ ${Math.max(1, Math.round(p.targetDurationSec / p.sceneSec))} cenas; cortes e mudanças de enquadramento ficam DENTRO da cena e são descritos no visualIntent`
         : longCode
           ? `VÍDEO EM CÓDIGO (vence a skill): POUCAS cenas longas, cada uma com ${CODE_SCENE_MIN_SEC} a ${CODE_SCENE_MAX_SEC} s (nunca menos de ${CODE_SCENE_MIN_SEC} s), ou seja ≈ ${codeSceneCount(p.targetDurationSec)} cenas; junte trechos seguidos da narração na mesma cena e descreva no visualIntent as 2 a 4 etapas que a animação percorre dentro dela (o que entra, o que muda, como termina)`
-          : 'duração por cena conforme a skill; padrão 3–8 s'}; total ≈ ${p.targetDurationSec}s). ` +
+          : h3SpeechMinRule(p) || 'duração por cena conforme a skill; padrão 3–8 s'}; total ≈ ${p.targetDurationSec}s). ` +
         `SOMA OBRIGATÓRIA: a soma de "durationSec" DEVE ficar entre ${Math.round(p.targetDurationSec * 0.95)} e ${Math.round(p.targetDurationSec * 1.05)} s. NÃO resuma o roteiro: cada cena usa o trecho correspondente da narração, sem cortar frases; confira a soma antes de gravar o JSON. ` +
         `Grave um ARRAY JSON em scenes.json: [{"id":"s01","title","narration","visualIntent","videoPrompt","kind":"image|video|code|motion|mixed|stock","durationSec","camera","searchTerms"${multi ? ',"speaker"' : ''}${!isLyricVideo(p) && !isMusicClip(p) ? ',"emotion","delivery"' : ''}${stepKinds.has('sfx') ? ',"sfx"' : ''}${p.attachments?.some((a) => a.use === 'scene') ? `,"userMedia"${sceneVideos.length ? ',"clipStart","clipCrop","manualDuration"' : ''}` : ''}}]. ` +
         `Tipos de cena: image | video | code | motion | mixed (código + mídias de bancos) | stock (somente mídia de banco). ` +
