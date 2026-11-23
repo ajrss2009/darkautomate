@@ -1290,12 +1290,36 @@ async function sceneSfxWav(c: ExecContext, file: string): Promise<string> {
 
 /** Uma geração por vez em cada conta do Flow (a página é uma só). */
 const flowLocks = new Map<string, Promise<unknown>>();
-const flowExec = (_o: ExecutorOptions): Executor => async (c) => {
+/**
+ * Flow SEM conta fixa (nem no projeto nem na etapa): tenta a última conta que funcionou e depois as outras — a escolha
+ * antiga ("primeira com perfil do navegador") ficava presa numa conta cujo login expirou mesmo com outra conta logada.
+ */
+let flowGoodAccount: string | undefined;
+const flowExec = (o: ExecutorOptions): Executor => {
+  const one = flowExecFor(o);
+  return async (c) => {
+    const b = c.binding as FlowBinding;
+    const fixed = c.project.flowAccount || b.account;
+    if (fixed) return one(c, fixed);
+    const ids = [...new Set([flowGoodAccount, ...(c.settings.automations?.accounts ?? []).map((a) => a.id)].filter((x): x is string => !!x))];
+    let last: unknown;
+    for (const id of ids.length ? ids : [undefined as unknown as string]) {
+      try { const r = await one(c, id); flowGoodAccount = id; return r; }
+      catch (e) {
+        last = e;
+        if (c.signal.aborted || !/não está logada no Flow/.test((e as Error).message)) throw e;
+        c.log(`Flow: a conta "${id}" está sem login — tentando a próxima conta`);
+      }
+    }
+    throw last instanceof Error ? last : new Error('nenhuma conta logada no Flow');
+  };
+};
+const flowExecFor = (_o: ExecutorOptions) => async (c: ExecContext, accountId?: string): Promise<ExecResult> => {
   const b = c.binding as FlowBinding;
   const k = c.step.kind;
   if (k !== 'image' && k !== 'thumbnail' && k !== 'video') throw new Error(`o Flow gera imagem ou vídeo (etapa "${k}" não suportada)`);
   /* conta escolhida no projeto vence a da etapa (Novo projeto / editor → Conta do Flow) */
-  const acc = flowAccount(c.settings, c.project.flowAccount || b.account);
+  const acc = flowAccount(c.settings, accountId || c.project.flowAccount || b.account);
   if (c.project.flowAccount) c.log(`Flow com a conta do projeto: ${acc.label}`);
   const prev = flowLocks.get(acc.id) ?? Promise.resolve();
   let release!: () => void;

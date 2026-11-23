@@ -238,12 +238,12 @@ export class ForgeDb {
         lastRun?.endedAt ?? null, lastRun ? (lastRun.ok ? 1 : 0) : null, p.production?.totalMs ?? 0,
         cost ? JSON.stringify(cost) : null,
         p.titleModel?.chosen ?? p.name, p.titleModel?.thumbText ?? null, p.thumbnailTemplate ?? null,
-        p.thumbRef ? JSON.stringify(p.thumbRef) : null, agentsJson(p)]);
+        p.thumbRef ? JSON.stringify(p.thumbRef) : null, agentsJson(p)].map(sqlVal));
       this.db.run(`DELETE FROM scene WHERE project_id = ?`, [p.id]);
       for (const [i, s] of (p.scenes ?? []).entries()) {
         const status = Object.entries(s.status ?? {}).map(([k, v]) => `${k}:${v}`).join(',');
         this.db.run(`INSERT INTO scene (id, project_id, idx, title, narration, kind, seconds, status, updated_at, deleted_at)
-          VALUES (?,?,?,?,?,?,?,?,?,NULL)`, [s.id, p.id, i, s.title ?? '', s.narration ?? '', s.kind ?? '', s.durationSec ?? 0, status, updated]);
+          VALUES (?,?,?,?,?,?,?,?,?,NULL)`, [s.id ?? `s${String(i + 1).padStart(2, '0')}`, p.id, i, s.title ?? '', s.narration ?? '', s.kind ?? '', s.durationSec ?? 0, status, updated].map(sqlVal));
       }
       /* arquivos citados nos artefatos das cenas (sem hash por enquanto: o hash entra sob demanda) */
       for (const s of p.scenes ?? []) {
@@ -692,6 +692,8 @@ export function indexProjectQuiet(s: Settings, p: Project) {
 }
 
 /** Equipe do projeto para o índice: orquestrador + obreiros (id, nome e nome próprio). */
+/** sql.js recusa undefined ("tried to bind a value of an unknown type"): projeto antigo sem um campo derrubava o índice dele */
+const sqlVal = (v: unknown) => (v === undefined || (typeof v === 'number' && !Number.isFinite(v)) ? null : v) as string | number | null;
 function agentsJson(p: Project): string | null {
   const a = p.agents;
   if (!a || (!a.orchestrator && !a.workers?.length)) return null;
