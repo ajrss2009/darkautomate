@@ -7,6 +7,7 @@ import { ROUTES } from '../main/presets';
 import { BUILTIN_SKILLS } from '../main/skills-builtin';
 import { hyperflowFor, mergeWan2gpModels, scanWan2gpCatalog, wan2gpCategory } from '../main/wan2gp-catalog';
 import { applyHyperflowDefault, h3Distilled, h3Family } from '../main/h3accel';
+import { fitSceneKinds, lyricSceneRule, routeSceneKinds, splitLongScenes } from '../main/prompts';
 
 /**
  * CATÁLOGO WAN2GP (todos os modelos de imagem, vídeo, música, voz, efeitos, 3D e mundos), regra do MiniMax H3
@@ -143,6 +144,30 @@ function main() {
   assert.match(uk.steps['scene_plan']!, /EXATAMENTE 4 cenas/);
   assert.equal(uk.durationSec, 16);
   console.log('✓ UGC: 4 planos com corte seco, sem legenda, muse.ai → H3 Ref2VA HyperFlow');
+
+  /* ── tipos de cena: o app só troca o que a rota não produz ── */
+  const natalProj = { route: natal } as never;
+  const kinds = routeSceneKinds(natalProj);
+  assert.ok(kinds.has('video') && !kinds.has('code'));
+  /* lyric video da rota de Natal: cenas "video" de no máximo 10 s (antes: sempre "code" → cartões no lugar dos clipes) */
+  assert.match(lyricSceneRule(natalProj, kinds), /"kind":"video"[\s\S]*NO MÁXIMO 10 s/);
+  const fit = fitSceneKinds([{ kind: 'code', durationSec: 10 }, { kind: 'video', durationSec: 10 }], kinds);
+  assert.equal(fit.changed, 1);
+  assert.deepEqual(fit.list.map((s) => s.kind), ['video', 'video']);
+  const sp = splitLongScenes([{ id: 's01', title: 'A', narration: 'v1 / v2 / v3 / v4', durationSec: 18.6 }, { id: 's02', title: 'B', narration: 'x', durationSec: 9 }], 10);
+  assert.ok(sp.changed);
+  assert.deepEqual(sp.list.map((s) => [s.id, s.narration, s.durationSec]), [['s01', 'v1 / v2', 9.3], ['s02', 'v3 / v4', 9.3], ['s03', 'x', 9]]);
+  assert.equal(splitLongScenes([{ durationSec: 30 }], 0).changed, false, 'sem limite de clipe: não divide');
+  /* nenhuma skill embutida pede um tipo de cena que a rota dela não produz (senão o app trocaria o tipo) */
+  for (const k of BUILTIN_SKILLS.filter((x) => x.routeId)) {
+    const r = ROUTES.find((x) => x.id === k.routeId);
+    if (!r) continue;
+    const rk = routeSceneKinds({ route: r } as never);
+    if (!rk.size) continue;
+    const asked = [...new Set([...(k.steps['scene_plan'] ?? '').matchAll(/kind"?\s*[:=]?\s*"(code|video|image|stock|motion|mixed)"/g)].map((m) => m[1]!))];
+    for (const a of asked) assert.ok(rk.has(a), `skill ${k.id} pede cenas "${a}" mas a rota ${r.id} só produz ${[...rk].join(', ')}`);
+  }
+  console.log('✓ tipos de cena: lyric video segue a rota (vídeo ≤ 10 s), cenas longas divididas, skills coerentes com as rotas');
 }
 
 main();

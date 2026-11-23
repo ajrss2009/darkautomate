@@ -494,8 +494,8 @@ export const ROUTES: Route[] = ([
       step({ id: 'song', kind: 'music', label: 'Canção com letra (Wan2GP ACE-Step 1.5 XL) + tempos dos versos', scope: 'project', dependsOn: ['script'],
         bindings: [{ type: 'builtin', tool: 'lyric-song' }], params: { template: 'wan2gp-music-ace.json' }, timeoutSec: 3000, retry: { max: 1, backoffMs: 2000 } }),
       step({ id: 'scene_plan', kind: 'scene_plan', label: '6 cenas de 10 s no compasso da canção', scope: 'project', dependsOn: ['script', 'bible', 'song'], bindings: textChain }),
-      step({ id: 'image', kind: 'image', label: 'Quadro-chave da cena (Wan2GP Z-Image → Flow)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'],
-        bindings: [{ type: 'wan2gp', template: 'wan2gp-image.json' }, { type: 'flow', account: 'g1' } as never, ...imageChain], timeoutSec: 900 }),
+      step({ id: 'image', kind: 'image', label: 'Quadro-chave da cena (Wan2GP Krea 2 → Z-Image → Flow)', scope: 'scene', dependsOn: ['scene_plan', 'bible'], onlySceneKinds: ['image', 'video'],
+        bindings: [{ type: 'wan2gp', template: 'wan2gp-image-krea2.json' }, { type: 'wan2gp', template: 'wan2gp-image.json' }, { type: 'flow', account: 'g1' } as never, ...imageChain], timeoutSec: 900 }),
       /* clipe de 10 s: MiniMax H3 FL2VA HyperFlow Flash 14B (sem referência de elenco: anima o quadro-chave); reservas: só texto, muse.ai */
       step({ id: 'video', kind: 'video', label: 'Clipe de 10 s (Wan2GP H3 FL2VA HyperFlow Flash 14B)', scope: 'scene', dependsOn: ['image'], onlySceneKinds: ['video'],
         bindings: [{ type: 'wan2gp', template: 'wan2gp-h3-fl2va-hyperflow.json' }, { type: 'wan2gp', template: 'wan2gp-h3-fl2va-hyperflow-t2v.json' }, { type: 'api', provider: 'snapgen', model: 'muse-ai-video' }, ...videoChain],

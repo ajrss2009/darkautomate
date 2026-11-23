@@ -116,6 +116,44 @@ const planSec = (s: PlanScene) => s.durationSec && s.durationSec > 0 ? s.duratio
  * Rede de segurança do vídeo em código: modelos pequenos ignoram a duração pedida e devolvem dezenas de cenas de 3–5 s.
  * Junta cenas seguidas (só code/motion) até cada grupo ter ≥ min s sem passar de max s; as etapas viram "então:" no visualIntent.
  */
+/** Tipo de cena que a rota não produz (ex.: "code" sem etapa de código) vira o que ela produz: video → image. Função pura. */
+export function fitSceneKinds<T extends PlanScene>(list: T[], kinds: Set<string>): { list: T[]; changed: number } {
+  if (!kinds.size) return { list, changed: 0 };
+  const to = kinds.has('video') ? 'video' : kinds.has('image') ? 'image' : [...kinds][0]!;
+  let changed = 0;
+  const out = list.map((s) => {
+    const k = s.kind ?? '';
+    /* só code/motion (precisam de etapa de código); stock/mixed/image já têm regras próprias adiante (banco desligado → imagem) */
+    if (!k || kinds.has(k) || (k !== 'code' && k !== 'motion')) return s;
+    changed++;
+    return { ...s, kind: to };
+  });
+  return { list: out, changed };
+}
+
+/**
+ * Cenas maiores que o clipe (ex.: 10 s do H3/Muse) viram várias cenas seguidas: a narração ("verso / verso") é
+ * repartida entre elas sem cortar verso, e a duração é dividida igualmente. Ids renumerados s01, s02… Função pura.
+ */
+export function splitLongScenes<T extends PlanScene & { id?: string; title?: string }>(list: T[], max: number): { list: T[]; changed: boolean } {
+  if (!(max > 0)) return { list, changed: false };
+  let changed = false;
+  const out: T[] = [];
+  for (const s of list) {
+    const d = Number(s.durationSec) || 0;
+    if (d <= max + 0.25) { out.push(s); continue; }
+    changed = true;
+    const n = Math.ceil(d / max);
+    const verses = (s.narration ?? '').split(/\s+\/\s+/).map((x) => x.trim()).filter(Boolean);
+    for (let i = 0; i < n; i++) {
+      const part = verses.length ? verses.slice(Math.round((i * verses.length) / n), Math.round(((i + 1) * verses.length) / n)).join(' / ') : s.narration;
+      out.push({ ...s, title: `${s.title ?? 'Cena'}${n > 1 ? ` (${i + 1}/${n})` : ''}`, narration: part ?? '', durationSec: Math.round((d / n) * 100) / 100 });
+    }
+  }
+  if (!changed) return { list, changed };
+  return { list: out.map((s, i) => ({ ...s, id: `s${String(i + 1).padStart(2, '0')}` })), changed };
+}
+
 export function mergeShortCodeScenes<T extends PlanScene>(list: T[], min = CODE_SCENE_MIN_SEC, max = CODE_SCENE_MAX_SEC): T[] {
   if (list.length < 2 || list.some((s) => s.manualDuration || (s.kind && s.kind !== 'code' && s.kind !== 'motion'))) return list;
   const groups: T[][] = [];
@@ -221,6 +259,21 @@ export function isMusicClip(p: Project): boolean {
   if (p.route?.steps?.length) return p.route.steps.some((s) => s.enabled && s.bindings.some((b) => b.type === 'builtin' && b.tool === 'clip-musical'));
   return !!(p.musicStyle || p.musicMode);
 }
+/**
+ * Cenas do lyric video: o TIPO segue a rota (vídeo IA quando há etapa de vídeo; código só quando a rota é por código)
+ * e, com limite de clipe (params.maxClipSec da etapa de vídeo, ex.: 10 s do H3/Muse), blocos longos viram várias cenas.
+ * Antes era sempre "code" — a rota de Natal (H3 FL2VA) saía com cartões no lugar dos clipes.
+ */
+export function lyricSceneRule(p: Project, sceneKinds: Set<string>): string {
+  const kind = sceneKinds.has('video') ? 'video' : sceneKinds.has('code') ? 'code' : sceneKinds.has('image') ? 'image' : 'code';
+  const vstep = (p.route?.steps ?? []).find((s) => s.enabled && s.kind === 'video');
+  const max = Number((vstep?.params as Record<string, unknown> | undefined)?.['maxClipSec'] ?? 0);
+  const base = `"narration" = os versos do trecho separados por " / "; "durationSec" = o tempo real do trecho (fim − início; a soma deve dar a duração da canção).`;
+  return max > 0
+    ? `Crie cenas "kind":"${kind}" na ordem da letra; cada cena tem NO MÁXIMO ${max} s (é o tamanho de cada clipe) — divida blocos mais longos em várias cenas seguidas, cortando entre versos. Se a skill pede um número exato de cenas e duração por cena, siga a skill. ${base}`
+    : `Crie UMA cena "kind":"${kind}" por bloco da letra, na ordem. ${base}`;
+}
+
 /** Lyric video = a rota gera a canção com a letra (lyric-song). */
 export function isLyricVideo(p: Project): boolean {
   return !!p.route?.steps?.some((s) => s.enabled && s.bindings.some((b) => b.type === 'builtin' && b.tool === 'lyric-song'));
@@ -1064,7 +1117,7 @@ export function buildPromptMarked(c: ExecContext): string {
         `${mixed ? `Use SOMENTE e de forma equilibrada os tipos ${mixKinds(p)}. ` : ''}${availableKinds}` +
         (!isLyricVideo(p) && !isMusicClip(p) ? ` EMOÇÃO DA FALA (a voz segue): em toda cena com narração/fala ponha "emotion" = UM destes rótulos: neutro, alegre, triste, raiva, medo, surpresa, carinho, tenso, sussurro, empolgado, ironico, cansado, choro, decidido — e "delivery" = como dizer em até 12 palavras (ritmo, intensidade, pausas; ex.: "devagar, quase sem voz, pausa antes do nome"). Varie conforme a cena pede; narração informativa costuma ser neutro/empolgado.${p.h3Speech ? ' A fala é gerada pelo MiniMax H3 junto com o vídeo: cada cena com fala até 15 s e a fala cabendo na duração; escreva "visualIntent" e "videoPrompt" em INGLÊS (o H3 pode FALAR qualquer texto em outro idioma que esteja fora da fala) e "delivery" curto.' : ''} ` : '') +
         (multi ? ` DIÁLOGO: cada cena tem UMA fala; "speaker" = nome do personagem que fala (o mesmo nome em todas as falas dele${p.cast?.length ? `; elenco: ${p.cast.map((m) => m.speaker).join(', ')}` : ''}); "narration" = só a fala, sem o nome. ` : '') +
-        (timing ? ` LYRIC VIDEO: tempos dos versos da canção (out/lyrics-timing.json):\n${timing}\nCrie UMA cena "code" por bloco da letra, na ordem; "narration" = versos do bloco separados por " / "; "durationSec" = fim − início do bloco (a soma deve dar a duração da canção). ` : '') +
+        (timing ? ` LYRIC VIDEO: tempos dos versos da canção (out/lyrics-timing.json):\n${timing}\n${lyricSceneRule(p, sceneKinds)} ` : '') +
         (isMusicClip(p) ? (clip.perTrack
           ? ` CLIPE MUSICAL (um loop por faixa): crie EXATAMENTE 1 cena por faixa do MUSIC_PLAN (até 24 cenas; com mais faixas, as cenas se repetem em ordem), na mesma ordem, cada uma com ${clip.loopSeconds} s e kind "${codeMusic ? 'code' : 'video'}"; narração vazia. `
           : ` CLIPE MUSICAL: use EXATAMENTE 1 cena de ${clip.loopSeconds} s com kind "${codeMusic ? 'code' : 'video'}"; narração vazia. `) +

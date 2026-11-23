@@ -12,7 +12,7 @@ import { AUTO_ORDER, abortMessage, isHttpHarness, resolveHarness, resolveHarness
 import { duration as probeDuration } from './ffmpeg';
 import { autoCast, splitSpeakerTag } from './cast';
 import { syncBibleToLibrary } from './characters';
-import { CODE_SCENE_MIN_SEC, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds } from './prompts';
+import { CODE_SCENE_MIN_SEC, fitSceneKinds, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds, splitLongScenes } from './prompts';
 import { pluginsRoot } from './plugins';
 import { stepTimeoutSec } from './timeouts';
 import { applyPicks, candidatePlan, needsApproval, readPicks, sketchIntent, writeStoryboard } from './project-storyboard';
@@ -581,6 +581,19 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
         list = merged;
         try { fs.writeFileSync(file, JSON.stringify(list, null, 2)); } catch { /* só o projeto em memória */ }
       }
+    }
+    /* tipo que a rota não produz (ex.: "code" numa rota de vídeo IA) vira o que ela produz — senão a cena ficava sem
+       visual e a montagem punha um cartão com o título */
+    {
+      const kinds = routeSceneKinds(project);
+      const fit = fitSceneKinds(list, kinds);
+      if (fit.changed) { emit({ t: 'log', line: `plano de cenas: ${fit.changed} cena(s) com tipo que a rota não produz → ${kinds.has('video') ? 'video' : 'image'}` }); list = fit.list; }
+      /* clipe com limite (params.maxClipSec da etapa de vídeo, ex.: 10 s do H3/Muse): cena maior vira várias seguidas */
+      const vstep = (project.route?.steps ?? []).find((st) => st.enabled && st.kind === 'video');
+      const maxClip = Number((vstep?.params as Record<string, unknown> | undefined)?.['maxClipSec'] ?? 0);
+      const split = splitLongScenes(list, maxClip);
+      if (split.changed) { emit({ t: 'log', line: `plano de cenas: cenas com mais de ${maxClip} s divididas (${list.length} → ${split.list.length} cenas)` }); list = split.list; }
+      if (fit.changed || split.changed) { try { fs.writeFileSync(file, JSON.stringify(list, null, 2)); } catch { /* só o projeto em memória */ } }
     }
     const prevScenes = new Map(project.scenes.map((x) => [x.id, x]));
     project.scenes = list.map((s, i) => {
