@@ -1063,6 +1063,11 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   /* no Wan2GP linha de prompt que começa com "#" é COMENTÁRIO: "#publi: recebo comissão…" virava prompt vazio */
   if (typeof vars['text'] === 'string') vars['text'] = wan2gpSafeText(vars['text']);
   vars['speech_seconds'] = speechSeconds(String(vars['text'] ?? ''));
+  /* imagem/vídeo de CENA no Wan2GP (Z-Image, Krea, H3…) também sem texto: o Z-Image escreveu "CONIDA B AO ENGAJAMENTO"
+     no quadro de um misto (a intenção da cena falava em "convida ao engajamento") — o Flow e o SnapGen já tinham o aviso */
+  if (c.scene && (c.step.kind === 'image' || c.step.kind === 'video') && typeof vars['prompt'] === 'string' && !/no text|sem texto/i.test(vars['prompt'])) {
+    vars['prompt'] = `${vars['prompt']} No text, letters, words, captions, labels or watermark anywhere in the image.`;
+  }
   const prevImg = c.scene?.artifacts['image']?.find((f) => /\.(png|jpe?g|webp)$/i.test(f));
   if (prevImg) vars['init_image'] = prevImg;                       // caminho absoluto local
   /* elenco como referência (image_refs): foto do usuário ou retrato já gerado de cada personagem da cena */
