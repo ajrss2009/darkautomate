@@ -20,9 +20,9 @@ import { DEFAULT_DISCLOSURE } from './disclosure';
 
 export const DEFAULT_SNAPGEN_PROVIDER: Settings['providers'][number] = {
   id: 'snapgen', kind: 'snapgen', baseUrl: 'https://api.snapgen.ai', apiKey: '',
-  models: ['nano-banana-pro', 'nano-banana-2', 'nano-banana-2-lite', 'veo-3.1-fast', 'veo-3.1', 'veo-2', 'omni-flash'],
+  models: ['nano-banana-pro', 'nano-banana-2.1', 'nano-banana-2', 'nano-banana-2-lite', 'veo-3.1-fast', 'veo-3.1', 'veo-2', 'omni-flash'],
   modelCategories: {
-    'nano-banana-pro': 'image', 'nano-banana-2': 'image', 'nano-banana-2-lite': 'image',
+    'nano-banana-pro': 'image', 'nano-banana-2.1': 'image', 'nano-banana-2': 'image', 'nano-banana-2-lite': 'image',
     'veo-3.1-fast': 'video', 'veo-3.1': 'video', 'veo-2': 'video', 'omni-flash': 'video',
   },
   categories: ['image', 'video'],

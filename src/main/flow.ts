@@ -335,6 +335,11 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     if (refsOk) job.prompt = job.prompt + flowRefsText(job.refs);
     const before = new Set((await evaluate<typeof probe>(cdp, session, PROBE, 10_000)).medias);
     // 3) prompt com teclado real e envio
+    /* balão de informação de um card (o ponteiro parado em cima abre "Criação: … Nano Banana") cobre a caixa do pedido e
+       rouba o foco: afasta o ponteiro para o canto do menu lateral e fecha balões com Esc antes de clicar no campo */
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 8, y: 8 }, session).catch(() => {});
+    for (const type of ['keyDown', 'keyUp'] as const) await cdp.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, session).catch(() => {});
+    await wait(400);
     const pt = await evaluate<{ x: number; y: number } | null>(cdp, session, EDITOR_POINT, 10_000);
     if (!pt) { await dbg('foco no campo'); throw new Error('não consegui focar o campo do agente'); }
     for (const type of ['mousePressed', 'mouseReleased'] as const) await cdp.send('Input.dispatchMouseEvent', { type, x: pt.x, y: pt.y, button: 'left', clickCount: 1 }, session);

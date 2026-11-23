@@ -537,7 +537,7 @@ export const ROUTES: Route[] = ([
       /* etapa de IMAGEM explícita (escopo projeto): é aqui que o usuário escolhe o MODELO DE IMAGEM em
          Provedores → Etapa "Imagem do slideshow". O frame gerado alimenta o slideshow do ramo free. */
       step({ id: 'image', kind: 'image', label: 'Imagem do slideshow (modelo escolhido em Provedores)', scope: 'project', dependsOn: [],
-        bindings: [{ type: 'flow' } as never, { type: 'api', provider: 'snapgen', model: 'muse-ai-image' } as never, ...imageChain], timeoutSec: 900 }),
+        bindings: [{ type: 'flow' } as never, { type: 'api', provider: 'snapgen', model: 'nano-banana-2.1' } as never, ...imageChain], timeoutSec: 900 }),
       step({ id: 'free', kind: 'free', label: 'Podcast PiP + Slideshow (harness)', scope: 'project', dependsOn: ['image'],
         bindings: [{ type: 'harness', harness: 'opencode', model: 'opencode/minimax-m3.1-flash-free' } as never],
         timeoutSec: 7200, retry: { max: 1, backoffMs: 1000 } }),
