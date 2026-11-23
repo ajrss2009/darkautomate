@@ -419,7 +419,7 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     // 4) espera a primeira mídia nova (imagem ou vídeo, conforme o pedido)
     /* card de FALHA do Flow (ex.: "Esta geração talvez viole nossas políticas"): conta os que já existem; um novo = recusa
        imediata (antes o app esperava até o tempo limite da etapa, 15–40 min, por uma mídia que nunca vinha) */
-    const FAILS = `(() => { const t = document.body.innerText || ''; return (t.match(/talvez viole nossas pol[ií]ticas|might violate our policies|may violate our policies|falha na gera[cç][aã]o|generation failed/gi) || []).length; })()`;
+    const FAILS = `(() => { const t = document.body.innerText || ''; return (t.match(/n[aã]o houve cobran[cç]a por esta gera[cç][aã]o|you (were|have) not (been )?charged|weren.t charged/gi) || []).length; })()`;
     const fails0 = await evaluate<number>(cdp, session, FAILS, 5000).catch(() => 0);
     let src = '';
     let got: { type: string; data: string } | undefined, small: typeof got;
@@ -431,7 +431,12 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
       if (job.signal?.aborted) throw new Error('cancelado');
       await wait(4000);
       const fails = await evaluate<number>(cdp, session, FAILS, 5000).catch(() => fails0);
-      if (fails > fails0) { await dbg('recusado pelo Flow'); throw new Error('o Flow recusou este pedido (aviso de políticas de conteúdo; não houve cobrança) — tente reformular o prompt'); }
+      if (fails > fails0) {
+        await dbg('recusado pelo Flow');
+        /* motivo do card (políticas, "atividade incomum"/extensões…) — todo card de falha traz "Não houve cobrança" */
+        const why = await evaluate<string>(cdp, session, `(() => { const m = (document.body.innerText || '').match(/(talvez viole nossas pol[ií]ticas|notamos uma atividade incomum|unusual activity|might violate our policies)[^\\n]{0,60}/i); return m ? m[0] : ''; })()`, 5000).catch(() => '');
+        throw new Error(`o Flow recusou este pedido (${why || 'card de falha'}; não houve cobrança)`);
+      }
       let ms: Array<{ tag: string; src: string; w?: number; h?: number }> = [];
       try { ms = (await evaluate<{ medias: string[] }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000)).medias as unknown as typeof ms; } catch { continue; }
       /* a grade carrega itens ANTIGOS aos poucos (rolagem/lazy load): eles aparecem "novos" sem ser o resultado. Só vale a
