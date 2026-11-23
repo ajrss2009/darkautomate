@@ -475,6 +475,8 @@ export class ForgeDb {
       if (row?.indexed_mtime && mtime <= row.indexed_mtime + 1) continue;
       try {
         const p = JSON.parse(fs.readFileSync(file, 'utf8')) as Project;
+        /* pasta de OUTRO programa (project.json sem id/nome do FilmForge): não é projeto — a lista já ignora; o índice também */
+        if (!p || typeof p !== 'object' || typeof p.name !== 'string' || !Array.isArray(p.scenes ?? [])) continue;
         const pid = p.id || id;
         seen.add(pid);
         const isNew = !row;
