@@ -256,17 +256,22 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
   const abort = () => { void cdp.send('Target.closeTarget', { targetId }).catch(() => {}); cdp.close(); };
   job.signal?.addEventListener('abort', abort, { once: true });
   try {
-    /* abas de projeto do Flow que ficaram abertas (pedido anterior interrompido, card aberto): a aba antiga continua com o
-       foco da janela e a nova fica em segundo plano — o clique não punha o foco no campo ("sem foco"). Os pedidos desta
-       conta são feitos um por vez, então as outras abas de projeto podem fechar. */
+    const t = await cdp.send('Target.createTarget', { url: job.projectUrl || job.flowUrl }) as { targetId: string };
+    targetId = t.targetId;
+    /* abas de projeto do Flow que ficaram abertas (pedido interrompido, card aberto) mantinham o foco da janela e a nova ficava
+       "sem foco". Fecha as OUTRAS só depois de abrir a nova: fechar antes podia fechar a última aba — e a janela —, e a aba
+       nova nascia numa janela sem foco onde os cliques reais não chegavam. Os pedidos desta conta são um por vez. */
     try {
       const { targetInfos } = await cdp.send('Target.getTargets', {}) as { targetInfos: Array<{ targetId: string; type: string; url: string }> };
-      for (const ti of targetInfos.filter((x) => x.type === 'page' && /flow\.google\.com\/project\/|labs\.google\/fx\/.*\/project\//.test(x.url))) {
+      for (const ti of targetInfos.filter((x) => x.type === 'page' && x.targetId !== targetId && /flow\.google\.com\/project\/|labs\.google\/fx\/.*\/project\//.test(x.url))) {
         await cdp.send('Target.closeTarget', { targetId: ti.targetId }).catch(() => {});
       }
     } catch { /* sem a lista: segue */ }
-    const t = await cdp.send('Target.createTarget', { url: job.projectUrl || job.flowUrl }) as { targetId: string };
-    targetId = t.targetId;
+    /* janela minimizada não recebe os cliques reais (configurações, foco, envio): restaura */
+    try {
+      const w = await cdp.send('Browser.getWindowForTarget', { targetId }) as { windowId: number; bounds?: { windowState?: string } };
+      if (w.bounds?.windowState === 'minimized') await cdp.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: 'normal' } });
+    } catch { /* sem a janela: segue */ }
     session = (await cdp.send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string }).sessionId;
     await cdp.send('Page.enable', {}, session);
     await cdp.send('Page.bringToFront', {}, session);
