@@ -1026,7 +1026,9 @@ export function buildPromptMarked(c: ExecContext): string {
     const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: 'free', budget });
     /* o harness enxerga o disco inteiro: no teste ele copiou os clipes de OUTRO projeto (Natal) em vez de gerar os seus */
     const own = `ISOLAMENTO: trabalhe SOMENTE dentro da pasta deste projeto (${c.projectDir}). NUNCA leia, copie, liste ou reaproveite arquivos de outros projetos (outras pastas em ${path.dirname(c.projectDir)}) nem de vídeos já prontos — o vídeo é ORIGINAL, feito agora com a ideia acima. Mídia de fora só se a ideia der um link ou caminho explícito.`;
-    return `${p.idea.trim()}\n\n${plugins ? plugins + '\n\n' : ''}---\n${own}\nEntrega: grave o vídeo final em ${out} (crie a pasta, se precisar).`;
+    /* ferramentas do app (o agente perdia minutos procurando ffmpeg/python no PATH) */
+    const tools = `FERRAMENTAS: ffmpeg = "${c.settings.ffmpeg}" · ffprobe = "${c.settings.ffprobe}" (use esses caminhos). Confira o resultado antes de entregar: o vídeo precisa ter imagem visível (não preta), movimento e a duração pedida.`;
+    return `${p.idea.trim()}\n\n${plugins ? plugins + '\n\n' : ''}---\n${own}\n${tools}\nEntrega: grave o vídeo final em ${out} (crie a pasta, se precisar).`;
   }
   const vt = getVideoType(p.videoType);
   const file = primaryFile(c.step.kind, c);
