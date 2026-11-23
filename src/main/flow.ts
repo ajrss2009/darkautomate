@@ -253,6 +253,15 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
   const abort = () => { void cdp.send('Target.closeTarget', { targetId }).catch(() => {}); cdp.close(); };
   job.signal?.addEventListener('abort', abort, { once: true });
   try {
+    /* abas de projeto do Flow que ficaram abertas (pedido anterior interrompido, card aberto): a aba antiga continua com o
+       foco da janela e a nova fica em segundo plano — o clique não punha o foco no campo ("sem foco"). Os pedidos desta
+       conta são feitos um por vez, então as outras abas de projeto podem fechar. */
+    try {
+      const { targetInfos } = await cdp.send('Target.getTargets', {}) as { targetInfos: Array<{ targetId: string; type: string; url: string }> };
+      for (const ti of targetInfos.filter((x) => x.type === 'page' && /flow\.google\.com\/project\/|labs\.google\/fx\/.*\/project\//.test(x.url))) {
+        await cdp.send('Target.closeTarget', { targetId: ti.targetId }).catch(() => {});
+      }
+    } catch { /* sem a lista: segue */ }
     const t = await cdp.send('Target.createTarget', { url: job.projectUrl || job.flowUrl }) as { targetId: string };
     targetId = t.targetId;
     session = (await cdp.send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string }).sessionId;
@@ -346,7 +355,15 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     await wait(250);
     /* SEGURANÇA: Ctrl+A + Backspace fora do campo seleciona e APAGA as mídias do projeto do Flow (aconteceu com um aviso
        aberto por cima: 54 itens foram para a lixeira). Só digita se o foco está num campo de texto e não há diálogo aberto. */
-    const focusOk = await evaluate<string>(cdp, session, FLOW_FOCUS_CHECK, 5000).catch(() => 'erro');
+    let focusOk = await evaluate<string>(cdp, session, FLOW_FOCUS_CHECK, 5000).catch(() => 'erro');
+    /* o clique não levou o foco (janela em segundo plano): foca a caixa do pedido direto e confere de novo */
+    if (focusOk === 'sem foco') {
+      await cdp.send('Page.bringToFront', {}, session).catch(() => {});
+      await evaluate<boolean>(cdp, session, `(() => { ${PAGE_HELPERS} const e = editor(); if (!e) return false; e.focus(); return true; })()`, 5000).catch(() => false);
+      await wait(300);
+      focusOk = await evaluate<string>(cdp, session, FLOW_FOCUS_CHECK, 5000).catch(() => 'erro');
+      if (focusOk === 'ok') job.log('Flow: foco no campo do pedido recuperado');
+    }
     if (focusOk !== 'ok') { await dbg(`foco fora do campo (${focusOk})`); throw new Error(`o campo do agente do Flow não está com o foco (${focusOk}) — nada foi digitado`); }
     // limpa o que houver no campo (Ctrl+A, Backspace) e digita o pedido
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 }, session);
