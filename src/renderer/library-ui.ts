@@ -33,6 +33,7 @@ interface Catalog {
   wan2gpModels: Array<{ kind: string; model: string }>;
   stock: StockSource[]; builtinTools: string[]; comfyServers: string[];
   flowAccounts?: Array<{ id: string; label: string; email?: string }>;
+  mediaBanks?: Array<{ id: string; name: string; kinds?: Array<'image' | 'video'> }>;
 }
 interface Meta { videoTypes: Array<{ id: string; label: string; sceneKind?: string }>; stepKinds: string[]; harnessIds: string[]; voices?: Array<{ name: string; path: string }> }
 
@@ -584,7 +585,9 @@ function bindingEditor(c: Ctx, st: RouteStep, b: Binding, bi: number, cat: Catal
         h('span', { class: 'muted' }, (cat.flowAccounts ?? []).length ? 'Gera no Google Flow pelo navegador da conta (Automações).' : 'Adicione uma conta em Automações e faça o login.'));
       break;
     case 'builtin':
-      fields.push(h('label', {}, 'Ferramenta', sel(c, cat.builtinTools.map((x) => [x, x] as [string, string]), b.tool, (v) => { b.tool = v as typeof b.tool; })));
+      fields.push(h('label', {}, 'Ferramenta', sel(c, cat.builtinTools.map((x) => [x, x === 'media-folder' ? '📁 pasta / banco de mídia' : x] as [string, string]), b.tool, (v) => { b.tool = v as typeof b.tool; })));
+      /* pasta/banco de mídia: qual banco (vazio = todos, na ordem) */
+      if (b.tool === 'media-folder') fields.push(h('label', {}, 'Banco', sel(c, [['', 'todas as pastas'], ...((cat as { mediaBanks?: Array<{ id: string; name: string }> }).mediaBanks ?? []).map((m) => [m.id, m.name] as [string, string])], b.bank ?? '', (v) => { b.bank = v || undefined; })));
       break;
     default: fields.push(h('span', { class: 'muted' }, 'Etapa manual: você fornece o arquivo.'));
   }

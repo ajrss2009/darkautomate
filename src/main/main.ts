@@ -1483,6 +1483,22 @@ function registerIpc() {
       if (r.files.avatar) myChannels.setAsset(settings, id, 'avatar', r.files.avatar);
       if (r.files.thumb) myChannels.setAsset(settings, id, 'thumb', r.files.thumb);
       saveSettings(settings);
+      /* CANAL NOVO JÁ COM PRODUTOS PARA VENDER: sem produtos ainda, a IA sugere infoprodutos e produtos físicos do nicho
+         (os mesmos do botão "Sugerir produtos"); viram a chamada (CTA) no roteiro dos projetos do canal */
+      const chNow = myChannels.getChannel(settings, id);
+      if (!chNow.products && !ac.signal.aborted) {
+        try {
+          send({ t: 'log', stepId: 'channel', line: '🛍 sugerindo produtos para vender no canal…' } as EngineEvent);
+          const { json, binding } = await llmJson([{ type: 'harness', harness: (input.harness ?? 'auto') as HarnessBinding['harness'] }], settings, path.join(settings.workspace, 'tools', 'finder'),
+            productsPrompt(channelProductsContext(chNow, chNow.type ? channelType(chNow.type)?.label : undefined)), ac.signal, (line) => send({ t: 'log', stepId: 'channel', line } as EngineEvent));
+          const plan = normalizeProducts(json, (binding as { harness?: string } | undefined)?.harness);
+          if (plan.info.length || plan.physical.length) {
+            chNow.products = mergeChannelProducts(chNow.products, plan, 'ai');
+            saveSettings(settings);
+            send({ t: 'log', stepId: 'channel', line: `🛍 ${plan.info.length} infoproduto(s) e ${plan.physical.length} produto(s) físico(s) sugeridos — veja em Produtos` } as EngineEvent);
+          }
+        } catch (e) { if (!ac.signal.aborted) send({ t: 'log', stepId: 'channel', line: `produtos não sugeridos agora (${(e as Error).message.slice(0, 120)}) — use "Sugerir produtos"` } as EngineEvent); }
+      }
       return { ...r, state: channelsState() };
     } finally { brandAbort = undefined; }
   });

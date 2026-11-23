@@ -219,9 +219,9 @@ export interface ScenePatch {
   /** contrato de áudio desta cena numa mistura de skills (documentário + clipe no mesmo vídeo) */
   audioOverride?: { contract?: 'principal' | 'narracao' | 'elenco' | 'musica' | 'silencio' };
 }
-export const FILTERS = ['none', 'bw', 'sepia', 'vivid', 'warm', 'cool', 'blur', 'cinematic', 'teal_orange', 'vintage', 'noir', 'matte', 'dramatic'];
+export const FILTERS = ['none', 'bw', 'sepia', 'vivid', 'warm', 'cool', 'blur', 'cinematic', 'teal_orange', 'vintage', 'noir', 'matte', 'dramatic', 'technicolor', 'technicolor_faded'];
 const ZOOMS = ['none', 'in', 'out', 'pan_left', 'pan_right', 'pan_up', 'pan_down', 'in_left', 'in_right', 'shake', 'pulse', 'drift'];
-export const TEXTURES = ['none', 'static', 'vhs', 'dust', 'old_film', 'crt', 'glitch', 'paper'];
+export const TEXTURES = ['none', 'static', 'vhs', 'dust', 'old_film', 'crt', 'glitch', 'paper', 'film_scratches'];
 const VIGNETTES = ['none', 'soft', 'strong'];
 export const TRANSITIONS = ['none', 'fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideup', 'circleopen', 'circleclose', 'radial', 'pixelize', 'zoomin', 'hblur'];
 const pick = <T extends string>(list: string[], v: unknown, def: T): T => (typeof v === 'string' && list.includes(v) ? v : def) as T;

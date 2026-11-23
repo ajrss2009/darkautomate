@@ -56,6 +56,7 @@ import * as sceneReview from './scene-review';
 import { thumbStyleImage } from './thumb-ref';
 import { editParamsFromRef } from './references';
 import { clipInsertAt, insertProductClip, productClipInfoFile } from './product-clip';
+import { IMAGE_EXT, takeMedia, words as mediaWords } from './media-bank';
 import { llmJson } from './editor';
 import { languageName } from './prompts';
 import { inScene } from './characters';
@@ -2383,6 +2384,7 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     return { files: [final] };
   }
   if (tool === 'lyric-song') return lyricSong(c, o);
+  if (tool === 'media-folder') return mediaFolder(c);
   if (tool === 'lyric-words') return lyricWords(c);
   if (tool === 'frame-thumbnail') return frameThumbnail(c);
   if (tool === 'wan2gp-showrunner') {
@@ -2678,6 +2680,34 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
   await client.download(audio, raw);
   if (server.freeAfter) await client.freeMemory();
   return songTiming(c, o, parsed, raw, seconds);
+}
+
+/**
+ * Provedor "Pasta / banco de mídia": a imagem (etapa de imagem) ou o clipe (etapa de vídeo) da cena vem da pasta do
+ * usuário — o arquivo que mais combina com a cena (termos de busca, título e intenção visual), sem repetir no vídeo.
+ * Sem arquivo novo que sirva → erro → próximo provedor da cadeia.
+ */
+async function mediaFolder(c: ExecContext): Promise<ExecResult> {
+  if (!c.scene) throw new Error('pasta/banco de mídia: só nas etapas por cena (imagem ou vídeo)');
+  const kind: 'image' | 'video' = c.step.kind === 'video' ? 'video' : 'image';
+  const want = (c.binding as { bank?: string }).bank;
+  const banks = (c.settings.mediaBanks ?? []).filter((b) => !want || b.id === want);
+  if (!banks.length) throw new Error(want ? `banco de mídia "${want}" não existe (Provedores → Pastas e bancos de mídia)` : 'nenhuma pasta/banco de mídia em Provedores → Pastas e bancos de mídia');
+  const terms = mediaWords([termsText(c.scene.searchTerms), c.scene.title, c.scene.visualIntent].join(' ')).slice(0, 40);
+  const got = takeMedia({ banks, kind, terms, outDir: c.outDir, sceneKey: `${c.project.id}/${c.scene.id}` });
+  if (!got) throw new Error(`pasta/banco de mídia: nenhum${kind === 'video' ? ' clipe' : 'a imagem'} novo(a) para esta cena (todos já usados ou pasta vazia)`);
+  const dest0 = primaryFile(c.step.kind, c);
+  ensureDir(dest0);
+  let dest = dest0;
+  if (kind === 'image' && !/\.png$/i.test(got.item.file) && /\.png$/i.test(dest0)) {
+    await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', got.item.file, '-frames:v', '1', dest0], c.signal);   // jpg/webp → png do quadro
+  } else {
+    dest = kind === 'video' ? dest0.replace(/\.\w+$/, path.extname(got.item.file).toLowerCase()) : dest0;
+    if (kind === 'image' && !IMAGE_EXT.test(dest)) dest = dest0;
+    fs.copyFileSync(got.item.file, dest);
+  }
+  c.log(`📁 ${got.bank.name}: ${got.item.rel}${terms.length ? ` (combina com: ${terms.slice(0, 6).join(', ')})` : ''}`);
+  return { files: [dest] };
 }
 
 /** Canção pronta (Yue 2 ou Wan2GP) → out/music.mp3 na duração do projeto + tempos de cada verso (Whisper ou estimativa). */

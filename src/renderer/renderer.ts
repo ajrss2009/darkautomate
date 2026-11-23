@@ -2363,14 +2363,14 @@ let preview: { v?: HTMLVideoElement; i?: HTMLImageElement; a?: HTMLAudioElement;
 let playing = false;
 /** Legendas sobrepostas na prévia: desligadas por padrão (botão CC liga). */
 let showSubs = false;
-const FX_FILTERS: Array<[string, string]> = [['none', 'Nenhum'], ['cinematic', 'Cinematográfico'], ['teal_orange', 'Teal & orange'], ['vintage', 'Vintage'], ['matte', 'Matte'], ['dramatic', 'Dramático'],
+const FX_FILTERS: Array<[string, string]> = [['none', 'Nenhum'], ['technicolor', 'Technicolor (anos 50)'], ['technicolor_faded', 'Technicolor desbotado'], ['cinematic', 'Cinematográfico'], ['teal_orange', 'Teal & orange'], ['vintage', 'Vintage'], ['matte', 'Matte'], ['dramatic', 'Dramático'],
   ['vivid', 'Vívido'], ['warm', 'Quente'], ['cool', 'Frio'], ['noir', 'Noir'], ['bw', 'Preto e branco'], ['sepia', 'Sépia'], ['blur', 'Desfoque']];
 const FX_ZOOM: Array<[string, string, string]> = [['none', 'Sem movimento', '⏸️'], ['in', 'Zoom in (Ken Burns)', '🔍'], ['out', 'Zoom out', '🔭'], ['pan_left', 'Pan para a esquerda', '⬅️'], ['pan_right', 'Pan para a direita', '➡️'],
   ['pan_up', 'Pan para cima', '⬆️'], ['pan_down', 'Pan para baixo', '⬇️'], ['in_left', 'Zoom in + esquerda', '↖️'], ['in_right', 'Zoom in + direita', '↗️'],
   ['shake', 'Câmera na mão (tremor)', '📳'], ['pulse', 'Pulso (zoom na batida)', '💓'], ['drift', 'Deriva lenta', '🍃']];
 /** Texturas por cena (iguais às do ffmpeg na montagem). */
 const FX_TEX: Array<[string, string, string]> = [['none', 'Sem textura', '⬜'], ['static', 'Chuviscado (TV)', '📺'], ['vhs', 'VHS', '📼'], ['dust', 'Poeira + cintilação', '🌫️'],
-  ['old_film', 'Filme antigo', '🎞️'], ['crt', 'Tela CRT (linhas)', '🖥️'], ['glitch', 'Glitch', '👾'], ['paper', 'Papel / granulado', '📜']];
+  ['old_film', 'Filme antigo', '🎞️'], ['crt', 'Tela CRT (linhas)', '🖥️'], ['glitch', 'Glitch', '👾'], ['paper', 'Papel / granulado', '📜'], ['film_scratches', 'Arranhões de filme antigo', '🎬']];
 /** Aba aberta no painel lateral do editor (lembrada entre sessões). */
 let inspTab = (() => { try { return localStorage.getItem('ff.inspTab') || 'scene'; } catch { return 'scene'; } })();
 const sceneStart = (p: Project, idx: number) => p.scenes.slice(0, idx).reduce((a, s) => a + dur(s), 0);

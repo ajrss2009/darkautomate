@@ -33,6 +33,7 @@ interface Catalog {
   harnesses: Array<{ id: string; models: string[]; defaultModel?: string }>;
   comfyServers: string[];
   flowAccounts?: Array<{ id: string; label: string; email?: string }>;
+  mediaBanks?: Array<{ id: string; name: string; kinds?: Array<'image' | 'video'> }>;
 }
 export interface PickerCtx { forge: Api; toast: (m: string, bad?: boolean) => void; language?: string }
 
@@ -125,6 +126,9 @@ export function setCatalogNames(cat: Pick<Catalog, 'workflows' | 'wan2gpTemplate
   wanLoaded = cat.wan2gpModels?.length ? new Set(cat.wan2gpModels.map((m) => m.model)) : undefined;
 }
 
+/** nomes das pastas/bancos de mídia (para os cartões) */
+const bankNames = new Map<string, string>();
+export function setBankNames(list: Array<{ id: string; name: string }> | undefined): void { bankNames.clear(); for (const b of list ?? []) bankNames.set(b.id, b.name); }
 export function bindingArt(b: Binding): { icon: string; title: string; sub: string; where: string } {
   switch (b.type) {
     case 'harness': { const a = HARNESS_ART[b.harness] ?? { icon: '🤖', name: b.harness, where: 'local/nuvem' }; return { icon: a.icon, title: a.name, sub: b.model && b.model !== 'auto' ? b.model : 'modelo padrão', where: a.where }; }
@@ -140,7 +144,9 @@ export function bindingArt(b: Binding): { icon: string; title: string; sub: stri
     }
     case 'api': return { icon: '☁️', title: `API ${b.provider}`, sub: b.model + (b.voice ? ` · voz ${b.voice}` : ''), where: 'nuvem (paga)' };
     case 'stock': return { icon: '🗂️', title: 'Bancos de mídia', sub: b.sources.join(' + '), where: 'internet' };
-    case 'builtin': return { icon: '🧰', title: 'Ferramenta do app', sub: b.tool, where: 'local' };
+    case 'builtin': return b.tool === 'media-folder'
+      ? { icon: '📁', title: 'Pasta / banco de mídia', sub: b.bank ? (bankNames.get(b.bank) ?? b.bank) : 'todas as pastas, sem repetir', where: 'seus arquivos' }
+      : { icon: '🧰', title: 'Ferramenta do app', sub: b.tool, where: 'local' };
     case 'flow': return { icon: '🌊', title: 'Google Flow', sub: b.account ? `conta ${b.account}` : 'primeira conta com login', where: 'sua conta Google' };
     default: return { icon: '✋', title: 'Manual', sub: 'você fornece o arquivo', where: '—' };
   }
@@ -172,6 +178,11 @@ function optionsFor(cat: ExecutorCategory, catalog: Catalog): Binding[] {
     for (const w of catalog.workflows.filter((x) => x.capability === cap)) out.push({ type: 'comfyui', server: catalog.comfyServers[0] ?? 'local', workflow: w.file });
     for (const w of catalog.wan2gpTemplates.filter((x) => x.capability === cap)) out.push({ type: 'wan2gp', template: w.file });
   }
+  if (cat === 'image' || cat === 'video') {   // pastas/bancos de mídia do usuário (sem repetir no vídeo)
+    const kind = cat === 'image' ? 'image' : 'video';
+    const banks = (catalog.mediaBanks ?? []).filter((b) => !b.kinds?.length || b.kinds.includes(kind));
+    if (banks.length) { out.push({ type: 'builtin', tool: 'media-folder' }); for (const b of banks) out.push({ type: 'builtin', tool: 'media-folder', bank: b.id }); }
+  }
   if (cat === 'image' || cat === 'video') {   // Google Flow pela conta de Automações (Nano Banana / Veo)
     out.push({ type: 'flow' });
     for (const a of catalog.flowAccounts ?? []) out.push({ type: 'flow', account: a.id });
@@ -183,7 +194,7 @@ function optionsFor(cat: ExecutorCategory, catalog: Catalog): Binding[] {
   if (cat === 'music') out.push({ type: 'builtin', tool: 'library-music' });
   return out;
 }
-const key = (b: Binding) => b.type === 'harness' ? `h:${b.harness}` : b.type === 'comfyui' ? `c:${b.workflow}` : b.type === 'wan2gp' ? `w:${b.template}` : b.type === 'api' ? `a:${b.provider}` : b.type === 'builtin' ? `b:${b.tool}` : b.type === 'flow' ? `f:${b.account ?? ''}` : b.type;
+const key = (b: Binding) => b.type === 'harness' ? `h:${b.harness}` : b.type === 'comfyui' ? `c:${b.workflow}` : b.type === 'wan2gp' ? `w:${b.template}` : b.type === 'api' ? `a:${b.provider}` : b.type === 'builtin' ? `b:${b.tool}${b.bank ? ':' + b.bank : ''}` : b.type === 'flow' ? `f:${b.account ?? ''}` : b.type;
 
 /** Cartão ilustrado de um executor. */
 function tile(b: Binding, o: { selected?: boolean; status?: Record<string, { installed: boolean }>; onClick?: () => void; small?: boolean; label?: string }): HTMLElement {
@@ -277,6 +288,7 @@ export interface ProvidersChoice { profileId?: string; chains?: ExecutorProfile[
  */
 export async function openProvidersModal(c: PickerCtx, o: { route?: Route; current?: ProvidersChoice; onPick: (ch: ProvidersChoice | undefined) => void; mode?: 'project' | 'profile'; editProfile?: ExecutorProfile }) {
   const [catalog, settings] = await Promise.all([c.forge['catalog']() as Promise<Catalog>, c.forge['getSettings']() as Promise<Settings>]);
+  setBankNames(catalog.mediaBanks);
   setCatalogNames(catalog);
   const meta = (await c.forge['meta']()) as { profiles?: ExecutorProfile[] };
   let profiles = meta.profiles ?? [];
@@ -441,6 +453,35 @@ export async function openProvidersModal(c: PickerCtx, o: { route?: Route; curre
 }
 
 /** Página "Provedores": galeria dos perfis (padrão e seus), criar, editar, duplicar e excluir. */
+/** Provedores → "📁 Pastas e bancos de mídia": imagens e clipes do usuário usados nas etapas de imagem/vídeo sem repetir. */
+async function mediaBanksCard(c: PickerCtx, again: () => void): Promise<HTMLElement> {
+  const s = (await c.forge['getSettings']()) as Settings;
+  const banks = s.mediaBanks ?? [];
+  setBankNames(banks);
+  const save = async (list: NonNullable<Settings['mediaBanks']>) => { const cur = (await c.forge['getSettings']()) as Settings; cur.mediaBanks = list; await c.forge['setSettings'](cur); again(); };
+  const row = (b: NonNullable<Settings['mediaBanks']>[number]) => {
+    const kinds = h('select', { 'data-bank-kinds': b.id }, h('option', { value: '' }, 'imagens e vídeos'), h('option', { value: 'image' }, 'só imagens'), h('option', { value: 'video' }, 'só vídeos')) as HTMLSelectElement;
+    kinds.value = b.kinds?.length === 1 ? b.kinds[0]! : '';
+    kinds.addEventListener('change', () => void save(banks.map((x) => (x.id === b.id ? { ...x, kinds: kinds.value ? [kinds.value as 'image' | 'video'] : undefined } : x))));
+    const across = h('input', { type: 'checkbox', 'data-bank-across': b.id }) as HTMLInputElement; across.checked = !!b.noRepeatAcross;
+    across.addEventListener('change', () => void save(banks.map((x) => (x.id === b.id ? { ...x, noRepeatAcross: across.checked || undefined } : x))));
+    return h('div', { class: 'row', 'data-bank': b.id }, h('strong', {}, `📁 ${b.name}`), h('span', { class: 'muted grow' }, b.dir), kinds,
+      h('label', { class: 'inline', title: 'Um arquivo usado num vídeo não volta em outro vídeo (registro .filmforge-used.json na pasta)' }, across, 'não repetir entre vídeos'),
+      h('button', { class: 'small danger', onclick: () => void save(banks.filter((x) => x.id !== b.id)) }, '🗑'));
+  };
+  const add = h('button', { class: 'primary', id: 'bank-add', onclick: async () => {
+    const dir = (await c.forge['openDir']({ title: 'Pasta com imagens e/ou clipes' })) as string | null;
+    if (!dir) return;
+    const name = dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'Pasta';
+    const id = `bank-${Date.now().toString(36)}`;
+    await save([...banks, { id, name, dir }]); c.toast(`Pasta "${name}" adicionada — escolha "📁 Pasta / banco de mídia" no perfil ou na rota`);
+  } }, '＋ Adicionar pasta');
+  return h('div', { class: 'card', id: 'media-banks' },
+    h('div', { class: 'row' }, h('h3', { class: 'grow' }, '📁 Pastas e bancos de mídia'), add),
+    h('p', { class: 'muted' }, 'Imagens e clipes seus como provedor de IMAGEM e de VÍDEO: para cada cena o app escolhe o arquivo que mais combina (nome, subpastas e legenda .txt ao lado) e não repete no mesmo vídeo. Sem arquivo novo, passa para o próximo provedor da cadeia. Use no perfil (categoria Imagem/Vídeo) ou na rota (ferramenta media-folder).'),
+    ...(banks.length ? banks.map(row) : [h('p', { class: 'muted' }, 'Nenhuma pasta ainda.')]));
+}
+
 export async function renderProvidersPage(main: HTMLElement, c: PickerCtx, help: HTMLElement) {
   const meta = (await c.forge['meta']()) as { profiles?: ExecutorProfile[] };
   const profiles = meta.profiles ?? [];
@@ -468,10 +509,12 @@ export async function renderProvidersPage(main: HTMLElement, c: PickerCtx, help:
       p.builtin ? null : h('button', { class: 'small primary', onclick: () => open(p) }, '✎ Editar'),
       h('button', { class: 'small', onclick: () => open(undefined, p) }, '⧉ Duplicar e editar'),
       p.builtin ? null : h('button', { class: 'small danger', onclick: () => void del(p) }, '🗑 Excluir')));
+  const banksCard = await mediaBanksCard(c, again);
   main.replaceChildren(
     h('div', { class: 'row pagehead' }, h('h2', {}, '🎛️ Provedores'), h('span', { class: 'tag' }, 'perfis de executores'), help, h('span', { class: 'sp' }),
       h('button', { class: 'primary', id: 'prov-new', onclick: () => open() }, '＋ Novo perfil')),
     h('p', { class: 'muted' }, 'Um perfil diz QUEM executa cada parte do vídeo (texto, código, imagem, vídeo, voz, música). A skill (template) diz COMO o vídeo fica e a rota diz QUAIS etapas existem. Escolha o perfil em Novo projeto → 🎛 Provedores.'),
+    banksCard,
     h('div', { class: 'pgrid3' }, ...profiles.map(card)));
 }
 

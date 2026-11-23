@@ -80,8 +80,17 @@ export interface ApiBinding { type: 'api'; provider: string; model: string; voic
  * - lyric-words: grava os tempos da letra de cada cena (audio/words.json) para a cena por código;
  * - frame-thumbnail: thumbnail a partir de um quadro real do final.mp4 + texto do SEO.
  */
-export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'social-publish' | 'wan2gp-showrunner' | 'viggle-remake';
-export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool }
+export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'social-publish' | 'wan2gp-showrunner' | 'viggle-remake' | 'media-folder';
+/** media-folder: imagem/clipe da pasta ou banco de mídia do usuário (bank = id do banco; vazio = todos, na ordem) */
+export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool; bank?: string }
+/** Pasta / banco de mídia (Provedores): imagens e clipes do usuário usados como provedor de imagem e de vídeo, sem repetir. */
+export interface MediaBank {
+  id: string; name: string; dir: string;
+  /** o que o banco fornece (vazio = imagens e vídeos) */
+  kinds?: Array<'image' | 'video'>;
+  /** não repete o mesmo arquivo em vídeos diferentes (registro .filmforge-used.json na pasta) */
+  noRepeatAcross?: boolean;
+}
 export interface ManualBinding { type: 'manual' }
 /** Google Flow no navegador de uma conta de Automações (imagem: Nano Banana; vídeo: Veo). account vazio = primeira conta com login. */
 export interface FlowBinding { type: 'flow'; account?: string; /** modelo de vídeo do Flow, ex.: 'veo3-lite' (Veo 3.1 Lite) */ model?: string }
@@ -201,12 +210,12 @@ export interface Attachment {
   note?: string;                       // o que é / como usar (vai no prompt)
 }
 
-export type FxFilter = 'none' | 'bw' | 'sepia' | 'vivid' | 'warm' | 'cool' | 'blur' | 'cinematic' | 'teal_orange' | 'vintage' | 'noir' | 'matte' | 'dramatic';
+export type FxFilter = 'none' | 'bw' | 'sepia' | 'vivid' | 'warm' | 'cool' | 'blur' | 'cinematic' | 'teal_orange' | 'vintage' | 'noir' | 'matte' | 'dramatic' | 'technicolor' | 'technicolor_faded';
 export type FxVignette = 'none' | 'soft' | 'strong';
 /** Movimento de câmera na cena: zoom, panorâmicas e zoom com deslocamento. */
 export type FxMove = 'none' | 'in' | 'out' | 'pan_left' | 'pan_right' | 'pan_up' | 'pan_down' | 'in_left' | 'in_right' | 'shake' | 'pulse' | 'drift';
 /** Textura sobre a cena: chuviscado de TV, VHS, poeira/flicker, filme antigo, tela CRT (linhas), glitch, papel. */
-export type FxTexture = 'none' | 'static' | 'vhs' | 'dust' | 'old_film' | 'crt' | 'glitch' | 'paper';
+export type FxTexture = 'none' | 'static' | 'vhs' | 'dust' | 'old_film' | 'crt' | 'glitch' | 'paper' | 'film_scratches';
 /** Transições do ffmpeg xfade (da cena para a próxima). */
 export type FxTransition = 'none' | 'fade' | 'fadeblack' | 'fadewhite' | 'dissolve' | 'wipeleft' | 'wiperight' | 'slideleft' | 'slideup' | 'circleopen' | 'circleclose' | 'radial' | 'pixelize' | 'zoomin' | 'hblur';
 /** Clip de venda de produto dentro do vídeo: arquivo (copiado para o projeto), posição e o link/chamada do produto. */
@@ -696,6 +705,8 @@ export interface Settings {
   comfyServers: ComfyServer[];
   wan2gp?: Wan2gpConfig;
   wan2gpModels?: Array<{ kind: 'image' | 'video' | 'voice' | 'music' | 'sfx' | '3d' | 'world'; model: string }>;
+  /** pastas / bancos de mídia do usuário (provedor "Pasta / banco de mídia" nas etapas de imagem e vídeo) */
+  mediaBanks?: MediaBank[];
   defaults?: {
     imageWorkflow?: string; videoWorkflow?: string;
     /** quantas cenas processar ao mesmo tempo por padrão (1–8). Etapas de GPU local continuam uma por vez. */

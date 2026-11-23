@@ -165,6 +165,10 @@ export function colorFilter(filter?: FxFilter): string[] {
     case 'noir': return ['hue=s=0', 'eq=contrast=1.35:brightness=-0.03'];
     case 'matte': return ["curves=all='0/0.08 1/0.94'", 'eq=saturation=0.85'];
     case 'dramatic': return ['eq=contrast=1.25:saturation=1.15:gamma=0.95'];
+    /* Technicolor (3 faixas, anos 40/50): canais separados (vermelho e verde puros), saturação e contraste altos, calor */
+    case 'technicolor': return ['colorchannelmixer=rr=1.18:rg=-0.12:rb=-0.06:gr=-0.08:gg=1.16:gb=-0.08:br=-0.04:bg=-0.12:bb=1.16', 'eq=saturation=1.3:contrast=1.1:gamma=0.96', 'colorbalance=rs=.05:bs=-.03:rh=.04:gh=.01:bh=-.04'];
+    /* Technicolor desbotado (cópia antiga): cores separadas mas lavadas, pretos levantados e leve magenta */
+    case 'technicolor_faded': return ['colorchannelmixer=rr=1.1:rg=-0.06:rb=-0.04:gr=-0.05:gg=1.08:gb=-0.03:br=-0.02:bg=-0.06:bb=1.08', "curves=all='0/0.07 1/0.94'", 'eq=saturation=0.88:contrast=0.94:brightness=0.02', 'colorbalance=rs=.07:gs=-.03:bs=-.02:rm=.04:bm=.03'];
     default: return [];
   }
 }
@@ -194,8 +198,20 @@ export function finalFilters(e: FinalEffects | undefined): string[] {
 
 export const FX_TEXTURES: Array<{ id: FxTexture; label: string }> = [
   { id: 'static', label: 'Chuviscado (TV)' }, { id: 'vhs', label: 'VHS' }, { id: 'dust', label: 'Poeira + cintilação' }, { id: 'old_film', label: 'Filme antigo' },
-  { id: 'crt', label: 'Tela CRT (linhas)' }, { id: 'glitch', label: 'Glitch' }, { id: 'paper', label: 'Papel / granulado' },
+  { id: 'crt', label: 'Tela CRT (linhas)' }, { id: 'glitch', label: 'Glitch' }, { id: 'paper', label: 'Papel / granulado' }, { id: 'film_scratches', label: 'Arranhões de filme antigo' },
 ];
+/* ARRANHÕES DE FILME ANTIGO: riscos verticais (claros e escuros) que aparecem e somem em posições diferentes — cada um
+   num ciclo próprio de quadros —, poeira, cintilação da luz do projetor e vinheta. Larguras relativas ao vídeo. */
+const SCRATCHES: Array<[number, number, string, number, number, number]> = [
+  // [x (fração da largura), largura (fração), cor, deslocamento, ciclo (quadros), quadros visíveis]
+  [0.12, 0.0011, 'white@0.45', 0, 37, 6], [0.31, 0.0016, 'black@0.55', 17, 43, 7], [0.47, 0.0022, 'white@0.40', 34, 49, 5],
+  [0.58, 0.0010, 'black@0.50', 51, 55, 9], [0.74, 0.0018, 'white@0.42', 68, 61, 6], [0.88, 0.0013, 'black@0.45', 85, 67, 8],
+];
+export function filmScratchFilters(): string[] {
+  return ['noise=alls=16:allf=t+u', "eq=brightness='0.03*sin(23*t)+0.015*sin(71*t)':eval=frame",
+    ...SCRATCHES.map(([x, w, c, off, cyc, vis]) => `drawbox=x=iw*${x}:y=0:w=max(1\\,iw*${w}):h=ih:color=${c}:t=fill:enable='lt(mod(n+${off}\\,${cyc})\\,${vis})'`),
+    'vignette=PI/4.2'];
+}
 /** Filtros ffmpeg de cada textura (só filtros de cadeia simples: entram no -vf do segmento). Função pura. */
 export function textureFilters(t: FxTexture | undefined): string[] {
   switch (t) {
@@ -206,6 +222,7 @@ export function textureFilters(t: FxTexture | undefined): string[] {
     case 'crt': return ['drawgrid=w=iw:h=3:t=1:color=black@0.35', 'gblur=sigma=0.5', 'eq=contrast=1.12:saturation=1.15', 'vignette=PI/4.5'];
     case 'glitch': return ['rgbashift=rh=3:bh=-3', "rgbashift=rh=16:gv=-5:bh=-12:enable='lt(mod(t\\,1.3)\\,0.12)'", 'noise=alls=12:allf=t', 'eq=contrast=1.12'];
     case 'paper': return ['noise=alls=12:allf=u', 'eq=saturation=0.85:brightness=0.03', 'colorbalance=rs=.05:gs=.03:bs=-.05'];
+    case 'film_scratches': return filmScratchFilters();
     default: return [];
   }
 }
