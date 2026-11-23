@@ -110,8 +110,8 @@ const configure = (media: 'image' | 'video', aspect: string, model?: string) => 
     const ar = opt(new RegExp('(^|\\\\s)' + ${JSON.stringify(aspect)}.replace(':', '\\\\:') + '$')); if (ar) { press(ar); await wait(300); out.push(${JSON.stringify(aspect)}); }
     const one = opt(/^x1$/i); if (one) { press(one); await wait(300); out.push('x1'); }
     const modelName = ${JSON.stringify(model || '')};
-    if (media === 'video' && /lite/i.test(modelName)) {
-      const m = clickables().filter((x) => /veo\s*3/i.test(txt(x)) && /lite/i.test(txt(x)))[0];
+    if (${JSON.stringify(media)} === 'video' && /lite/i.test(modelName)) {
+      const m = clickables().filter((x) => /veo\\s*3/i.test(txt(x)) && /lite/i.test(txt(x)))[0];
       if (m) { press(m); await wait(600); out.push('veo3-lite'); }
     }
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
@@ -130,8 +130,8 @@ const configure = (media: 'image' | 'video', aspect: string, model?: string) => 
     ? `pick(/Propor.*imagens|aspect.*image/i, ${JSON.stringify(aspect)}); pick(/Quantidade.*imagens|number.*images/i, 'x1');`
     : `pick(/Propor.*v[ií]deo|aspect.*video/i, ${JSON.stringify(aspect)}); pick(/Quantidade.*v[ií]deos|number.*videos/i, 'x1');`}
   const modelName = ${JSON.stringify(model || '')};
-  if (media === 'video' && /lite/i.test(modelName)) {
-    const m = [...document.querySelectorAll('button, [role=radio], [role=option], [role=tab], [role=menuitem]')].filter(vis).find((x) => /veo\s*3/i.test(txt(x)) && /lite/i.test(txt(x)));
+  if (${JSON.stringify(media)} === 'video' && /lite/i.test(modelName)) {
+    const m = [...document.querySelectorAll('button, [role=radio], [role=option], [role=tab], [role=menuitem]')].filter(vis).find((x) => /veo\\s*3/i.test(txt(x)) && /lite/i.test(txt(x)));
     if (m) { if (m.getAttribute('aria-checked') !== 'true') m.click(); out.push('veo3-lite'); }
   }
   const never = [...document.querySelectorAll('mat-radio-button, [role=radio], label')].filter(vis).find((x) => /^(Nunca|Never)\\b/.test((x.innerText || '').trim()));

@@ -684,7 +684,7 @@ export interface Settings {
   batchRetries?: number;
   comfyServers: ComfyServer[];
   wan2gp?: Wan2gpConfig;
-  wan2gpModels?: Array<{ kind: 'image' | 'video' | 'voice' | 'music'; model: string }>;
+  wan2gpModels?: Array<{ kind: 'image' | 'video' | 'voice' | 'music' | 'sfx' | '3d' | 'world'; model: string }>;
   defaults?: {
     imageWorkflow?: string; videoWorkflow?: string;
     /** quantas cenas processar ao mesmo tempo por padrão (1–8). Etapas de GPU local continuam uma por vez. */

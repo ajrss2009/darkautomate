@@ -60,8 +60,9 @@ function main() {
   assert.deepEqual(mv[1], { type: 'wan2gp', template: 'wan2gp-h3-lipsync-4step.json' });
   assert.equal(mus.steps.find((s) => s.id === 'edit')!.params['musicVolume'], 1);
   const uv = ugc.steps.find((s) => s.id === 'video')!;
-  assert.deepEqual(uv.bindings[0], { type: 'wan2gp', template: 'wan2gp-h3-ugc-4step.json' });
-  assert.ok(uv.bindings.some((b) => b.type === 'api' && (b as { model?: string }).model === 'muse-ai-video'), 'reserva Snapgen Muse AI');
+  /* UGC: SnapGen muse.ai primeiro; depois o MiniMax H3 Ref2VA HyperFlow Flash 14B (criadora + fotos do produto) */
+  assert.deepEqual(uv.bindings[0], { type: 'api', provider: 'snapgen', model: 'muse-ai-video' });
+  assert.deepEqual(uv.bindings[1], { type: 'wan2gp', template: 'wan2gp-h3-ugc-hyperflow.json' });
   assert.equal(uv.params['videoSpeech'], false, 'a voz fica com a narração do criador');
   assert.equal(uv.params['animateImages'], true, 'cena de foto do produto também é animada (o plano às vezes marca "image")');
 
@@ -69,7 +70,7 @@ function main() {
   const sk = (id: string) => BUILTIN_SKILLS.find((s) => s.id === id)!;
   assert.equal(sk('ugc-produto').routeId, 'ugc-produto');
   assert.equal(sk('ugc-produto').aspect, '9:16');
-  assert.ok(sk('ugc-produto').durationSec! >= 30 && sk('ugc-produto').durationSec! <= 40);
+  assert.ok(sk('ugc-produto').durationSec! >= 15 && sk('ugc-produto').durationSec! <= 20, 'UGC de 15–20 s em 4 planos (estilo da referência)');
   assert.match(sk('ugc-produto').global, /GANCHO[\s\S]*CTA/);
   assert.equal(sk('musica-lipsync').routeId, 'musica-lipsync');
   assert.ok(!sk('musica-lipsync').musicVideo, 'é canção com letra (lyric-song), não videoclipe de banco');

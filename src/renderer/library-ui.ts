@@ -1367,7 +1367,7 @@ export async function renderSettings(c: Ctx, reload = true) {
     const cli = h('input', { value: JSON.stringify(w.cliArgs) }) as HTMLInputElement; bind(cli, (v) => { try { w.cliArgs = JSON.parse(v); } catch { /* ignora até ser JSON válido */ } });
     const mt = h('input', { placeholder: 'model_type, ex.: ltx2_22B_distilled' }) as HTMLInputElement;
     s.wan2gpModels = s.wan2gpModels ?? [];
-    const wanLists = ([['image', 'Imagens'], ['video', 'Vídeos'], ['voice', 'Voz'], ['music', 'Músicas']] as const).map(([k, l]) => ({
+    const wanLists = ([['image', 'Imagens'], ['video', 'Vídeos'], ['voice', 'Voz'], ['music', 'Músicas'], ['sfx', 'Efeitos sonoros'], ['3d', 'Objetos 3D'], ['world', 'Mundos interativos e cenas 3D']] as const).map(([k, l]) => ({
       k, l, ml: modelList(c,s.wan2gpModels!.filter((m) => m.kind === k).map((m) => m.model), (n) => {
         s.wan2gpModels = [...s.wan2gpModels!.filter((m) => m.kind !== k), ...n.map((model) => ({ kind: k, model }))];
       }, { field: 'wan-models-' + k, placeholder: 'model_type e Enter' }),
@@ -1402,6 +1402,17 @@ export async function renderSettings(c: Ctx, reload = true) {
               ...av.filter((m) => m.kind).map((m) => `${m.status === 'available' ? '✅' : '🟡'} [${m.kind}] ${m.model_type} — ${m.name}`)].join('\n');
             toast(`${ok.length} modelo(s) do Wan2GP detectado(s) — salve as Configurações`);
           }) }, '🔎 Detectar modelos instalados'),
+          /* catálogo completo (defaults do Wan2GP): todos os modelos de imagem, vídeo, música, voz, efeitos, 3D e mundos */
+          h('button', { 'data-act': 'wan-catalog', title: 'Lê as definições do Wan2GP (defaults/*.json) e carrega TODOS os modelos de cada categoria — os pesos que faltam o Wan2GP baixa no 1º uso', onclick: () => void guard(async () => {
+            await forge['setSettings'](s);
+            const r = await forge['wan2gpCatalog'](true) as { models: Array<{ model_type: string; name: string; category: string; hyperflow?: boolean }>; labels: Record<string, string> };
+            wanLists.forEach((w) => w.ml.load(r.models.filter((m) => m.category === w.k).map((m) => m.model_type)));
+            s.wan2gpModels = r.models.map((m) => ({ kind: m.category as never, model: m.model_type }));
+            const by = new Map<string, number>(); for (const m of r.models) by.set(m.category, (by.get(m.category) ?? 0) + 1);
+            wout.textContent = [`${r.models.length} modelo(s) do catálogo do Wan2GP: ${[...by].map(([k, n]) => `${r.labels[k] ?? k} ${n}`).join(' · ')}`,
+              ...r.models.map((m) => `[${r.labels[m.category] ?? m.category}] ${m.model_type} — ${m.name}${m.hyperflow ? ' ⚡' : ''}`)].join('\n');
+            toast(`${r.models.length} modelos do Wan2GP carregados — salve as Configurações`);
+          }) }, '📚 Adicionar todos do catálogo'),
           mt, h('button', { onclick: () => void guard(async () => { wout.textContent = JSON.stringify(await forge['wan2gpDefaults'](mt.value.trim()), null, 1).slice(0, 4000); }) }, 'Ver padrões do modelo')),
         wout,
         /* modelos especiais: troca de personagem/objeto (Viggle e semelhantes) e 2D → 3D (sólidos de imagens) */

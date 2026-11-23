@@ -68,7 +68,11 @@ async function main() {
 
   /* rotas e skills */
   const cast = ROUTES.find((r) => r.id === 'dorama-elenco')!;
-  assert.equal(cast.steps.find((x) => x.id === 'video')!.bindings[0]!.type === 'comfyui' && (cast.steps.find((x) => x.id === 'video')!.bindings[0] as { workflow: string }).workflow, 'minimax-h3-ref2v-cast.json');
+  /* muse.ai primeiro; com retratos, H3 Ref2VA HyperFlow (Wan2GP) e o ref2video do elenco no ComfyUI */
+  const cv = cast.steps.find((x) => x.id === 'video')!.bindings;
+  assert.deepEqual(cv[0], { type: 'api', provider: 'snapgen', model: 'muse-ai-video' });
+  assert.deepEqual(cv[1], { type: 'wan2gp', template: 'wan2gp-h3-ref2va-hyperflow.json' });
+  assert.ok(cv.some((b) => b.type === 'comfyui' && (b as { workflow: string }).workflow === 'minimax-h3-ref2v-cast.json'));
   assert.ok(fs.existsSync(path.join(__dirname, '..', '..', 'workflows', 'minimax-h3-ref2v-cast.json')));
   assert.equal(JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'workflows', 'minimax-h3-ref2v-cast.map.json'), 'utf8')).castRefs, 2);
   const skills = BUILTIN_SKILLS;
@@ -118,9 +122,9 @@ async function main() {
     assert.ok(st.bindings.some((b) => b.type === 'builtin' && b.tool === 'music-code'), `rota ${r.id}: trilha por código como reserva`);
   const withCode = createProject(s, { name: 'Com trilha', idea: 'x', videoType: 'custom', routeId: 'dorama-elenco', codeMusic: true });
   assert.equal(withCode.codeMusic, true);
-  assert.equal((withCode.route!.steps.find((x) => x.id === 'video')!.bindings[0] as { workflow: string }).workflow, 'minimax-h3-ref2v-cast.json');
+  assert.ok(withCode.route!.steps.find((x) => x.id === 'video')!.bindings.some((b) => (b as { workflow?: string }).workflow === 'minimax-h3-ref2v-cast.json'));
   const ollama = createProject(s, { name: 'Ollama', idea: 'x', videoType: 'custom', routeId: 'dorama-elenco', executorProfile: 'local-ollama' });
-  assert.equal((ollama.route!.steps.find((x) => x.id === 'video')!.bindings[0] as { workflow: string }).workflow, 'minimax-h3-ref2v-cast.json', 'perfil não troca o workflow do elenco');
+  assert.ok(ollama.route!.steps.find((x) => x.id === 'video')!.bindings.some((b) => (b as { workflow?: string }).workflow === 'minimax-h3-ref2v-cast.json'), 'perfil não tira o workflow do elenco');
 
   console.log('cast (dorama/histórias) tests: OK');
 }

@@ -90,6 +90,7 @@ import { loadKitSounds } from './kit-import';
 import { insightsToHtml, insightsToText, readFavoriteChannels, removeFavoriteChannels, reportBaseName, reportsDir, toggleFavoriteChannel, type FavoriteChannel, type InsightMeta } from './research-report';
 import { h3Options, scanH3Loras } from './h3accel';
 import { scanSpecialModels } from './wan2gp-special';
+import { CATEGORY_LABEL, mergeWan2gpModels, scanWan2gpCatalog } from './wan2gp-catalog';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
@@ -643,6 +644,20 @@ async function projectRow(id: string) {
     typeId: pr?.typeId, language: pr?.language, status, runs: pr?.production?.runs?.length ?? 0, lastRunAt: lastRun?.endedAt, lastRunOk: lastRun?.ok, updatedAt,
     skillId: pr?.skillId ?? pr?.skill?.id, skillName: pr?.skill?.name, routeName: pr?.route?.name, aspect: pr?.aspect, targetDurationSec: pr?.targetDurationSec, dir,
     plugins: pr?.plugins ?? [], cost: pr ? costOfProject(pr) : undefined };
+}
+
+/** Junta o catálogo do Wan2GP em settings.wan2gpModels; devolve quantos modelos entraram. */
+function syncWan2gpCatalog(): number {
+  const root = settings.wan2gp?.root;
+  if (!root || !fs.existsSync(root)) return 0;
+  const cat = scanWan2gpCatalog(root);
+  const before = settings.wan2gpModels?.length ?? 0;
+  const merged = mergeWan2gpModels(settings.wan2gpModels ?? [], cat);
+  if (merged.length === before) return 0;
+  settings.wan2gpModels = merged;
+  saveSettings(settings);
+  console.log(`[FilmForge] Wan2GP: ${merged.length - before} modelo(s) do catálogo adicionados (${merged.length} no total)`);
+  return merged.length - before;
 }
 
 /* ───────── Telegram + assistente com memória (menu lateral "Telegram") ───────── */
@@ -2154,6 +2169,12 @@ function registerIpc() {
     return Wan2gpClient.get(settings.wan2gp, path.join(toolsDir(), 'wan2gp_bridge.py'));
   };
   h('wan2gp:models', () => wan().models());
+  /* catálogo completo das definições do Wan2GP (baixados ou não), por categoria; add=true junta todos nos modelos do app */
+  h('wan2gp:catalog', (add?: boolean) => {
+    const models = settings.wan2gp?.root ? scanWan2gpCatalog(settings.wan2gp.root) : [];
+    const added = add ? syncWan2gpCatalog() : 0;
+    return { models, labels: CATEGORY_LABEL, added, loaded: settings.wan2gpModels ?? [] };
+  });
   /* modelos com pesos no disco, já com a modalidade do app (imagem/vídeo/voz/música) */
   h('wan2gp:availability', async () => (await wan().availability()).map((m) => ({ ...m, kind: wan2gpKind(m) })));
   /* Showrunner: abre o servidor do Wan2GP se estiver fechado (soltando a ponte local da GPU) e mostra a página no navegador */
@@ -2937,6 +2958,9 @@ app.whenReady().then(async () => {
     return;
   }
   useAppPluginsDir();
+  /* TODOS os modelos do Wan2GP instalado (imagem, vídeo, música, voz, efeitos, 3D, mundos) entram nos modelos do app;
+     os pesos que faltam o Wan2GP baixa no 1º uso */
+  try { syncWan2gpCatalog(); } catch (e) { dumpErr('wan2gp-catalog', e); }
   /* sons dos kits importados voltam para a biblioteca de efeitos */
   try { loadKitSounds(settings); } catch (e) { dumpErr('kit-sounds', e); }
   /* `FilmForge.exe --mcp`: roda como servidor MCP por stdio, sem janela.

@@ -18,7 +18,7 @@ import * as prov from './providers';
 import * as ff from './ffmpeg';
 import { spawn } from 'node:child_process';
 import { decodeMono, hexColor, isAppVisualizer, visualizerBox, writeVisualizer } from './visualizer';
-import { applyH3Choice, h3Family } from './h3accel';
+import { applyH3Choice, applyHyperflowDefault, h3Family } from './h3accel';
 import { frameEditPrompt, prepareViggleSource, VIGGLE_MODEL, viggleInputs, viggleMode, viggleprompt } from './viggle';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack, musicFile } from './soundtrack';
@@ -1143,7 +1143,9 @@ const wan2gpExec = (o: ExecutorOptions): Executor => async (c) => {
   const client = Wan2gpClient.get(cfg, path.join(o.toolsDir ?? path.resolve(__dirname, '../../tools'), 'wan2gp_bridge.py'));
   /* MiniMax H3: modelo + LoRA de aceleração (2/3/4/8 passos) escolhidos em Provedores → Wan2GP */
   const fam = h3Family(tpl.model_type);
-  const h3 = applyH3Choice(tpl.model_type, settings, fam ? cfg.h3?.[fam] : undefined);
+  /* escolha explícita em Provedores → Wan2GP vence; sem escolha, o padrão é o HyperFlow Flash 14B (Ref2VA com referência, FL2VA sem) */
+  const h3Pick = fam ? cfg.h3?.[fam] : undefined;
+  const h3 = h3Pick && (h3Pick.model || h3Pick.lora) ? applyH3Choice(tpl.model_type, settings, h3Pick) : (tpl as { keepModel?: boolean }).keepModel ? { modelType: tpl.model_type, settings } as ReturnType<typeof applyH3Choice> : applyHyperflowDefault(tpl.model_type, settings);
   if (h3.note) c.log(h3.note);
   const res = await client.generate(h3.modelType, h3.settings, c.signal, c.log);
   if (res.unknownKeys.length) c.log(`Wan2GP: chaves desconhecidas para ${tpl.model_type} (confira com "Listar modelos"): ${res.unknownKeys.join(', ')}`);

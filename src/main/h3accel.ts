@@ -110,3 +110,34 @@ export function applyH3Choice(modelType: string, settings: Record<string, unknow
   const note = `MiniMax H3: ${model}${choice.lora && !h3Distilled(model) ? ` + ${choice.lora} (${s['num_inference_steps']} passos)` : ''}`;
   return { modelType: model, settings: s, note };
 }
+
+/**
+ * PADRÃO DO APP para o MiniMax H3 de vídeo: HyperFlow Flash 14B (destilado, 6 passos, sem CFG, sem LoRA de aceleração).
+ *  - com REFERÊNCIA (image_refs do elenco/produto, ou áudio de referência: voz clonada, dublagem, trecho da canção)
+ *    → minimax_h3_ref2va_hyperflow;
+ *  - sem referência (texto, ou só o 1º/último quadro da cena) → minimax_h3_fl2va_hyperflow.
+ * Troca a família quando preciso (template Ref2VA sem referência vira FL2VA e vice-versa) e mantém as LoRAs de estilo.
+ */
+export function applyHyperflowDefault(modelType: string, settings: Record<string, unknown>): { modelType: string; settings: Record<string, unknown>; note?: string } {
+  const fam = h3Family(modelType);
+  if (fam !== 'fl2va' && fam !== 'ref2va') return { modelType, settings };
+  const s: Record<string, unknown> = { ...settings };
+  const imgRefs = Array.isArray(s['image_refs']) ? (s['image_refs'] as unknown[]).filter(Boolean) : s['image_refs'] ? [s['image_refs']] : [];
+  const audioRef = String(s['audio_prompt_type'] ?? '').toUpperCase().includes('A') && !!s['audio_guide'];
+  const hasRefs = imgRefs.length > 0 || audioRef;
+  const target = hasRefs ? 'minimax_h3_ref2va_hyperflow' : 'minimax_h3_fl2va_hyperflow';
+  if (hasRefs && fam === 'fl2va') {
+    /* FL2VA com áudio de referência: o quadro de partida vira a 1ª referência do Ref2VA */
+    if (s['image_start'] && !imgRefs.length) s['image_refs'] = [s['image_start']];
+    delete s['image_start']; delete s['image_end'];
+    s['image_prompt_type'] = ''; s['video_prompt_type'] = 'I';
+  }
+  if (!hasRefs && fam === 'ref2va') { delete s['image_refs']; delete s['video_prompt_type']; if (!s['image_start']) s['image_prompt_type'] = ''; }
+  const loras = Array.isArray(s['activated_loras']) ? (s['activated_loras'] as string[]) : [];
+  const mults = String(s['loras_multipliers'] ?? '').split(/\s+/).filter(Boolean);
+  const keep = loras.map((f, i) => [f, mults[i] ?? '1.0'] as const).filter(([f]) => !isAccel(f));
+  if (keep.length) { s['activated_loras'] = keep.map(([f]) => f); s['loras_multipliers'] = keep.map(([, m]) => m).join(' '); }
+  else { delete s['activated_loras']; delete s['loras_multipliers']; }
+  Object.assign(s, { num_inference_steps: 6, guidance_scale: 1, guidance_phases: 1, sample_solver: 'euler', flow_shift: 12 });
+  return { modelType: target, settings: s, note: `MiniMax H3 ${hasRefs ? 'Ref2VA' : 'FL2VA'} HyperFlow Flash 14B (${hasRefs ? 'com referência' : 'sem referência'}, 6 passos)` };
+}

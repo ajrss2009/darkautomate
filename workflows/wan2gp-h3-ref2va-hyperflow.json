@@ -1,0 +1,26 @@
+{
+  "_doc": "Wan2GP · MiniMax H3 Ref2VA HyperFlow Flash 14B (destilado, 6 passos): elenco da cena (folha/retrato da biblioteca) em image_refs, na ordem <Picture 1>, <Picture 2>… — padrão do app quando HÁ referência. Na dublagem a narração entra como <Audio 1> e os lábios seguem a voz.",
+  "model_type": "minimax_h3_ref2va_hyperflow",
+  "needsRefs": true,
+  "megapixels": 0.6,
+  "multiple": 32,
+  "settings": {
+    "prompt": "{{ref_prompt}}",
+    "resolution": "{{resolution}}",
+    "video_length": "{{seconds_ceil}}s",
+    "force_fps": 24,
+    "seed": "{{seed}}",
+    "num_inference_steps": 6,
+    "guidance_scale": 1,
+    "guidance_phases": 1,
+    "sample_solver": "euler",
+    "flow_shift": 12,
+    "config": "gguf_q4_k_m",
+    "multi_prompts_gen_type": "FG",
+    "image_prompt_type": "",
+    "video_prompt_type": "I",
+    "image_refs": "{{ref_images}}"
+  },
+  "label": "Wan2GP · MiniMax H3 Ref2VA HyperFlow Flash 14B (elenco/referências, 6 passos)",
+  "capability": "video"
+}
