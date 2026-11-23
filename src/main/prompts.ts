@@ -1094,6 +1094,15 @@ export function buildPromptMarked(c: ExecContext): string {
             'Use CADA arquivo marcado "usar numa cena" pelo menos uma vez e repita em ciclo quando faltar duração para fechar a música. ' + soma + schema +
             `\n${attachmentsText(p, c.projectDir, 'scene_plan')}`;
         }
+        /* videoclipe GERADO (skill sem bancos de mídia numa rota com imagem/vídeo IA, ex.: Cartoon-to-Real): cortes de 3–5 s
+           em "image"/"video" gerados — antes caía sempre em "stock" de banco e o modelo improvisava cenas em código */
+        const genKinds = ['image', 'video'].filter((k) => routeSceneKinds(p).has(k));
+        if (!(p.skill.mediaSources ?? []).length && genKinds.length) {
+          return head + `\nLeia ${path.join(c.projectDir, 'script.md')} e monte o VIDEOCLIPE com quadros GERADOS por IA. ` +
+            `Cada cena é UM CORTE de 3 a 5 s, sem narração ("narration": ""), "kind" ${genKinds.map((k) => `"${k}"`).join(' ou ')}${genKinds.includes('video') ? ' (video = há movimento/gesto no plano; image = still)' : ''} — NUNCA "code" nem "stock". ` +
+            'visualIntent EM INGLÊS, autossuficiente, descrevendo exatamente o quadro (personagens, figurino, cenário, luz, enquadramento, estilo). Siga a sequência de quadros do script.md. ' + soma +
+            `Grave um ARRAY JSON em scenes.json: [{"id":"s01","title","narration":"","visualIntent","kind":${genKinds.map((k) => `"${k}"`).join('|')},"durationSec":3-5}]. `;
+        }
         return head + `\nLeia ${path.join(c.projectDir, 'script.md')} e monte o VIDEOCLIPE com bancos de mídia. ` +
           'Cada cena é UM CORTE de 3 a 5 s (nunca menos de 3, nunca mais de 5), "kind":"stock", "narration": "" e "searchTerms" com 2–4 palavras EM INGLÊS descrevendo exatamente o plano (os bancos são consultados por tema). ' +
           'Varie enquadramentos (geral, detalhe, movimento) e cubra a música sem repetir o mesmo assunto em cenas seguidas. ' + soma + schema;
