@@ -310,6 +310,10 @@ export function compilationPlan(p: Project): { minSec: number; maxSec: number; t
   const ed = p.route?.steps?.find((s) => s.kind === 'edit' && s.bindings.some((b) => b.type === 'builtin' && b.tool === 'clip-musical'));
   const prm = (ed?.params ?? {}) as Record<string, unknown>;
   const num = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+  /* projeto CURTO sem mínimo/máximo da coletânea: UMA faixa na duração do projeto (antes um clipe de 15 s saía com 240 s
+     — o padrão da coletânea é 2 a 6 min) */
+  const t = num(p.targetDurationSec);
+  if (!num(p.musicMinMin) && !num(p.musicMaxMin) && t && t < 120) { const s = Math.round(t); return { minSec: s, maxSec: s, targetSec: s, trackSec: s, tracks: 1 }; }
   const minSec = Math.round(Math.max(60, (num(p.musicMinMin) ?? 0) * 60 || num(prm['minTotalSeconds']) || 120));
   const maxSec = Math.round(Math.max(minSec, (num(p.musicMaxMin) ?? 0) * 60 || num(prm['maxTotalSeconds']) || Math.max(minSec, 360)));
   const targetSec = Math.round((minSec + maxSec) / 2);
