@@ -1803,7 +1803,9 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
   const minTotalSeconds = plan.minSec, maxTotalSeconds = plan.maxSec, targetTotal = plan.targetSec;
   const perTrack = clipParams.perTrackLoop === true || String(clipParams.loopMode ?? '') === 'per-track';
   const instrumental = c.project.musicMode !== 'song';
-  const trackLen = (t: MusicPlanTrack) => { const s = Number(t.seconds); return Math.round(clamp(Number.isFinite(s) && s >= 60 ? s : plan.trackSec, 60, 300)); };
+  /* faixa: 60–300 s; numa coletânea CURTA (projeto de 15 s) a faixa pode ser do tamanho do projeto */
+  const minTrack = Math.min(60, plan.trackSec);
+  const trackLen = (t: MusicPlanTrack) => { const s = Number(t.seconds); return Math.round(clamp(Number.isFinite(s) && s >= minTrack ? s : plan.trackSec, minTrack, 300)); };
   c.log(`coletânea: ${Math.round(minTotalSeconds / 60)}–${Math.round(maxTotalSeconds / 60)} min (alvo ${Math.round(targetTotal / 60)} min), ~${plan.trackSec}s por faixa, ${tracks.length} faixa(s) no plano`);
 
   /* motor das faixas: por código (projeto com "música por código" ou params.music = 'code'), YuE 2 no ComfyUI quando
@@ -1972,14 +1974,14 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
   const maxAttempts = Math.max(tracks.length, Math.ceil(maxTotalSeconds / 60)) * 2;
   for (let i = 0; i < maxAttempts && usedSeconds < targetTotal; i++) {
     const remaining = maxTotalSeconds - usedSeconds;
-    if (remaining < 30) break;
+    if (remaining < Math.min(30, maxTotalSeconds * 0.5)) break;
     /* plano esgotado e ainda abaixo do alvo: repete as faixas como variações */
     const base = tracks[i % tracks.length]!;
     const round = Math.floor(i / tracks.length);
     const t: MusicPlanTrack = round ? { ...base, name: `${base.name} ${['', 'II', 'III', 'IV', 'V', 'VI'][round] ?? round + 1}`.trim() } : base;
     let want = Math.min(trackLen(t), remaining);
     /* última faixa: não deixa um resto curto demais no fim */
-    if (remaining - want < 60 && remaining - want > 0 && usedSeconds + want >= minTotalSeconds) want = Math.min(300, remaining);
+    if (remaining - want < Math.min(60, minTrack) && remaining - want > 0 && usedSeconds + want >= minTotalSeconds) want = Math.min(300, remaining);
     let got = await generateTrack(i, t, want, (seedBase + i) % 2147483647);
     if (got.dur < Math.min(want * 0.6, 45)) {
       c.log(`faixa ${i + 1} saiu curta (${got.dur.toFixed(0)}s de ${want}s) — gerando de novo com outro seed`);
@@ -1987,7 +1989,7 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
     }
     /* sem silêncio no fim: a faixa dura o que o YuE gerou (no máximo o pedido), com fade */
     const trackSeconds = Math.round(Math.min(got.dur, want) * 1000) / 1000;
-    if (trackSeconds < 20) { c.log(`faixa ${i + 1} descartada (${trackSeconds.toFixed(0)}s)`); continue; }
+    if (trackSeconds < Math.min(20, want * 0.5)) { c.log(`faixa ${i + 1} descartada (${trackSeconds.toFixed(0)}s)`); continue; }
     const scene = perTrack ? (scenes[i % scenes.length] ?? first) : first;
     const prep = await prepareVisual(scene);
     const exact = path.join(outDir, `music-${i + 1}.loop.mp3`);
