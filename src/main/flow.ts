@@ -72,7 +72,7 @@ const PAGE_HELPERS = String.raw`
   const findBtn = (re) => clickables().find((el) => re.test(txt(el)));
   const editor = () => [...document.querySelectorAll('[contenteditable][role=textbox], .ProseMirror, textarea')].filter(vis)[0];
   const inputs = () => [...document.querySelectorAll('textarea, [contenteditable=true], [contenteditable=""], input[type=text]')].filter(vis);
-  const medias = () => [...document.querySelectorAll('video, img')].filter((m) => { const r = m.getBoundingClientRect(); const src = m.currentSrc || m.src || (m.querySelector && m.querySelector('source') && m.querySelector('source').src) || ''; return Math.max(r.width, r.height) >= 120 && Math.min(r.width, r.height) >= 60 && src && !/^data:image\/svg|\.svg(\?|$)|googleusercontent\.com\/a\/|avatar|logo/i.test(src); }).map((m) => ({ tag: m.tagName.toLowerCase(), src: m.currentSrc || m.src || (m.querySelector('source') || {}).src, w: m.naturalWidth || m.videoWidth || 0, h: m.naturalHeight || m.videoHeight || 0 }));
+  const medias = () => [...document.querySelectorAll('video, img')].filter((m) => { const r = m.getBoundingClientRect(); const src = m.currentSrc || m.src || (m.querySelector && m.querySelector('source') && m.querySelector('source').src) || ''; return Math.max(r.width, r.height) >= 120 && Math.min(r.width, r.height) >= 60 && src && !/^data:image\/svg|\.svg(\?|$)|googleusercontent\.com\/a\/|avatar|logo/i.test(src); }).map((m) => ({ tag: m.tagName === 'IMG' && /miniatura do v[ií]deo|video thumbnail|thumbnail of (the )?video|generated video/i.test(m.alt || '') ? 'vthumb' : m.tagName.toLowerCase(), src: m.currentSrc || m.src || (m.querySelector('source') || {}).src, w: m.naturalWidth || m.videoWidth || 0, h: m.naturalHeight || m.videoHeight || 0 }));
 `;
 
 /** Estado da página: login, campo de prompt, mídias atuais (para detectar as novas). */
@@ -191,6 +191,8 @@ const DIAG = `(() => { ${PAGE_HELPERS}
 
 export interface FlowJob {
   port: number; flowUrl: string; prompt: string; media: 'image' | 'video'; dest: string; timeoutSec: number; signal?: AbortSignal; log: (l: string) => void; debugDir?: string;
+  /** pasta de downloads do navegador da conta: no layout novo o vídeo é baixado pelo botão "Baixar mídia" */
+  downloadsDir?: string;
   /** proporção do projeto (16:9, 9:16, 1:1, 4:5) e duração do vídeo */
   aspect?: string; seconds?: number;
   /** modelo de vídeo no Flow (ex.: 'veo3-lite' → Veo 3.1 Lite). Selecionado na UI e citado no prompt. */
@@ -393,6 +395,48 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
          mídia na orientação pedida (9:16 em pé, 16:9 deitada) — no teste dark54 3 de 5 cenas pegaram imagens antigas deitadas */
       const fresh = ms.find((m) => !before.has(m.src) && (job.media === 'video' ? m.tag === 'video' : m.tag === 'img') && orientationOk(flowAspect(job.media, job.aspect), m.w, m.h));
       if (fresh) { src = fresh.src; break; }
+      /* LAYOUT NOVO: o vídeo pronto aparece só como capa ("Miniatura do vídeo gerada"); o <video> surge ao abrir o card */
+      const thumb = job.media === 'video' ? ms.find((m) => m.tag === 'vthumb' && !before.has(m.src)) : undefined;
+      if (thumb) {
+        before.add(thumb.src);
+        const vids0 = new Set(ms.filter((m) => m.tag === 'video').map((m) => m.src));
+        await evaluate(cdp, session, `(() => { const i = [...document.querySelectorAll('img')].find((x) => (x.currentSrc || x.src) === ${JSON.stringify(thumb.src)}); if (!i) return false; const t = i.closest('a,button,[role=button]') || i; t.scrollIntoView({ block: 'center' }); for (const ev of ['pointerover', 'mouseover', 'mouseenter']) t.dispatchEvent(new MouseEvent(ev, { bubbles: true })); t.click(); return true; })()`, 8000).catch(() => false);
+        job.log('Flow: vídeo pronto na grade — abrindo o card para baixar');
+        for (let k = 0; k < 10 && !src; k++) {
+          await wait(1500);
+          const now = await evaluate<{ medias: Array<{ tag: string; src: string; w?: number; h?: number }> }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000).then((r) => r.medias).catch(() => []);
+          const v = now.find((m) => m.tag === 'video' && !vids0.has(m.src) && !before.has(m.src));
+          if (v) src = v.src;
+        }
+        if (src) break;
+        /* a página de edição do layout novo não expõe o <video>: baixa pelo botão "Baixar mídia" → 720p (tamanho original) */
+        if (job.downloadsDir) {
+          const t0 = Date.now();
+          fs.mkdirSync(job.downloadsDir, { recursive: true });
+          /* o navegador pode ter sido aberto com outro perfil (login feito fora do app): o download vai para a pasta da conta */
+          await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: path.resolve(job.downloadsDir), eventsEnabled: false }).catch(() => {});
+          const known = new Set(fs.existsSync(job.downloadsDir) ? fs.readdirSync(job.downloadsDir) : []);
+          const clicked = await evaluate<string>(cdp, session, `(async () => {
+            const b = [...document.querySelectorAll('button')].find((x) => /baixar m[ií]dia|download/i.test((x.getAttribute('aria-label') || '') + ' ' + (x.innerText || '').trim().slice(0, 12)));
+            if (!b) return 'sem botão';
+            b.click(); await new Promise((r) => setTimeout(r, 1500));
+            const items = [...document.querySelectorAll('[role=menuitem], [role=menu] button, .mat-mdc-menu-item')];
+            const it = items.find((x) => /720p|tamanho original|original size/i.test(x.innerText || '')) || items.find((x) => /1080p/i.test(x.innerText || ''));
+            if (!it) return 'sem opção 720p';
+            it.click(); return (it.innerText || '').replace(/\\s+/g, ' ').trim();
+          })()`, 15_000).catch((e) => `erro: ${(e as Error).message}`);
+          job.log(`Flow: baixando pelo botão "Baixar mídia" (${clicked})`);
+          for (let k = 0; k < 90 && !got; k++) {
+            await wait(2000);
+            let files: string[] = [];
+            try { files = fs.readdirSync(job.downloadsDir).filter((f) => !known.has(f) && /\.(mp4|webm|mov)$/i.test(f)); } catch { /* ainda não existe */ }
+            const f = files.map((x) => path.join(job.downloadsDir!, x)).find((x) => { try { const st = fs.statSync(x); return st.mtimeMs >= t0 - 5000 && st.size > 100_000; } catch { return false; } });
+            if (f) { await wait(1500); got = { type: /webm/i.test(f) ? 'video/webm' : 'video/mp4', data: fs.readFileSync(f).toString('base64') }; src = `download:${f}`; }
+          }
+          if (got) break;
+        }
+        job.log('Flow: o card abriu sem <video> — continuo esperando');
+      }
     }
     if (!src) { await dbg('nenhuma mídia nova'); throw new Error(`o Flow não entregou ${job.media === 'image' ? 'imagem' : 'vídeo'} em ${job.timeoutSec}s`); }
     await wait(job.media === 'video' ? 3000 : 1500);   // deixa terminar de carregar

@@ -32,7 +32,7 @@ import { avQaLine, checkAv, conformAv } from './av-qa';
 import { checkThumb, thumbQaLine } from './thumb-qa';
 import { getVideoType } from './presets';
 import { ensureWhisper } from './whisper-install';
-import { agyEnvForProject, DEFAULT_FLOW_URL, ensureFlowBrowser, flowAccount, flowProjectOf, setFlowProject } from './automations';
+import { accountPaths, agyEnvForProject, DEFAULT_FLOW_URL, ensureFlowBrowser, flowAccount, flowProjectOf, setFlowProject } from './automations';
 import { stepTimeoutSec } from './timeouts';
 import { flowGenerate } from './flow';
 import * as sfx from './sfx';
@@ -1359,7 +1359,7 @@ const flowExecFor = (_o: ExecutorOptions) => async (c: ExecContext, accountId?: 
     /* cena: texto na imagem sai errado e cobre a composição; a thumbnail é a exceção (o texto é pedido) */
     /* só em pedido de IMAGEM: no de vídeo a palavra "imagem" fazia o agente do Flow devolver imagem */
     const noText = k === 'thumbnail' || media !== 'image' ? '' : ' Sem nenhuma letra, palavra, rótulo, legenda, número ou marca d\'água na imagem (no text, no letters, no labels, no captions).';
-    const gen = (extra = '') => flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + onlyHer + extra + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), refs: refs.length ? refs : undefined,
+    const gen = (extra = '') => flowGenerate({ port, flowUrl: c.settings.automations?.flowUrl?.trim() || DEFAULT_FLOW_URL, prompt: prompt + onlyHer + extra + noText, media, dest, timeoutSec: Math.max(60, c.step.timeoutSec - 30), downloadsDir: accountPaths(c.settings, acc.id).downloads, refs: refs.length ? refs : undefined,
       aspect: k === 'thumbnail' ? THUMB_ASPECT : c.project.aspect, seconds: c.scene?.durationSec, model: b.model, projectUrl: flowProjectOf(c.settings, acc.id), onProject: (u) => setFlowProject(c.settings, acc.id, u),
       signal: c.signal, log: c.log, debugDir: path.join(c.sceneDir ?? c.outDir, 'flow-debug') });
     let got = await gen();
