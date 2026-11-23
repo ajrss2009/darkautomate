@@ -9,7 +9,7 @@ import { downloadYouTubeClip, searchYouTube, ytClipSeconds } from './youtube';
 import { concat as ffConcat, duration as ffDuration, run as ffRun } from './ffmpeg';
 
 /** Fontes que publicam vídeo/imagem com marca d'água gravada (não servem como mídia de cena). */
-export const WATERMARKED = /publicdomainfootage|pond5|shutterstock|storyblocks|videoblocks|dissolve.com|watermark(ed)?|preview only/i;
+export const WATERMARKED = /publicdomainfootage|pond5|shutterstock|storyblocks|videoblocks|dissolve\.com|\bwatermark(ed)?\b|preview only/i;
 
 export interface StockHit {
   source: StockSource; kind: 'image' | 'video'; url: string; thumb?: string;
