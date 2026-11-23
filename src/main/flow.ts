@@ -107,6 +107,9 @@ const configure = (media: 'image' | 'video', aspect: string, model?: string) => 
     press(trig); await wait(900);
     const opt = (re) => [...document.querySelectorAll('button, [role=tab], [role=radio], [role=option]')].filter(vis).find((x) => x !== trig && re.test((x.innerText || x.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim()));
     const tab = opt(${media === 'image' ? '/(^|\\s)(Imagem|Image)$/i' : '/(^|\\s)(V[ií]deo|Video)$/i'}); if (tab) { press(tab); await wait(400); out.push(${JSON.stringify(media)}); }
+    /* trocar de Vídeo para Imagem (ou o contrário) redesenha e FECHA o popover: sem as opções de proporção visíveis, abre de novo
+       (o pedido 9:16 saía em 16:9 e o app esperava até o tempo limite por uma imagem em pé) */
+    if (!opt(/(^|\\s)(16:9|9:16|1:1)$/) && !opt(/^x1$/i)) { press(trig); await wait(900); }
     const ar = opt(new RegExp('(^|\\\\s)' + ${JSON.stringify(aspect)}.replace(':', '\\\\:') + '$')); if (ar) { press(ar); await wait(300); out.push(${JSON.stringify(aspect)}); }
     const one = opt(/^x1$/i); if (one) { press(one); await wait(300); out.push('x1'); }
     const modelName = ${JSON.stringify(model || '')};
@@ -281,7 +284,10 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     const here = await evaluate<string>(cdp, session, 'location.href', 5000);
     if (/\/project\//.test(here)) job.onProject?.(here);
     // 2) configurações: proporção, quantidade x1, sem pedido de confirmação
-    const cfgDone = await evaluate<string>(cdp, session, configure(job.media, flowAspect(job.media, job.aspect), job.model), 15_000).catch((e) => `falhou (${(e as Error).message})`);
+    /* layout novo (chip de configurações na barra do pedido): cliques REAIS — o clique simulado não troca Vídeo↔Imagem e a
+       busca antiga pegava um card da grade ("...thumbnail image") no lugar da aba; layout antigo: o script de sempre */
+    const cfgDone = (await configureReal(cdp, session, job.media, flowAspect(job.media, job.aspect), job.model).catch(() => null))
+      ?? await evaluate<string>(cdp, session, configure(job.media, flowAspect(job.media, job.aspect), job.model), 15_000).catch((e) => `falhou (${(e as Error).message})`);
     job.log(`Flow: configurações → ${cfgDone}`);
     await wait(500);
     /* personagens: envia as folhas pelo campo de arquivo do Flow (melhor esforço — sem o campo, segue só com o texto) */
@@ -593,6 +599,44 @@ const FLOW_UPLOAD_ITEM = `(() => {
   return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
 })()`;
 /** Clique de mouse real (gesto do usuário) num ponto da página. */
+/* busca dentro do popover de configurações: controles (radio/tab/option) antes de botões, só o que está na tela */
+const CFG_HELP = String.raw`const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 && r.y >= 0 && r.y < innerHeight; };
+  const trig = [...document.querySelectorAll('button')].filter(vis).find((x) => /Gatilho de configura|settings trigger/i.test(x.getAttribute('aria-label') || '') || /crop_\d+_\d+|crop_square|crop_portrait|crop_landscape/.test(x.innerText || ''));
+  const find = (sel, re) => [...document.querySelectorAll(sel)].filter(vis).find((x) => x !== trig && re.test((x.innerText || x.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim()));
+  const opt = (re) => find('[role=radio], [role=tab], [role=option]', re) || find('button', re);
+  const at = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, checked: el.getAttribute('aria-checked') }; };`;
+/**
+ * Configura o pedido no LAYOUT NOVO com cliques reais: mídia (Imagem/Vídeo), proporção, x1 e o modelo de vídeo pedido.
+ * Devolve null quando não há o chip de configurações (layout antigo) — aí vale o script `configure`.
+ */
+async function configureReal(cdp: Cdp, session: string, media: 'image' | 'video', aspect: string, model?: string): Promise<string | null> {
+  type Pt = { x: number; y: number; checked?: string | null } | null;
+  const q = (expr: string) => evaluate<Pt | string>(cdp, session, `(() => { ${CFG_HELP} return ${expr}; })()`, 8000);
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const trig = await q('at(trig)') as Pt;
+  if (!trig) return null;
+  const out: string[] = [];
+  const open = async () => { if (!(await q('at(opt(/^x1$/i))'))) { const t = await q('at(trig)') as Pt; if (t) { await realClick(cdp, session, t); await wait(900); } } };
+  const TAB = media === 'image' ? String.raw`/^(image\s+)?(Imagem|Image)$/i` : String.raw`/^(videocam\s+)?(V[ií]deo|Video)$/i`;
+  await open();
+  const tab = await q(`at(opt(${TAB}))`) as Pt;
+  if (tab && tab.checked !== 'true') { await realClick(cdp, session, tab); await wait(900); }
+  if (tab) out.push(media);
+  await open();   // trocar de mídia redesenha e fecha o popover
+  const ar = await q(`at(opt(new RegExp('(^|\\\\s)' + ${JSON.stringify(aspect)}.replace(':', '\\\\:') + '$')))`) as Pt;
+  if (ar) { if (ar.checked !== 'true') { await realClick(cdp, session, ar); await wait(400); } out.push(aspect); }
+  const one = await q('at(opt(/^x1$/i))') as Pt;
+  if (one) { if (one.checked !== 'true') { await realClick(cdp, session, one); await wait(300); } out.push('x1'); }
+  if (media === 'video' && /lite/i.test(model || '')) {
+    const m = await q(String.raw`at([...document.querySelectorAll('button, [role=radio], [role=option], [role=menuitem]')].filter(vis).find((x) => /veo\s*3/i.test(x.innerText || '') && /lite/i.test(x.innerText || '')))`) as Pt;
+    if (m) { await realClick(cdp, session, m); await wait(600); out.push('veo3-lite'); }
+  }
+  for (const type of ['keyDown', 'keyUp'] as const) await cdp.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, session).catch(() => {});
+  await wait(400);
+  const chip = String(await q('(trig && trig.innerText) || ""') ?? '').replace(/\s+/g, ' ');
+  return `${out.join(', ') || 'popover sem opções'} → ${chip}`;
+}
+
 async function realClick(cdp: Cdp, session: string, pt: { x: number; y: number }): Promise<void> {
   for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) await cdp.send('Input.dispatchMouseEvent', { type, x: pt.x, y: pt.y, button: 'left', clickCount: 1 }, session);
 }
