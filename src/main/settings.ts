@@ -135,6 +135,8 @@ export interface NewProjectInput {
   /** publicar em VARIAS redes ao terminar (canais/perfis da aba Canais; os perfis ligados entram junto) */
   publishTargets?: string[];
   publishVisibility?: 'UNLISTED' | 'PRIVATE' | 'PUBLIC';
+  /** clip de venda de produto (o arquivo é copiado para assets/product do projeto) */
+  productClip?: import('../shared/types').ProductClip;
   /** conta (Automações) do Antigravity para este projeto */
   agyAccount?: string;
   /** conta (Automações) do Google Flow para este projeto */
@@ -232,6 +234,20 @@ function reconcileRoute(s: Settings, skill: Skill | undefined, route: Route, app
     if (candidate && routeHasKind(candidate, 'scene_plan')) return candidate;
   }
   return route;
+}
+
+/** Copia o clip de venda para <projeto>/assets/product e normaliza posição/link (usado na criação e no editor). */
+export function copyProductClip(projectDir: string, c: import('../shared/types').ProductClip): import('../shared/types').ProductClip {
+  if (!fs.existsSync(c.file)) throw new Error(`clip de venda não encontrado: ${c.file}`);
+  if (!/\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(c.file)) throw new Error('clip de venda: use um vídeo (mp4, mov, mkv, webm, m4v ou avi)');
+  const d = path.join(projectDir, 'assets', 'product');
+  fs.mkdirSync(d, { recursive: true });
+  const dest = path.join(d, 'product-clip' + path.extname(c.file).toLowerCase());
+  if (path.resolve(dest) !== path.resolve(c.file)) fs.copyFileSync(c.file, dest);
+  const pos = c.position === 'start' || c.position === 'middle' || c.position === 'end' ? c.position : Math.max(0, Number(c.position) || 0);
+  const link = c.link?.trim();
+  return { file: dest, position: pos, name: c.name?.trim() || undefined, link: link && /^https?:\/\//i.test(link) ? link : link ? `https://${link}` : undefined,
+    cta: c.cta?.trim() || undefined, volume: c.volume && c.volume > 0 ? Math.min(2, c.volume) : undefined };
 }
 
 export function createProject(s: Settings, input: NewProjectInput): Project {
@@ -400,6 +416,8 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
     const pv = normalizePalette({ extra: project.styleRef.palette } as never) ?? normalizePalette(project.styleRef.palette as never);
     if (pv) project.palette = { ...(project.palette ?? {}), video: pv };
   }
+  /* clip de venda: copiado para dentro do projeto (portátil) */
+  if (input.productClip?.file) project.productClip = copyProductClip(dir, input.productClip);
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(project, null, 2));
   return project;
 }

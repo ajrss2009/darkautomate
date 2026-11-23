@@ -157,6 +157,13 @@ export function referenceText(p: Project, kind: string): string {
     const t = excerpt(p.refScript.textFile, 6000);
     out.push(`ROTEIRO DE REFERÊNCIA${p.refScript.transcribed ? ' (transcrição de vídeo)' : ''} — arquivo completo: ${p.refScript.textFile ?? p.refScript.file}. Use-o como MODELO DE ESTILO: estrutura, ritmo, tamanho das frases, ganchos, tom e vocabulário. Adapte esse estilo ao tema deste projeto; NÃO copie frases nem o conteúdo.${t ? '\n---\n' + t + '\n---' : ''}`);
   }
+  /* clip de venda de produto: entra no vídeo na montagem; a descrição cita o produto (o app põe o link no topo) */
+  if (p.productClip && (kind === 'metadata' || kind === 'script')) {
+    const pos = p.productClip.position === 'start' ? 'no início' : p.productClip.position === 'end' ? 'no fim' : p.productClip.position === 'middle' ? 'no meio' : `perto de ${p.productClip.position} s`;
+    out.push(kind === 'metadata'
+      ? `CLIP DE VENDA: o vídeo final tem um clip curto do produto${p.productClip.name ? ` "${p.productClip.name}"` : ''} ${pos}. Mencione o produto na descrição em uma frase natural${p.productClip.link ? ' (o app coloca o link no topo da descrição — não repita o link)' : ''} e inclua um capítulo para ele.`
+      : `CLIP DE VENDA: um clip do produto${p.productClip.name ? ` "${p.productClip.name}"` : ''} entra ${pos} do vídeo na montagem. Se ficar natural, prepare a entrada dele com uma frase de transição curta; não descreva o anúncio no roteiro.`);
+  }
   if (p.refVideo && VISUAL_KINDS.has(kind)) {
     out.push(`VÍDEO DE REFERÊNCIA — ${p.refVideo.file}${p.refVideo.durationSec ? ` (≈ ${Math.round(p.refVideo.durationSec)} s)` : ''}. ` +
       (p.refVideo.frames.length ? `Quadros-chave para observar: ${p.refVideo.frames.join(' | ')}. ` : '') +

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { readProductClipInfo, withProductLink } from './product-clip';
 import type { Project } from '../shared/types';
 import { readTimeline } from './timeline';
 
@@ -156,7 +157,15 @@ export function writePublishKit(projectDir: string, p: Project, durationSec?: nu
   const sc = saved && saved.scenes.length === (p.scenes ?? []).length
     ? saved.scenes.map((t) => ({ title: t.title, seconds: Math.max(0.5, t.seconds) }))
     : (p.scenes ?? []).map((x) => ({ title: x.title, seconds: Math.max(0.5, x.durationSec ?? 4) }));
+  /* clip de venda inserido na montagem: vira um trecho próprio da linha do tempo (os capítulos depois dele andam) */
+  const pc = readProductClipInfo(out);
+  if (pc?.seconds && pc.at !== undefined) {
+    let acc = 0, i = 0;
+    while (i < sc.length && acc + sc[i]!.seconds <= pc.at + 0.01) { acc += sc[i]!.seconds; i++; }
+    sc.splice(i, 0, { title: pc.name ? `🛍 ${pc.name}` : '🛍 Produto', seconds: pc.seconds });
+  }
   const sum = sc.reduce((q, x) => q + x.seconds, 0), k = durationSec && sum > 0 && Math.abs(durationSec / sum - 1) < 0.05 ? durationSec / sum : 1;
-  for (const [name, text] of Object.entries(publishTexts(p, meta, durationSec, sc.map((x) => ({ ...x, seconds: x.seconds * k }))))) { const f = path.join(dir, name); fs.writeFileSync(f, '﻿' + text, 'utf8'); files.push(f); }
+  const meta2 = pc?.link ? { ...meta, description: withProductLink(meta.description?.trim() || p.idea, pc) } : meta;
+  for (const [name, text] of Object.entries(publishTexts(p, meta2, durationSec, sc.map((x) => ({ ...x, seconds: x.seconds * k }))))) { const f = path.join(dir, name); fs.writeFileSync(f, '﻿' + text, 'utf8'); files.push(f); }
   return { dir, video, files };
 }

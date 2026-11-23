@@ -1015,6 +1015,8 @@ async function renderNew() {
   const chSel = channelSelect('np-channel');
   /* PUBLICAR EM VÁRIAS REDES: o canal de destino e os perfis ligados a ele já vêm marcados */
   const pub = publishTargetsBox('np-publish');
+  /* CLIP DE VENDA: um vídeo do produto (arquivo ou vídeo pronto de outro projeto, ex.: um UGC) entra no vídeo final */
+  const prod = productClipBox('np-product');
   chSel.addEventListener('change', () => pub.selectChannel(chSel.value));
   if (pendingIdea) { (idea as HTMLTextAreaElement).value = pendingIdea; pendingIdea = undefined; }
   const episode = pendingEpisode; pendingEpisode = undefined;
@@ -1762,6 +1764,7 @@ async function renderNew() {
       cast: cast.filter((m) => m.speaker.trim()),
       narrationVoice: npVoice.refAudio || npVoice.apiVoice ? npVoice : undefined,
       autoUpload: autoUp.checked && !pub.targets().length ? { visibility: 'UNLISTED' } : undefined,
+      productClip: prod.value(),
       publishTargets: pub.targets().length ? pub.targets() : undefined,
       publishVisibility: pub.targets().length ? pub.visibility() as 'UNLISTED' : undefined,
       agyAccount: agySel.value || undefined,
@@ -1814,7 +1817,7 @@ async function renderNew() {
     orchestratorId: orch.value || undefined, workerIds: workerBoxes.filter((x) => x.cb.checked).map((x) => x.a.id),
     sceneConcurrency: Number(conc.value) || undefined, maxProductionMin: Number(maxMin.value) || undefined,
     agyAccount: agySel.value || undefined, flowAccount: flowSel.value || undefined, channelId: chSel.value || undefined, autoUpload: autoUp.checked || undefined,
-    publishTargets: pub.targets().length ? pub.targets() : undefined, publishVisibility: pub.targets().length ? pub.visibility() : undefined,
+    publishTargets: pub.targets().length ? pub.targets() : undefined, publishVisibility: pub.targets().length ? pub.visibility() : undefined, productClip: prod.value(),
     skillMix: mixRows.length ? { main: Number(mainPct.value) || 60, mode: mixMode.value, items: mixRows.map((r) => ({ skillId: r.skill.value, pct: Number(r.pct.value) || 0 })) } : undefined,
     styleRef: styleRef ? JSON.parse(JSON.stringify(styleRef)) : undefined,
     titleModel: titlePick ? JSON.parse(JSON.stringify(titlePick)) : undefined,
@@ -1888,6 +1891,7 @@ async function renderNew() {
     if ('agyAccount' in t) agySel.value = String(t['agyAccount'] ?? ''); if ('flowAccount' in t) flowSel.value = String(t['flowAccount'] ?? '');
     if ('channelId' in t) { chSel.value = String(t['channelId'] ?? ''); chSel.dispatchEvent(new Event('change')); }
     if ('autoUpload' in t) autoUp.checked = !!t['autoUpload'];
+    if ('productClip' in t) prod.set(t['productClip'] as never);
     if ('publishTargets' in t) pub.set((t['publishTargets'] as string[] | undefined) ?? [], t['publishVisibility'] as string | undefined);
     const mix = t['skillMix'] as { main?: number; mode?: string; items?: Array<{ skillId: string; pct: number }> } | undefined;
     if (mix?.items?.length) {
@@ -1951,7 +1955,7 @@ async function renderNew() {
       h('label', { title: 'Etapas do Google Flow deste projeto usam esta conta (vence a conta escolhida na etapa da rota)' }, '🌊 Conta do Flow', flowSel),
       h('label', { title: 'Canal de destino (aba Canais). Ao publicar, o vídeo vai para ele — a conta e a marca vêm do canal.' }, '📺 Canal de destino', chSel),
       h('label', { class: 'inline chk', title: 'Acrescenta à rota a etapa "Enviar ao YouTube": ao terminar, o vídeo vai como NÃO LISTADO com título, descrição e thumbnail do SEO (conta Google das Automações)' }, autoUp, '⬆ Enviar ao YouTube ao terminar (não listado)'),
-      pub.el,
+      pub.el, prod.el,
       h('h3', {}, 'Produção'),
       h('div', { class: 'row' },
         h('label', { title: 'Uma execução é interrompida ao atingir este tempo (o que já foi gerado fica em cache).' }, 'Tempo máximo (min)', h('span', { class: 'row' }, maxMin, noLimit.parentElement!)),
@@ -2258,7 +2262,7 @@ async function renderNew() {
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
       drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb), wmRow),
       drawer('np-g-catalog', 'Diretrizes 11/2026 · disclosure · gerador', () => `${discLabel.value.trim() || 'sem disclosure'}${genOn.checked ? ` · ${genFamily.value}/${genModel.value.trim() || 'sem ID'}` : ''}`, catalogBox),
-      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el,
+      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el, prod.el,
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),
       drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
@@ -3761,6 +3765,48 @@ function agyAccountSelect(id: string, value = '', onChange?: (v: string) => void
 }
 
 /** Canal de destino (aba Canais): vazio = pergunta na hora de publicar. Preenchido de forma assíncrona. */
+/** "Clip de venda de produto": vídeo (arquivo ou o final de um projeto pronto), posição e link/chamada do produto. */
+function productClipBox(id: string): { el: HTMLElement; value: () => { file: string; position: 'start' | 'middle' | 'end' | number; name?: string; link?: string; cta?: string } | undefined; set: (c?: { file?: string; position?: unknown; name?: string; link?: string; cta?: string }) => void } {
+  let file = '';
+  const src = h('select', { id: `${id}-src` }, h('option', { value: '' }, '— sem clip de venda —'), h('option', { value: '@file' }, '📁 Arquivo de vídeo…')) as HTMLSelectElement;
+  const fileLbl = h('span', { class: 'muted', id: `${id}-file` }, '');
+  const pickBtn = h('button', { onclick: () => void guard(async () => {
+    const f = await forge.openFile({ title: 'Clip de venda do produto', filters: [{ name: 'Vídeos', extensions: ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi'] }] });
+    if (f) { file = f; src.value = '@file'; fileLbl.textContent = basename(f); paint(); }
+  }) }, 'Escolher…');
+  /* vídeos prontos de outros projetos (ex.: um UGC de produto feito no app) */
+  void guard(() => forge.listProjects()).then((rows) => {
+    for (const r of (rows ?? []).filter((x) => x.hasFinal && x.dir)) src.append(h('option', { value: `${r.dir}/out/final.mp4` }, `🎬 ${r.name}`));
+  });
+  const pos = h('select', { id: `${id}-pos` }, h('option', { value: 'end' }, 'no fim'), h('option', { value: 'middle' }, 'no meio'), h('option', { value: 'start' }, 'no início'), h('option', { value: 'at' }, 'no segundo…')) as HTMLSelectElement;
+  const at = h('input', { type: 'number', min: '0', step: '1', placeholder: 's', id: `${id}-at`, class: 'num' }) as HTMLInputElement;
+  const name = h('input', { placeholder: 'Nome do produto (opcional)', id: `${id}-name` }) as HTMLInputElement;
+  const link = h('input', { placeholder: 'Link do produto (vai no topo da descrição)', id: `${id}-link`, class: 'grow' }) as HTMLInputElement;
+  const cta = h('input', { placeholder: 'Chamada (ex.: 🛍 Compre aqui:)', id: `${id}-cta` }) as HTMLInputElement;
+  const extra = h('div', {}, h('div', { class: 'row' }, h('label', { class: 'inline' }, 'Posição', pos), at), h('div', { class: 'row' }, name, cta), h('div', { class: 'row' }, link));
+  const paint = () => { extra.style.display = src.value ? '' : 'none'; at.style.display = pos.value === 'at' ? '' : 'none'; pickBtn.style.display = src.value === '@file' || !src.value ? '' : 'none'; fileLbl.style.display = src.value === '@file' ? '' : 'none'; };
+  src.addEventListener('change', () => { if (src.value === '@file' && !file) pickBtn.click(); paint(); });
+  pos.addEventListener('change', paint);
+  paint();
+  const el = h('div', { class: 'refbox', id }, h('strong', { title: 'Um vídeo curto do produto entra no vídeo final, sempre numa troca de cena (não corta fala). O áudio é masterizado junto, as legendas andam o tempo do clip e o link vai no topo da descrição.' }, '🛍 Clip de venda de produto'),
+    h('div', { class: 'row' }, src, pickBtn, fileLbl), extra);
+  return {
+    el,
+    value: () => {
+      const f = src.value === '@file' ? file : src.value;
+      if (!f) return undefined;
+      const p = pos.value === 'at' ? Math.max(0, Number(at.value) || 0) : (pos.value as 'start' | 'middle' | 'end');
+      return { file: f, position: p, name: name.value.trim() || undefined, link: link.value.trim() || undefined, cta: cta.value.trim() || undefined };
+    },
+    set: (c) => {
+      if (!c?.file) { src.value = ''; paint(); return; }
+      file = c.file; src.value = '@file'; fileLbl.textContent = basename(c.file);
+      if (typeof c.position === 'number') { pos.value = 'at'; at.value = String(c.position); } else if (typeof c.position === 'string') pos.value = c.position;
+      name.value = c.name ?? ''; link.value = c.link ?? ''; cta.value = c.cta ?? ''; paint();
+    },
+  };
+}
+
 /** "Publicar em": um checkbox por canal/perfil (YouTube, TikTok, Instagram, Facebook, Kwai) + visibilidade.
  *  Ao escolher o canal de destino, marca ele e os perfis ligados a ele (aba Canais → Perfis ligados). */
 function publishTargetsBox(id: string): { el: HTMLElement; targets: () => string[]; visibility: () => string; selectChannel: (cid: string) => void; set: (ids: string[], vis?: string) => void } {

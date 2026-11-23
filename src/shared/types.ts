@@ -209,6 +209,15 @@ export type FxMove = 'none' | 'in' | 'out' | 'pan_left' | 'pan_right' | 'pan_up'
 export type FxTexture = 'none' | 'static' | 'vhs' | 'dust' | 'old_film' | 'crt' | 'glitch' | 'paper';
 /** Transições do ffmpeg xfade (da cena para a próxima). */
 export type FxTransition = 'none' | 'fade' | 'fadeblack' | 'fadewhite' | 'dissolve' | 'wipeleft' | 'wiperight' | 'slideleft' | 'slideup' | 'circleopen' | 'circleclose' | 'radial' | 'pixelize' | 'zoomin' | 'hblur';
+/** Clip de venda de produto dentro do vídeo: arquivo (copiado para o projeto), posição e o link/chamada do produto. */
+export interface ProductClip {
+  file: string;
+  /** 'start' | 'middle' | 'end' ou o segundo do vídeo (vai para a fronteira de cena mais próxima) */
+  position: 'start' | 'middle' | 'end' | number;
+  name?: string; link?: string; cta?: string;
+  /** volume do áudio do clip antes da masterização (1 = original) */
+  volume?: number;
+}
 /** Ritmo de edição medido no vídeo de referência (cortes por detecção de cena, fades por quadros pretos). */
 export interface RefEditRhythm { cuts: number; shotSec: number; cutsPerMin: number; fades: number; transition: FxTransition }
 export interface SceneEffects {
@@ -534,6 +543,8 @@ export interface Project {
   channelId?: string;
   /** VÁRIAS redes: canais/perfis onde o vídeo é publicado (YouTube, TikTok, Instagram, Facebook, Kwai) — os perfis ligados entram junto */
   publishTargets?: string[];
+  /** clip de venda de produto inserido no vídeo final (início, meio, fim ou segundo) + link na descrição */
+  productClip?: ProductClip;
   /** storyboard depois do plano de cenas (opcionalmente com aprovação do usuário) */
   storyboard?: StoryboardOptions;
   /** personagens da biblioteca usados neste projeto (cópia congelada) */

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { descriptionWithProduct } from './product-clip';
 import { Cdp } from './flow';
 
 /**
@@ -363,7 +364,7 @@ export function uploadMeta(outDir: string, fallbackTitle: string): { title: stri
   try { meta = JSON.parse(fs.readFileSync(path.join(outDir, 'metadata.json'), 'utf8')); } catch { /* sem SEO: usa o nome do projeto */ }
   const chapters = meta.chapters?.length && !/\d+:\d{2}/.test(meta.description ?? '') ? '\n\n' + meta.chapters.map((c) => `${c.time} ${c.title}`).join('\n') : '';
   const tags = (meta.tags ?? []).filter(Boolean);
-  const description = `${meta.description ?? ''}${chapters}${tags.length ? `\n\n${tags.slice(0, 15).map((t) => `#${t.replace(/\s+/g, '')}`).join(' ')}` : ''}`.trim();
+  const description = descriptionWithProduct(outDir, `${meta.description ?? ''}${chapters}${tags.length ? `\n\n${tags.slice(0, 15).map((t) => `#${t.replace(/\s+/g, '')}`).join(' ')}` : ''}`.trim());
   const thumbnail = ['thumbnail.png', 'thumbnail.jpg'].map((f) => path.join(outDir, f)).find((f) => fs.existsSync(f));
   const base = { title: (meta.title || fallbackTitle).slice(0, 100), description, tags, thumbnail };
   /* pasta "publicar" (o que o usuário revisa/edita antes de postar) manda: título = 1ª linha de titulo.txt,

@@ -69,7 +69,7 @@ function main() {
   /* skills padrão ligadas às rotas */
   const sk = (id: string) => BUILTIN_SKILLS.find((s) => s.id === id)!;
   assert.equal(sk('ugc-produto').routeId, 'ugc-produto');
-  assert.equal(sk('ugc-produto').aspect, '9:16');
+  assert.equal(sk('ugc-produto').aspect, '16:9', 'UGC horizontal: encaixa como clip de venda nos vídeos 16:9');
   assert.ok(sk('ugc-produto').durationSec! >= 15 && sk('ugc-produto').durationSec! <= 20, 'UGC de 15–20 s em 4 planos (estilo da referência)');
   assert.match(sk('ugc-produto').global, /GANCHO[\s\S]*CTA/);
   assert.equal(sk('musica-lipsync').routeId, 'musica-lipsync');

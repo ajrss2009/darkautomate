@@ -160,6 +160,7 @@ contextBridge.exposeInMainWorld('forge', {
   channelCost: (cloneId: string, input?: unknown) => call('channel:cost', cloneId, input),
   projectApprove: (id: string, ok: boolean) => call('project:approve', id, ok),
   projectPublishAll: (id: string, targets?: string[], visibility?: string) => call('project:publish-all', id, targets, visibility),
+  projectProductClip: (id: string, clip: unknown) => call('project:product-clip', id, clip),
   telegramGet: () => call('telegram:get'),
   telegramSet: (patch: unknown) => call('telegram:set', patch),
   telegramAllow: (chatId: number, allow: boolean) => call('telegram:allow', chatId, allow),

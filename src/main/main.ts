@@ -68,7 +68,7 @@ import { routeUsability } from './usability';
 import { autoMapWorkflow, guessWorkflowKind, importComfyWorkflow, removeUserWorkflow, type WorkflowKind } from './workflow-import';
 import { generateSkillFromVideos, type SkillGenInput } from './skillgen';
 import { closeBrowser, flowCredits, flowDiagnose, flowGenerate } from './flow';
-import { DEFAULT_FISH_PROVIDER, DEFAULT_GTTS_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
+import { DEFAULT_FISH_PROVIDER, DEFAULT_GTTS_PROVIDER, DEFAULT_SNAPGEN_PROVIDER, assertSkillAndRoute, copyProductClip, createProject, defaultSettings, listProjects, projectDirOf, projectsDir, type NewProjectInput } from './settings';
 import * as ops from './ops';
 import { APP_NAME } from '../shared/brand';
 import * as tle from './timeline-edit';
@@ -2244,6 +2244,13 @@ function registerIpc() {
   h('projects:root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return projectsDir(settings); });
   h('projects:open-root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return shell.openPath(projectsDir(settings)); });
   h('project:get', (id: string) => ops.readProject(settings, id));
+  /* clip de venda de produto num projeto existente (null = tira); vale na próxima montagem */
+  h('project:product-clip', (id: string, clip: import('../shared/types').ProductClip | null) => {
+    const p = ops.readProject(settings, id);
+    p.productClip = clip?.file ? copyProductClip(projectDirOf(settings, id), clip) : undefined;
+    ops.saveProjectFile(settings, p);
+    return p.productClip ?? null;
+  });
   h('project:update', (id: string, patch: Parameters<typeof ops.updateProject>[2]) => {
     idle(id);
     /* mudou estilo/modo/trilha por código: a trilha da ROTA fica desatualizada (a escolhida à mão não) — o próximo "regerar final" refaz a música */

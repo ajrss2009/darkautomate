@@ -55,6 +55,7 @@ import * as pyFilm from './python-film';
 import * as sceneReview from './scene-review';
 import { thumbStyleImage } from './thumb-ref';
 import { editParamsFromRef } from './references';
+import { clipInsertAt, insertProductClip, productClipInfoFile } from './product-clip';
 import { llmJson } from './editor';
 import { languageName } from './prompts';
 import { inScene } from './characters';
@@ -2335,6 +2336,16 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     } catch (e) {
       c.log(`masterização de áudio ignorada: ${(e as Error).message.slice(0, 120)}`);
     }
+    /* CLIP DE VENDA de produto (projeto): entra numa fronteira de cena (início/meio/fim/segundo), já masterizado */
+    if (c.project.productClip?.file) {
+      try {
+        const bounds: number[] = []; let acc = 0;
+        for (const sc of timeline.scenes) { acc += sc.seconds; bounds.push(acc); }
+        const { w, h } = ff.resolution(c.project.aspect);
+        await insertProductClip({ ffmpeg: c.settings.ffmpeg, ffprobe: c.settings.ffprobe, final, clip: c.project.productClip, at: clipInsertAt(bounds, timeline.total, c.project.productClip.position),
+          total: timeline.total, w, h, fps: PROJECT_FPS, outDir: c.outDir, signal: c.signal, log: c.log });
+      } catch (e) { if (c.signal.aborted) throw e; c.log(`⚠ clip de venda não inserido: ${(e as Error).message.slice(0, 200)}`); }
+    } else { try { fs.rmSync(productClipInfoFile(c.outDir), { force: true }); } catch { /* nada */ } }
     /* pós-processamento do Wan2GP (opcional): upscale (FlashVSR/SeedVR2/Lanczos) e fluidez (RIFE, dobra o fps) */
     const post = { spatial: c.project.wan2gpPost?.spatial ?? (typeof params.wan2gpUpscale === 'string' ? params.wan2gpUpscale : ''), temporal: c.project.wan2gpPost?.temporal ?? (typeof params.wan2gpSmooth === 'string' ? params.wan2gpSmooth : '') };
     if (post.spatial || post.temporal) {
