@@ -380,6 +380,10 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
       for (const m of await evaluate<typeof probe>(cdp, session, PROBE, 10_000).then((r) => r.medias).catch(() => [] as string[])) before.add(m);
     }
     // 4) espera a primeira mídia nova (imagem ou vídeo, conforme o pedido)
+    /* card de FALHA do Flow (ex.: "Esta geração talvez viole nossas políticas"): conta os que já existem; um novo = recusa
+       imediata (antes o app esperava até o tempo limite da etapa, 15–40 min, por uma mídia que nunca vinha) */
+    const FAILS = `(() => { const t = document.body.innerText || ''; return (t.match(/talvez viole nossas pol[ií]ticas|might violate our policies|may violate our policies|falha na gera[cç][aã]o|generation failed/gi) || []).length; })()`;
+    const fails0 = await evaluate<number>(cdp, session, FAILS, 5000).catch(() => 0);
     let src = '';
     let got: { type: string; data: string } | undefined, small: typeof got;
     let lastErr = '';
@@ -389,6 +393,8 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     while (Date.now() < deadline) {
       if (job.signal?.aborted) throw new Error('cancelado');
       await wait(4000);
+      const fails = await evaluate<number>(cdp, session, FAILS, 5000).catch(() => fails0);
+      if (fails > fails0) { await dbg('recusado pelo Flow'); throw new Error('o Flow recusou este pedido (aviso de políticas de conteúdo; não houve cobrança) — tente reformular o prompt'); }
       let ms: Array<{ tag: string; src: string; w?: number; h?: number }> = [];
       try { ms = (await evaluate<{ medias: string[] }>(cdp, session, `(() => { ${PAGE_HELPERS} return { medias: medias() }; })()`, 10_000)).medias as unknown as typeof ms; } catch { continue; }
       /* a grade carrega itens ANTIGOS aos poucos (rolagem/lazy load): eles aparecem "novos" sem ser o resultado. Só vale a
