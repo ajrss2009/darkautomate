@@ -163,6 +163,8 @@ export function openBrowser(s: Settings, id: string, target: 'login' | 'flow' | 
   const ext = config(s).extensionDir?.trim();
   const args = [`--user-data-dir=${p.browser}`, '--no-first-run', '--no-default-browser-check',
     `--remote-debugging-port=${portFor(id)}`, '--remote-debugging-address=127.0.0.1',
+    /* tela travada / janela coberta: sem isto o Chrome para de desenhar a página (popovers do Flow não abrem, cliques não pegam) */
+    '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-features=CalculateNativeWinOcclusion',
     ...(ext && fs.existsSync(ext) ? [`--load-extension=${ext}`] : []), dest];
   const child = spawn(b.path, args, { detached: true, stdio: 'ignore', windowsHide: false });
   child.unref();

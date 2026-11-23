@@ -275,6 +275,10 @@ export async function flowGenerate(job: FlowJob): Promise<string> {
     session = (await cdp.send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string }).sessionId;
     await cdp.send('Page.enable', {}, session);
     await cdp.send('Page.bringToFront', {}, session);
+    /* a página age como focada e ativa mesmo com a tela travada ou a janela coberta (o Chrome pode ter sido aberto sem as
+       opções anti-pausa — ex.: o navegador em que o usuário fez login) */
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, session).catch(() => {});
+    await cdp.send('Page.setWebLifecycleState', { state: 'active' }, session).catch(() => {});
     const deadline = Date.now() + job.timeoutSec * 1000;
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
     // 1) página carregada e logada
