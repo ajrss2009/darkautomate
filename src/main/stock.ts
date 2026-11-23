@@ -8,6 +8,9 @@ import type { Settings, StockSource } from '../shared/types';
 import { downloadYouTubeClip, searchYouTube, ytClipSeconds } from './youtube';
 import { concat as ffConcat, duration as ffDuration, run as ffRun } from './ffmpeg';
 
+/** Fontes que publicam vídeo/imagem com marca d'água gravada (não servem como mídia de cena). */
+export const WATERMARKED = /publicdomainfootage|pond5|shutterstock|storyblocks|videoblocks|dissolve.com|watermark(ed)?|preview only/i;
+
 export interface StockHit {
   source: StockSource; kind: 'image' | 'video'; url: string; thumb?: string;
   width?: number; height?: number; author?: string; license?: string; page?: string; title?: string;
@@ -159,6 +162,8 @@ export async function searchStock(
       if (out.length >= limit) break;
       try {
         const m = await getJson(`${base(s, src)}/metadata/${encodeURIComponent(d.identifier)}`, {}, o.signal);
+        /* acervos que gravam a PRÓPRIA MARCA no vídeo ("www.PublicDomainFootage.com" no documentário da bateria): fora */
+        if (WATERMARKED.test(`${d.identifier} ${d.title} ${d.creator} ${JSON.stringify(m.metadata ?? {}).slice(0, 4000)}`)) continue;
         const files = (m.files ?? []) as any[];
         const f = media === 'video'
           ? (files.find((x) => /\.mp4$/i.test(x.name) && /h\.264|mpeg4/i.test(x.format ?? '')) ?? files.find((x) => /\.mp4$/i.test(x.name)))
