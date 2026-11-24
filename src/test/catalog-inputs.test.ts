@@ -69,3 +69,39 @@ import { sceneReferenceImages } from '../main/executors';
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('  ✓ referências SnapGen: personagem → anexos → estilo → skill, até 10');
 })();
+
+/* Videoclipe com a pasta de clipes do usuário (qualquer skill): sem Whisper nos clipes, duração da música, planos curtos */
+import { attachmentsText, ensureAttachmentTranscripts, musicDriven, musicLength } from '../main/attachments';
+void (async () => {
+  const { execFileSync } = await import('node:child_process');
+  const bundled = path.resolve('tools/ffmpeg/win/ffmpeg.exe');
+  const FF = fs.existsSync(bundled) ? bundled : 'ffmpeg';
+  try { execFileSync(FF, ['-version'], { stdio: 'ignore' }); } catch { console.log('… ffmpeg ausente: teste do videoclipe pulado'); return; }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-mv-'));
+  const user = path.join(dir, 'assets', 'user', 'CLIPES'); fs.mkdirSync(user, { recursive: true });
+  const atts: Array<{ file: string; kind: 'video' | 'audio'; use: 'scene' | 'music' }> = [];
+  for (let i = 1; i <= 3; i++) { execFileSync(FF, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=s=160x90:d=2', path.join(user, `c${i}.mp4`)]); atts.push({ file: `CLIPES/c${i}.mp4`, kind: 'video', use: 'scene' }); }
+  execFileSync(FF, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=d=3', path.join(dir, 'assets', 'user', 'm.mp3')]); atts.push({ file: 'm.mp3', kind: 'audio', use: 'music' });
+  const lyricRoute = { steps: [{ id: 'song', kind: 'music', enabled: true, bindings: [{ type: 'builtin', tool: 'lyric-song' }] }, { id: 'video', kind: 'video', enabled: true, bindings: [] }] };
+  const narrRoute = { steps: [{ id: 'narration', kind: 'narration', enabled: true, bindings: [] }] };
+  const p = { attachments: atts, route: lyricRoute, targetDurationSec: 60, skill: {} } as never as import('../shared/types').Project;
+  assert.ok(musicDriven(p), 'rota com canção = videoclipe');
+  assert.ok(!musicDriven({ ...p, route: narrRoute } as never), 'com narração não é videoclipe');
+  assert.ok(musicDriven({ ...p, route: { steps: [] } } as never), 'música do usuário sem narração = videoclipe');
+  const logs: string[] = [];
+  const settings = { ffmpeg: FF, whisper: { python: 'python-que-nao-existe', model: 'small', device: 'cpu', autoInstall: false } } as never;
+  await ensureAttachmentTranscripts({ settings, project: p, projectDir: dir, toolsDir: path.resolve('tools'), log: (l) => logs.push(l) });
+  assert.ok(logs.some((l) => /3 clipe\(s\) do usuário: só folhas de quadros/.test(l)), logs.join('\n'));
+  assert.ok(!logs.some((l) => /transcrevendo o anexo "CLIPES/.test(l)), 'clipes não passam pelo Whisper');
+  assert.ok(logs.some((l) => /transcrevendo o anexo "m\.mp3"/.test(l)), 'a música continua sendo ouvida');
+  fs.mkdirSync(path.join(dir, 'out'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'out', 'lyrics-timing.json'), JSON.stringify({ duration: 190 }));
+  assert.equal(musicLength(p, dir), 190);
+  const plan = attachmentsText(p, dir, 'scene_plan');
+  assert.match(plan, /VIDEOCLIPE COM OS CLIPES DO USUÁRIO \(3 vídeo\(s\)\)[\s\S]*190 s/);
+  assert.ok(!/USO COMPLETO/.test(plan), 'sem a regra de cobrir 100% de cada vídeo');
+  const tut = attachmentsText({ ...p, route: narrRoute } as never, dir, 'scene_plan');
+  assert.match(tut, /USO COMPLETO/, 'tutorial com narração mantém a regra antiga');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('  ✓ videoclipe com pasta de clipes: só folhas, duração da música, planos de 2–5 s');
+})().catch((e) => { console.error(e); process.exit(1); });

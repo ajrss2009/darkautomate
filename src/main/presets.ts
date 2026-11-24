@@ -526,6 +526,20 @@ export const ROUTES: Route[] = ([
     ],
   },
   {
+    id: 'montagem-musical', name: 'Montagem musical (sua música + sua pasta de clipes/fotos, cortes na batida)',
+    description: 'Sem IA no plano: a música do projeto (arquivo, trecho ou pasta = coletânea) é analisada (BPM e tempos fortes) e o app monta planos de 4–8 s na batida com as fotos e os vídeos da sua pasta — sem repetir clipe na mesma música (numa coletânea, só repete em outra faixa), cópias ignoradas, cor contínua, plano curto com clipe de movimento. O vídeo dura a música.',
+    videoTypes: ['custom'],
+    steps: [
+      step({ id: 'music', kind: 'music', label: 'Música do projeto (a sua; sem música, gera no ACE-Step)', scope: 'project', bindings: [{ type: 'wan2gp', template: 'wan2gp-music-ace.json' }, { type: 'builtin', tool: 'library-music' }, { type: 'builtin', tool: 'music-code' }], timeoutSec: 3000 }),
+      step({ id: 'scene_plan', kind: 'scene_plan', label: 'Planos na batida com os seus clipes (sem IA)', scope: 'project', dependsOn: ['music'], bindings: [{ type: 'builtin', tool: 'beat-montage' }], params: { minShotSec: 4, maxShotSec: 8 }, timeoutSec: 1800 }),
+      step({ id: 'image', kind: 'image', label: 'Foto do usuário (Ken Burns)', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['image'], bindings: [{ type: 'builtin', tool: 'media-folder' } as never], concurrency: 4 }),
+      step({ id: 'video', kind: 'video', label: 'Trecho do vídeo do usuário', scope: 'scene', dependsOn: ['scene_plan'], onlySceneKinds: ['video'], bindings: [{ type: 'builtin', tool: 'media-folder' } as never], concurrency: 4 }),
+      step({ id: 'edit', kind: 'edit', label: 'Montagem na música (cortes secos na batida)', scope: 'project', dependsOn: ['music', 'image', 'video'], bindings: [{ type: 'builtin', tool: 'assemble' }], params: { musicVolume: 1, autoMotion: true, defaultTransition: 'none' } }),
+      step({ id: 'metadata', kind: 'metadata', label: 'Título, descrição e tags', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: textChain }),
+      step({ id: 'thumbnail', kind: 'thumbnail', label: 'Capa (quadro do vídeo)', scope: 'project', dependsOn: ['edit'], optional: true, onFail: 'skip', bindings: [{ type: 'builtin', tool: 'frame-thumbnail' }] }),
+    ],
+  },
+  {
     id: 'cortes-de-live', name: 'Cortes de Live (link → vídeo viral dos melhores momentos)',
     description: 'Cole o link de uma live (ou arquivo de vídeo) no campo ideia; o harness baixa com yt-dlp, transcreve, detecta os momentos de maior energia/frase completa e monta UM corte viral de 20-40 s em 9:16 com gancho, legenda e áudio original. Rota livre determinística.',
     videoTypes: ['custom'],
@@ -743,6 +757,8 @@ export function withAllMediaRoutes(route: Route): Route {
       if (!want || !s.bindings.length) return s;
       const missing = want.filter((b) => !has(s.bindings, b));
       if (!missing.length) return s;
+      /* etapa que COMEÇA num executor interno (quadro do vídeo na capa, arquivo do usuário): as rotas extras ficam de reserva, no fim */
+      if (s.bindings[0]!.type === 'builtin') return { ...s, bindings: [...s.bindings, ...missing] };
       let cut = s.bindings.length;
       while (cut > 0 && s.bindings[cut - 1]!.type === 'builtin') cut--;
       return { ...s, bindings: [...s.bindings.slice(0, cut), ...missing, ...s.bindings.slice(cut)] };

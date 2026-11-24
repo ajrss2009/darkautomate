@@ -56,3 +56,32 @@ function main() {
 
 main();
 console.log('beat-grid tests: OK');
+
+/* Montagem musical sem IA: cortes de 4–8 s nos tempos fortes, sem repetir até usar todos, cópias ignoradas */
+import { montageCuts, planMontage } from '../main/beat-montage';
+(() => {
+  const beats = Array.from({ length: 400 }, (_, i) => Math.round(i * 0.5 * 1000) / 1000);   // 120 BPM
+  const grid = { bpm: 120, beats, downbeats: beats.filter((_, i) => i % 4 === 0) };
+  const cuts = montageCuts(190, grid);
+  const lens = [0, ...cuts, 190].slice(1).map((v, i, a) => v - [0, ...cuts][i]!);
+  assert.ok(lens.every((l) => l >= 4 - 1e-6 && l <= 8 + 1e-6), `planos de 4–8 s: ${lens.join(',')}`);
+  assert.ok(cuts.every((c) => beats.includes(c)), 'todo corte numa batida');
+  const clips = Array.from({ length: 10 }, (_, i) => ({ rel: `c${i}.mp4`, kind: 'video' as const, meta: { size: 1, mtime: 1, duration: 10, motion: i / 10, avg: '#808080', qsha: `h${i}` } }));
+  clips.push({ rel: 'copia-de-c0.mp4', kind: 'video', meta: { size: 1, mtime: 1, duration: 10, motion: 0, avg: '#808080', qsha: 'h0' } });
+  clips.push({ rel: 'foto.jpg', kind: 'image' as never, meta: { size: 1, mtime: 1, motion: 0, avg: '#808080', qsha: 'f' } as never });
+  const sc = planMontage({ total: 90, grid, clips, seed: 'x' });
+  assert.ok(Math.abs(sc.reduce((a, s) => a + s.durationSec, 0) - 90) < 0.01, 'soma = música');
+  const first = sc.slice(0, 11).map((s) => s.userMedia);
+  assert.equal(new Set(first.map((f) => (f === 'copia-de-c0.mp4' ? 'c0.mp4' : f))).size, 11, `11 grupos sem repetir antes de usar todos: ${first.join(' ')}`);
+  assert.ok(!(first.includes('c0.mp4') && first.includes('copia-de-c0.mp4')), 'cópia não conta como outro clipe');
+  assert.ok(sc.every((s, i) => i === 0 || s.userMedia !== sc[i - 1]!.userMedia), 'nunca o mesmo clipe seguido');
+  assert.ok(sc.filter((s) => s.kind === 'video').every((s) => (s.clipStart ?? 0) + s.durationSec <= 10), 'trecho cabe no clipe');
+  assert.ok(sc.every((s) => s.manualDuration && s.narration === ''));
+  assert.throws(() => planMontage({ total: 10, grid, clips: [] }), /anexe a pasta/);
+  /* coletânea de 3 faixas de 30 s com 6 clipes: nenhum clipe repete dentro da mesma faixa */
+  const few = clips.slice(0, 6);
+  const col = planMontage({ total: 90, grid, clips: few, seed: 'y', trackStarts: [0, 30, 60] });
+  const startOf = (i: number) => col.slice(0, i).reduce((a, s) => a + s.durationSec, 0);
+  for (const tr of [0, 1, 2]) { const inT = col.filter((_, i) => Math.min(2, Math.floor((startOf(i) + 1e-6) / 30)) === tr).map((s) => s.userMedia); assert.equal(new Set(inT).size, inT.length, `faixa ${tr + 1} sem repetir: ${inT.join(' ')}`); }
+  console.log(`  ✓ montagem: ${sc.length} planos de 4–8 s em 90 s, sem repetir até usar os 11 arquivos; coletânea sem repetir na mesma faixa`);
+})();

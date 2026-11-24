@@ -503,7 +503,7 @@ const NATAL_COMMON_RULES = 'O vídeo é UM videoclipe na DURAÇÃO DO PROJETO (p
 const natalSteps = (era: string, music: string, look: string, scenes: string): Skill['steps'] => ({
   script: `Grave \`script.md\` com: 1) \`TITLE: <nome original da canção natalina>\`; 2) \`STYLE: ${music}\` (em inglês, com instrumentos, BPM e tipo de voz); 3) \`LYRICS:\` a letra ORIGINAL em inglês (padrão das playlists vintage; use pt-BR só se o projeto pedir), um verso por linha, blocos com [verse] / [chorus] / [verse] / [chorus] separados por linha em branco — cabe na duração do projeto (60 s ≈ 12 a 16 linhas curtas; 15 s ≈ 3 a 4 linhas: só um refrão); 4) \`VISUAL:\` ${era}, com as 6 cenas (uma linha cada) ligadas ao que a letra canta naquele trecho. Não escreva narração.`,
   asset_design: `Bíblia visual: ${look} "## Cenários": os 3 ou 4 lugares das cenas. "## Figurino": roupas da época por personagem (sem nomes de pessoas reais). "## Paleta": hex de 6 cores. "## Textura": leve halação/brilho em volta das luzes, neve atmosférica, acabamento de filme Technicolor quente.`,
-  scene_plan: `Cenas de 10 s em número = duração do projeto ÷ 10 (60 s = EXATAMENTE 6 cenas de 10 s; 15 s = 2 cenas; a última pode ter o resto), todas "kind":"video", "durationSec" ≤ 10, na ordem da canção (use os tempos reais dos versos). Sem "narration" e sem "speaker" (a canção é a trilha). visualIntent EM INGLÊS, uma tomada contínua de 10 s, citando: ${scenes} Inclua o movimento lento de câmera e o que se move (neve, pessoas, carros, luzes piscando). Nenhum texto na imagem. Cena 1 = plano geral de abertura forte; cena 6 = fechamento acolhedor (árvore, família, janela iluminada).`,
+  scene_plan: `SE O USUÁRIO ANEXOU CLIPES (pasta de vídeos), vale a regra "VIDEOCLIPE COM OS CLIPES DO USUÁRIO" (planos de 2–5 s com userMedia, na duração da música) e o resto deste parágrafo não se aplica. Sem clipes: cenas de 10 s em número = duração do projeto ÷ 10 (60 s = EXATAMENTE 6 cenas de 10 s; 15 s = 2 cenas; a última pode ter o resto), todas "kind":"video", "durationSec" ≤ 10, na ordem da canção (use os tempos reais dos versos). Sem "narration" e sem "speaker" (a canção é a trilha). visualIntent EM INGLÊS, uma tomada contínua de 10 s, citando: ${scenes} Inclua o movimento lento de câmera e o que se move (neve, pessoas, carros, luzes piscando). Nenhum texto na imagem. Cena 1 = plano geral de abertura forte; cena 6 = fechamento acolhedor (árvore, família, janela iluminada).`,
   image: `Quadro-chave 16:9 da cena, ${era}: ${look} Cinematográfico, sem texto sobreposto, sem marca d'água.`,
   video: `Clipe de 10 s no Wan2GP MiniMax H3 FL2VA HyperFlow Flash 14B animando o quadro-chave: uma única tomada, câmera lenta (push-in leve ou pan lento), neve caindo, pessoas e carros em movimento natural, luzes de Natal piscando suavemente. Prompt no formato do H3: "integrated_multimodal_description: [Shot 1] …" + "overall_soundscape: …" (ambiente de neve, sinos ao longe). Sem fala, sem texto na tela.`,
   music: `Canção natalina ORIGINAL na duração do projeto (padrão 60 s) com a letra do script.md no ACE-Step 1.5 XL: ${music}`,
@@ -540,7 +540,7 @@ const NATAL_RETROFUTURISTA_50: Skill = {
     'cozy 1950s Christmas lounge jazz, smooth velvety vocal (male crooner or female jazz singer), soft lounge piano, walking upright bass, brushed drums, muted trumpet, gentle tenor saxophone, celesta and sleigh bells, relaxed 105 BPM, warm vintage hi-fi recording',
     'Paleta: vermelho e verde natalinos profundos, creme, cromo polido, azul do crepúsculo e branco da neve. Motivos OBRIGATÓRIOS: carros clássicos dos anos 50 flutuando sobre propulsores azul-claros, robôs humanoides de cromo e esmalte creme com olhos brilhantes, árvore gigante na Main Street, vitrines de loja de departamento, seção de brinquedos com foguetes de corda.',
     '1950s retrofuturistic Christmas (Atomic Age), snowy Main Street or department store interior, classic 1950s cars hovering on glowing blue-white thrusters instead of wheels, polished chrome and cream-enamel humanoid robots with glowing eyes helping shoppers, couples in wool overcoats and fedoras, children in tweed coats, warm 1950s Technicolor glow vs cool blue snowy twilight, soft halation, cozy whimsical mood.'),
-    scene_plan: 'Cenas de 10 s em número = duração do projeto ÷ 10 (60 s = EXATAMENTE 6 cenas de 10 s; 15 s = 2 cenas; a última pode ter o resto), todas "kind":"video", "durationSec" ≤ 10, na ordem da canção (use os tempos reais dos versos). Sem "narration" e sem "speaker". O vídeo é gerado DIRETO do texto (sem imagem de partida): cada visualIntent EM INGLÊS descreve sozinho uma tomada contínua de 10 s — lugar, pessoas e robôs com figurino, carros flutuando sobre propulsores, luz, o movimento lento da câmera e o que se move (neve, pessoas, carros, luzes). NÃO repita a estética de filme (Technicolor, grão, halação, som): ela já entra como prefixo fixo em todo prompt. Nenhum texto na imagem. Cena 1 = plano geral de abertura forte; última = fechamento acolhedor.',
+    scene_plan: 'SE O USUÁRIO ANEXOU CLIPES (pasta de vídeos), vale a regra "VIDEOCLIPE COM OS CLIPES DO USUÁRIO" (planos de 2–5 s com userMedia, na duração da música) e o resto deste parágrafo não se aplica. Sem clipes: cenas de 10 s em número = duração do projeto ÷ 10 (60 s = EXATAMENTE 6 cenas de 10 s; 15 s = 2 cenas; a última pode ter o resto), todas "kind":"video", "durationSec" ≤ 10, na ordem da canção (use os tempos reais dos versos). Sem "narration" e sem "speaker". O vídeo é gerado DIRETO do texto (sem imagem de partida): cada visualIntent EM INGLÊS descreve sozinho uma tomada contínua de 10 s — lugar, pessoas e robôs com figurino, carros flutuando sobre propulsores, luz, o movimento lento da câmera e o que se move (neve, pessoas, carros, luzes). NÃO repita a estética de filme (Technicolor, grão, halação, som): ela já entra como prefixo fixo em todo prompt. Nenhum texto na imagem. Cena 1 = plano geral de abertura forte; última = fechamento acolhedor.',
     video: 'Clipe de 10 s gerado DIRETO do prompt (texto → vídeo) no Wan2GP MiniMax H3 FL2VA HyperFlow Flash 14B, sem quadro-chave: o prompt começa pelo prefixo fixo da skill (Atompunk anos 50, Technicolor de 3 tiras, só som ambiente, sem música) e segue a cena — uma única tomada, câmera lenta, neve caindo, pessoas e carros flutuantes em movimento natural. Sem fala, sem música e sem texto na tela.' },
   promptPrefix: '1950s retro-futuristic Atompunk aesthetic, shot on 3-strip Technicolor 35mm film, saturated crimson, emerald, and warm gold tones, subtle film grain, halation glow, cinematic lighting, ambient foley sound only, strictly no music.',
   reviewCriteria: '60 s exatos; 6 clipes de 10 s do H3 FL2VA HyperFlow; canção ORIGINAL com letra de jazz natalino anos 50 no ACE-Step XL; visual retrofuturista com carros flutuantes e robôs cromados em Main Street nevada; Technicolor quente × azul frio; câmera lenta; fusões suaves; sem narração e sem texto sobreposto.',
@@ -565,6 +565,19 @@ const NATAL_ANOS_60: Skill = {
   outputStyle: '🎄 Natal anos 60 · neon, patinação, árvore de alumínio, Kodachrome · 🎶 doo-wop / girl group com letra (ACE-Step XL) · 🎬 6 × 10 s no H3 FL2VA HyperFlow · ⏱ 60 s.',
 };
 
+/** Montagem musical: sua música (arquivo/trecho/pasta) + sua pasta de clipes/fotos → videoclipe cortado na batida, sem IA no plano. */
+const MONTAGEM_MUSICAL: Skill = {
+  id: 'montagem-musical', name: 'Montagem musical (sua música + sua pasta de clipes)', builtin: true, musicVideo: true,
+  description: 'Videoclipe montado SÓ com o que você traz: a música (um arquivo, um trecho ou uma pasta, que vira coletânea) e uma pasta de vídeos e/ou fotos. O app detecta o BPM, corta nos tempos fortes (planos de 4–8 s), escolhe os clipes pelo índice (sem repetir, cópias ignoradas, cor contínua) e o vídeo dura a música. Nada é gerado por IA.',
+  global: 'Videoclipe de montagem: a música do usuário conduz tudo; o visual são os arquivos da pasta do usuário. Sem narração, sem texto na tela, sem geração de imagem ou vídeo.',
+  steps: {
+    metadata: 'Título com o nome da música (ou da coletânea) e o clima do vídeo; descrição curta; se for coletânea, a lista de faixas com os tempos (capítulos). Crédito da música quando não for própria.',
+    thumbnail: 'O quadro mais bonito do vídeo, sem texto grande.',
+  },
+  appearance: 'custom', routeId: 'montagem-musical', aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'mixed', mediaSources: [], mixSources: [], storyboard: false,
+  outputStyle: '🎵 Sua música (arquivo, trecho ou pasta = coletânea) · 📁 seus vídeos/fotos · ✂ cortes de 4–8 s nos tempos fortes · sem repetir clipe na mesma música · ⏱ dura a música · nada gerado por IA.',
+};
+
 /** Pág. 147 — avatar reativo (folha de PNGs, rota documentario-3d). */
 const AVATAR_REATIVO_VIDEO: Skill = {
   id: 'avatar-reativo-video', name: 'Avatar Reativo sobre Vídeo', builtin: true,
@@ -581,6 +594,7 @@ const AVATAR_REATIVO_VIDEO: Skill = {
 };
 
 const SPECIAL: Skill[] = [
+  MONTAGEM_MUSICAL,
   UGC_PRODUTO,
   MUSICA_LIPSYNC,
   CARTOON_SHORT_STUDIO,

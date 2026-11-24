@@ -80,7 +80,7 @@ export interface ApiBinding { type: 'api'; provider: string; model: string; voic
  * - lyric-words: grava os tempos da letra de cada cena (audio/words.json) para a cena por código;
  * - frame-thumbnail: thumbnail a partir de um quadro real do final.mp4 + texto do SEO.
  */
-export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'social-publish' | 'wan2gp-showrunner' | 'viggle-remake' | 'media-folder';
+export type BuiltinTool = 'kit-film' | 'silence-trim' | 'subtitles' | 'assemble' | 'library-music' | 'whisper' | 'estimate-words' | 'clip-musical' | 'lyric-song' | 'lyric-words' | 'frame-thumbnail' | 'sfx-code' | 'music-code' | 'youtube-upload' | 'social-publish' | 'wan2gp-showrunner' | 'viggle-remake' | 'media-folder' | 'beat-montage';
 /** media-folder: imagem/clipe da pasta ou banco de mídia do usuário (bank = id do banco; vazio = todos, na ordem) */
 export interface BuiltinBinding { type: 'builtin'; tool: BuiltinTool; bank?: string }
 /** Pasta / banco de mídia (Provedores): imagens e clipes do usuário usados como provedor de imagem e de vídeo, sem repetir. */

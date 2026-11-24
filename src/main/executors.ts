@@ -1,4 +1,7 @@
 ﻿import { watchOutputs } from './watch';
+import { analyzeBeats, cutsOnBeat, type BeatGrid } from './beat-grid';
+import { planMontage, type MontageClip } from './beat-montage';
+import { loadIndex, metaOf, saveIndex } from './media-index';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -2420,6 +2423,7 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
   }
   if (tool === 'lyric-song') return lyricSong(c, o);
   if (tool === 'media-folder') return mediaFolder(c);
+  if (tool === 'beat-montage') return beatMontage(c);
   if (tool === 'lyric-words') return lyricWords(c);
   if (tool === 'frame-thumbnail') return frameThumbnail(c);
   if (tool === 'wan2gp-showrunner') {
@@ -2666,6 +2670,11 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
     if (path.resolve(dest) !== path.resolve(attached)) fs.copyFileSync(attached, dest);
     const dur = (await ff.duration(c.settings.ffprobe, dest).catch(() => 0)) || seconds0;
     c.log(`música do projeto: ${path.basename(attached)} (${dur.toFixed(1)} s) — ouvindo a faixa para o clipe`);
+    /* videoclipe com a música do usuário: o vídeo dura a MÚSICA (o trecho, quando escolhido, já é o arquivo) — não o padrão da skill */
+    if (dur > 0 && Math.abs(dur - c.project.targetDurationSec) > 1) {
+      c.log(`duração do projeto: ${c.project.targetDurationSec} s → ${Math.round(dur)} s (a da música)`);
+      c.project.targetDurationSec = Math.round(dur);
+    }
     const lyrics = await listenMusic(c, dest, dur, o);
     /* tempos da letra para as cenas/legendas (o passo "lyrics" lê out/lyrics-timing.json) */
     const timing = writeLyricsTiming(c, path.join(c.outDir, 'music.words.json'), dur, parsedTitleOf(c));
@@ -2745,6 +2754,46 @@ export function sceneReferenceImages(c: Pick<ExecContext, 'project' | 'projectDi
   for (const f of c.project.skill?.refImages ?? []) add(f);
   for (const ch of c.project.characters ?? []) add(characterPhoto(c.project, c.projectDir, (ch as { name: string }).name));
   return out;
+}
+
+/**
+ * MONTAGEM MUSICAL sem IA: música do projeto (arquivo, trecho ou coletânea; ou a gerada em out/music.*) → beat grid →
+ * planos de 4–8 s nos tempos fortes, cada um com uma foto/um trecho de vídeo da pasta do usuário (índice: duração,
+ * movimento, cor, cópias) → scenes.json. O vídeo dura a música.
+ */
+async function beatMontage(c: ExecContext): Promise<ExecResult> {
+  const out = path.join(c.outDir);
+  const music = musicAttachment(c.project, c.projectDir)
+    ?? ['mp3', 'wav', 'm4a', 'flac', 'ogg'].map((x) => path.join(out, `music.${x}`)).find((f) => fs.existsSync(f));
+  if (!music) throw new Error('montagem musical: o projeto não tem música (escolha um arquivo ou uma pasta em "🎵 Música do projeto")');
+  const total = (await ff.duration(c.settings.ffprobe, music).catch(() => 0)) || c.project.targetDurationSec;
+  if (Math.abs(total - c.project.targetDurationSec) > 1) { c.log(`duração do projeto: ${c.project.targetDurationSec} s → ${Math.round(total)} s (a da música)`); c.project.targetDurationSec = Math.round(total); }
+  let grid: BeatGrid;
+  try { grid = analyzeBeats(c.settings.ffmpeg, music); } catch (e) { c.log(`⚠ beat grid: ${(e as Error).message.split('\n')[0]} — grade de 120 BPM`); grid = { bpm: 120, beats: Array.from({ length: Math.ceil(total * 2) }, (_, i) => i * 0.5), downbeats: Array.from({ length: Math.ceil(total / 2) }, (_, i) => i * 2), duration: total, confidence: 0 }; }
+  c.log(`🎵 ${path.basename(music)}: ${total.toFixed(1)} s · ${grid.bpm} BPM · ${grid.beats.length} batidas`);
+  const media = (c.project.attachments ?? []).filter((a) => a.use === 'scene' && (a.kind === 'image' || a.kind === 'video') && fs.existsSync(attachmentPath(c.projectDir, a)));
+  if (!media.length) throw new Error('montagem musical: anexe a pasta de fotos/vídeos (Arquivos do projeto → 📁 pasta)');
+  /* índice dos arquivos (fica em assets/user/.filmforge-index.json; só mede o que mudou) */
+  const bankDir = path.join(c.projectDir, 'assets', 'user');
+  const idx = loadIndex(bankDir);
+  let dirty = false, n = 0;
+  const clips: MontageClip[] = [];
+  for (const a of media) {
+    if (c.signal.aborted) throw new Error('cancelado');
+    try { const m = metaOf(idx, bankDir, a.file, a.kind as 'image' | 'video', { ffmpeg: c.settings.ffmpeg, ffprobe: c.settings.ffprobe }); dirty ||= m.dirty; clips.push({ rel: a.file, kind: a.kind as 'image' | 'video', meta: m.meta }); }
+    catch { clips.push({ rel: a.file, kind: a.kind as 'image' | 'video' }); }
+    if (++n % 25 === 0) { c.log(`índice dos clipes: ${n}/${media.length}`); if (dirty) { saveIndex(bankDir, idx); dirty = false; } }
+  }
+  if (dirty) saveIndex(bankDir, idx);
+  const p = (c.step.params ?? {}) as Record<string, unknown>;
+  const scenes = planMontage({ total, grid, clips, minSec: Number(p['minShotSec'] ?? 4), maxSec: Number(p['maxShotSec'] ?? 8), seed: c.project.id, trackStarts: c.project.musicCompilation?.tracks.map((t) => t.start) });
+  const dups = clips.length - new Set(clips.map((x) => x.meta?.qsha ?? x.rel)).size;
+  const usedFiles = new Set(scenes.map((s) => s.userMedia)).size;
+  const file = primaryFile('scene_plan', c);
+  fs.writeFileSync(file, JSON.stringify(scenes, null, 2));
+  const onBeat = cutsOnBeat(scenes.map((s) => s.durationSec), grid.beats);
+  c.log(`🎬 montagem: ${scenes.length} planos de ${Math.min(...scenes.map((s) => s.durationSec)).toFixed(1)}–${Math.max(...scenes.map((s) => s.durationSec)).toFixed(1)} s · ${usedFiles} de ${clips.length} arquivo(s) usados${dups ? ` · ${dups} cópia(s) ignoradas` : ''} · ${onBeat.onBeat}/${onBeat.cuts} cortes no beat`);
+  return { files: [file] };
 }
 
 async function mediaFolder(c: ExecContext): Promise<ExecResult> {

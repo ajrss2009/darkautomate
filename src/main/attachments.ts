@@ -118,6 +118,27 @@ const CODE_KINDS = new Set(['code_scene', 'motion_graphics', 'free']);
 const KIND_LABEL: Record<AttachmentKind, string> = { image: 'imagem', video: 'vídeo', audio: 'áudio', text: 'texto', other: 'arquivo' };
 const USE_LABEL: Record<Attachment['use'], string> = { scene: 'usar numa cena', reference: 'referência', music: 'trilha sonora', character: 'foto de personagem' };
 
+/**
+ * Projeto conduzido pela MÚSICA (videoclipe): canção/clipe musical na rota, skill de videoclipe, ou trilha do usuário
+ * numa rota sem narração. Vale para QUALQUER skill que recebeu a pasta de músicas/clipes. Função pura.
+ */
+export function musicDriven(p: Pick<Project, 'route' | 'skill' | 'attachments' | 'musicCompilation'>): boolean {
+  const steps = (p.route?.steps ?? []).filter((s) => s.enabled !== false);
+  const tool = (x: string) => steps.some((s) => s.bindings.some((b) => b.type === 'builtin' && (b as { tool?: string }).tool === x));
+  if (tool('lyric-song') || tool('clip-musical') || p.skill?.musicVideo) return true;
+  const hasMusic = (p.attachments ?? []).some((a) => a.use === 'music' && a.kind === 'audio') || !!p.musicCompilation;
+  return hasMusic && !steps.some((s) => s.kind === 'narration');
+}
+/** A partir de quantos clipes de cena a pasta é tratada como banco de planos (só folhas de quadros, sem Whisper). */
+export const MANY_CLIPS = 20;
+/** Duração que a música impõe ao vídeo: trecho escolhido, coletânea, canção ouvida (out/lyrics-timing.json) ou o alvo do projeto. */
+export function musicLength(p: Project, projectDir: string): number {
+  if (p.musicSegment) return Math.round((p.musicSegment.end - p.musicSegment.start) * 10) / 10;
+  if (p.musicCompilation?.total) return p.musicCompilation.total;
+  try { const j = JSON.parse(fs.readFileSync(path.join(projectDir, 'out', 'lyrics-timing.json'), 'utf8')) as { duration?: number }; if (Number(j.duration) > 0) return Number(j.duration); } catch { /* ainda não ouvida */ }
+  return p.targetDurationSec;
+}
+
 /* ───────── transcrição dos vídeos/áudios anexados (base para a narração e para os trechos) ───────── */
 
 export const transcriptsDir = (projectDir: string) => path.join(userDir(projectDir), 'transcripts');
@@ -186,12 +207,18 @@ export async function ensureAttachmentTranscripts(o: {
   /* web/ = captura do link (sem som; já tem prints e os instantes das seções em web/pagina.md) */
   const list = (o.project.attachments ?? []).filter((a) => (a.kind === 'video' || a.kind === 'audio') && !a.file.startsWith('web/') && fs.existsSync(attachmentPath(o.projectDir, a)));
   let done = 0;
+  /* clipes de cena num VIDEOCLIPE (o áudio deles não entra) ou numa pasta grande (banco de planos): o Whisper em cada
+     um levava minutos por clipe e não servia para nada — basta a folha de quadros (o que aparece em cada clipe) */
+  const sceneClips = list.filter((a) => a.kind === 'video' && a.use === 'scene');
+  const sheetsOnly = musicDriven(o.project) || sceneClips.length > MANY_CLIPS;
+  if (sheetsOnly && sceneClips.length) o.log?.(`${sceneClips.length} clipe(s) do usuário: só folhas de quadros, sem transcrição (${musicDriven(o.project) ? 'videoclipe — o áudio dos clipes não entra' : `pasta com mais de ${MANY_CLIPS} clipes`})`);
   for (const a of list) {
     const file = attachmentPath(o.projectDir, a);
     /* folhas de quadros: o roteiro e o plano precisam SABER o que aparece no vídeo para casar a narração */
     if (a.kind === 'video' && !attachmentSheets(o.projectDir, a).length) {
-      await buildSheets(o.settings.ffmpeg || 'ffmpeg', file, o.projectDir, a, o.log);
+      await buildSheets(o.settings.ffmpeg || 'ffmpeg', file, o.projectDir, a, sheetsOnly && a.use === 'scene' ? undefined : o.log);
     }
+    if (sheetsOnly && a.kind === 'video' && a.use === 'scene') continue;
     if (attachmentTranscript(o.projectDir, a)) {
       /* já transcrito (execução anterior): a música ainda precisa da letra com tempos para o videoclipe */
       if (a.use === 'music') writeMusicLyrics(o.projectDir, file, attachmentTranscript(o.projectDir, a)!, o.log);
@@ -264,7 +291,7 @@ export function attachmentsText(p: Project, projectDir: string, kind: string, sc
   const media = list.filter((a) => a.use === 'scene' && (a.kind === 'image' || a.kind === 'video'));
   if (kind === 'scene_plan' && media.length) {
     out.push(`MÍDIA DO USUÁRIO NAS CENAS: para usar uma imagem ou vídeo do usuário como visual de uma cena, ponha nessa cena "userMedia": "<nome exato do arquivo, ex.: ${media[0]!.file}>" e um tipo que a rota produz: "image" (o vídeo IA ainda pode animá-la), "video" ou, em rotas só de código, "code" (a página da cena mostra o arquivo). ` +
-      'Use CADA arquivo marcado "usar numa cena" em pelo menos uma cena, onde combinar com a narração; descreva em "visualIntent" o que o arquivo mostra (pela nota/nome).');
+      musicDriven(p) && media.length > 3 ? 'Escolha os arquivos que melhor combinam com cada trecho da música (não precisa usar todos).' : 'Use CADA arquivo marcado "usar numa cena" em pelo menos uma cena, onde combinar com a narração; descreva em "visualIntent" o que o arquivo mostra (pela nota/nome).');
     const vids = media.filter((a) => a.kind === 'video' && !a.file.startsWith('web/'));
     const caps = media.filter((a) => /^web\/(?:l\d+\/)?pagina\.mp4$/.test(a.file)).map((a) => a.file);
     if (caps.length === 1)
@@ -274,7 +301,13 @@ export function attachmentsText(p: Project, projectDir: string, kind: string, sc
     const pclips = media.filter((a) => /^web\/(?:l\d+\/)?video-\d+\.mp4$/.test(a.file)).map((a) => a.file);
     if (pclips.length)
       out.push(`TRECHOS DE VÍDEOS DAS PÁGINAS (${pclips.join(', ')}): vídeos que tocavam na página, gravados curtos e sem som. Use cada um em NO MÁXIMO uma cena de 3 a 6 s ("userMedia": "<arquivo>", "clipStart": 0), numa moldura, quando a fala citar esse vídeo/resultado — é conteúdo de terceiros, então comente por cima e não mostre mais que isso.`);
-    if (vids.length) {
+    if (vids.length && musicDriven(p)) {
+      const dur = musicLength(p, projectDir);
+      out.push(`VIDEOCLIPE COM OS CLIPES DO USUÁRIO (${vids.length} vídeo(s)): a MÚSICA manda — a soma das cenas é ${dur} s (a duração da música${p.musicSegment ? ' no trecho escolhido' : ''}); ignore contagens fixas de cenas ou durações de clipe da skill. ` +
+        'Cada cena é UM plano de 2 a 5 s (refrão e tempos fortes: 2–3 s; versos: 3–5 s) com "userMedia": "<nome exato do arquivo>", "clipStart": <segundo do clipe onde começa o melhor momento> e "durationSec". ' +
+        'TODA cena usa um clipe do usuário (nada de gerar imagem ou vídeo). NÃO repita um clipe enquanto houver clipes ainda não usados; escolha pelas folhas de quadros os que combinam com a letra e a energia de cada trecho. ' +
+        'O app encaixa os cortes na batida da música e descarta o áudio dos clipes.');
+    } else if (vids.length) {
       out.push(`VÍDEOS DO USUÁRIO — USO COMPLETO: cubra 100% da duração de cada vídeo em segmentos CONTÍGUOS (o próximo "clipStart" = fim do anterior), sem pular nenhum trecho. Em cada segmento: "userMedia": "<nome exato do arquivo>", "clipStart": <segundo inicial>, "manualDuration": true e "durationSec": <duração>. TODA cena de clipe tem narração descrevendo a ação que aparece na tela (o áudio original da captura NÃO é usado — descreva o que é aberto, clicado ou mostrado, usando as folhas de quadros).`);
       out.push(`CAPTURA DE TELA / OBS: comece depois que a janela do OBS sair da tela. Se a barra de tarefas/rodapé com o ícone do OBS aparecer, recorte com "clipCrop": {"w":1920,"h":1032,"x":0,"y":0} (1080p; corta os 48 px do rodapé). NUNCA mostre o OBS. A narração deve indicar o que ocorre na tela no trecho.`);
     }
