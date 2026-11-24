@@ -1803,6 +1803,12 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
   const tracks = readMusicPlan(c);
   const clipParams = (c.step.params ?? {}) as Record<string, unknown>;
   const requestedLoop = clamp(Number(clipParams.loopSeconds ?? 12), 2, 15);
+  /* clipes curtos e ÚNICOS por faixa: 4 a 8 s cada, sem repetir o mesmo clipe dentro da mesma música.
+     0 (padrão) mantém o comportamento antigo de um loop por faixa. */
+  const rawClip = Number(clipParams.clipSeconds ?? 0);
+  /* somente a rota "clipe musical com a sua pasta" usa clipes curtos e únicos por faixa;
+     as demais rotas de clipe musical mantêm o loop contínuo por faixa. */
+  const clipSeconds = c.project.routeId === 'clipe-musical-pasta' && rawClip >= 4 && rawClip <= 8 ? rawClip : 0;
   /* Coletânea de N a M minutos (estimados pelo usuário no projeto). Cada faixa tem 60–300 s:
      nunca músicas de poucos segundos. Faixas do plano são repetidas como variações (outro seed)
      até alcançar o mínimo; o máximo nunca é ultrapassado. */
@@ -1935,7 +1941,7 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
 
   const files: string[] = [];
   const trackNames: string[] = [];
-  const visuals: Array<PreparedVisual & { seconds: number }> = [];
+  const visuals: Array<PreparedVisual & { seconds: number; clips?: PreparedVisual[] }> = [];
   let usedSeconds = 0;
 
   /* Gera uma faixa no YuE 2 (instrumental = workflow com LoRA instrumental, sem voz).
@@ -1997,14 +2003,27 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
     /* sem silêncio no fim: a faixa dura o que o YuE gerou (no máximo o pedido), com fade */
     const trackSeconds = Math.round(Math.min(got.dur, want) * 1000) / 1000;
     if (trackSeconds < Math.min(20, want * 0.5)) { c.log(`faixa ${i + 1} descartada (${trackSeconds.toFixed(0)}s)`); continue; }
-    const scene = perTrack ? (scenes[i % scenes.length] ?? first) : first;
-    const prep = await prepareVisual(scene);
+    /* clipe musical com a sua pasta: vários clipes curtos e distintos por faixa (4–8 s),
+       com rotação do pool entre faixas — nenhum clipe se repete dentro da mesma música. */
+    let trackVisuals: PreparedVisual[];
+    if (clipSeconds > 0) {
+      const n = Math.max(1, Math.ceil(trackSeconds / clipSeconds));
+      trackVisuals = [];
+      const start = (i * n) % scenes.length;
+      for (let k = 0; k < n; k++) trackVisuals.push(await prepareVisual(scenes[(start + k) % scenes.length]!));
+      if (n > scenes.length) c.log(`aviso: ${n} clipes pedidos na faixa ${i + 1}, mas só há ${scenes.length} cenas — alguns podem se repetir nesta faixa`);
+      else c.log(`faixa ${i + 1}: ${n} clipes únicos de ${clipSeconds}s (rotação a partir da cena ${start + 1})`);
+    } else {
+      const scene = perTrack ? (scenes[i % scenes.length] ?? first) : first;
+      trackVisuals = [await prepareVisual(scene)];
+    }
+    const prep = trackVisuals[0]!;
     const exact = path.join(outDir, `music-${i + 1}.loop.mp3`);
     await ff.run(ffmpeg, ['-y', '-i', got.file, '-t', trackSeconds.toFixed(3), '-af', `afade=t=in:d=0.4,afade=t=out:st=${Math.max(0, trackSeconds - 2.5).toFixed(2)}:d=2.5`,
       '-ar', '44100', '-ac', '2', '-c:a', 'libmp3lame', '-b:a', '192k', exact], c.signal);
     files.push(exact);
     trackNames.push(t.name);
-    visuals.push({ ...prep, seconds: trackSeconds });
+    visuals.push({ ...prep, seconds: trackSeconds, clips: trackVisuals });
     usedSeconds += trackSeconds;
     c.log(`coletânea: ${(usedSeconds / 60).toFixed(1)} de ${(targetTotal / 60).toFixed(1)} min`);
   }
@@ -2030,10 +2049,30 @@ async function clipMusical(c: ExecContext, o: ExecutorOptions): Promise<ExecResu
   for (let i = 0; i < visuals.length; i++) {
     const v = visuals[i]!;
     const seg = path.join(outDir, `visual-${i + 1}.mp4`);
-    const input = v.isImage ? ['-loop', '1', '-framerate', '30', '-i', v.visual] : ['-stream_loop', '-1', '-i', v.visual];
-    await ff.run(ffmpeg, ['-y', ...input, '-t', v.seconds.toFixed(3), '-an',
-      '-vf', 'scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,setsar=1',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', seg], c.signal);
+    if (clipSeconds > 0 && v.clips && v.clips.length > 1) {
+      /* faixa montada com N clipes distintos de 4–8 s (cada cena usada uma única vez na faixa) */
+      const parts: string[] = [];
+      let used = 0;
+      for (let k = 0; k < v.clips.length; k++) {
+        const pv = v.clips[k]!;
+        const dur = Math.min(clipSeconds, v.seconds - used);
+        if (dur <= 0.1) break;
+        const part = path.join(outDir, `visual-${i + 1}-part-${k}.mp4`);
+        const inputPart = pv.isImage ? ['-loop', '1', '-framerate', '30', '-i', pv.visual] : ['-i', pv.visual];
+        await ff.run(ffmpeg, ['-y', ...inputPart, '-t', dur.toFixed(3), '-an',
+          '-vf', 'scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,setsar=1',
+          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', part], c.signal);
+        parts.push(part); used += dur;
+      }
+      const listFile = path.join(outDir, `visual-${i + 1}-list.txt`);
+      fs.writeFileSync(listFile, parts.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'), 'utf8');
+      await ff.run(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', seg], c.signal);
+    } else {
+      const input = v.isImage ? ['-loop', '1', '-framerate', '30', '-i', v.visual] : ['-stream_loop', '-1', '-i', v.visual];
+      await ff.run(ffmpeg, ['-y', ...input, '-t', v.seconds.toFixed(3), '-an',
+        '-vf', 'scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,setsar=1',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', seg], c.signal);
+    }
     segments.push(seg);
   }
   const visualFull = path.join(outDir, 'visual-full.mp4');
