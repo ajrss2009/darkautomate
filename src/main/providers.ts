@@ -436,7 +436,7 @@ async function snapgenModels(p: ProviderConfig, signal: AbortSignal): Promise<{ 
 
 /** Imagem Snapgen: POST /generate_image (multipart) + polling do histórico. */
 export async function snapgenImage(p: ProviderConfig, model: string, prompt: string, o: {
-  aspect: string; resolution?: string; style?: string; imagePath?: string; dest: string; signal: AbortSignal;
+  aspect: string; resolution?: string; style?: string; imagePath?: string; imagePaths?: string[]; dest: string; signal: AbortSignal;
   log?: (l: string) => void; pollMs?: number;
 }): Promise<string> {
   if (!p.apiKey) throw new Error('Snapgen: sem chave de API');
@@ -446,7 +446,8 @@ export async function snapgenImage(p: ProviderConfig, model: string, prompt: str
   form.append('aspect_ratio', o.aspect === '4:5' ? '3:4' : o.aspect);
   form.append('resolution', o.resolution ?? '1K');
   if (o.style) form.append('style', o.style);
-  if (o.imagePath) snapAppendFile(form, 'files', o.imagePath);
+  /* referências: a imagem de estilo (thumbnail) e/ou as do elenco/anexos — até 10, sem repetir */
+  for (const img of [...new Set([...(o.imagePath ? [o.imagePath] : []), ...(o.imagePaths ?? [])])].filter((x) => fs.existsSync(x)).slice(0, 10)) snapAppendFile(form, 'files', img);
 
   const created = (await (await ok(await fetch(snapUrl(p, '/generate_image'), {
     method: 'POST', headers: snapHeaders(p), body: form, signal: o.signal,

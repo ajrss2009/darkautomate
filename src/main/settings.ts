@@ -141,6 +141,8 @@ export interface NewProjectInput {
   musicSegment?: { start?: number | string; end?: number | string };
   /** clip de venda de produto (o arquivo é copiado para assets/product do projeto) */
   productClip?: import('../shared/types').ProductClip;
+  /** configuração de projeto salva (biblioteca): aplicada ao criar; senha abre as chaves cifradas */
+  configId?: string; configPassword?: string;
   /** avatar reativo: pasta com avatar_<pose>.png (ou uma imagem só) */
   avatarDir?: string;
   /** cortes de live: quantidade de clipes (1–10) */

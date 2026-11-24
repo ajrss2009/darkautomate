@@ -739,7 +739,10 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     const styleImg = k === 'thumbnail' ? thumbStyleImage(c.settings, c.project) : undefined;
     if (styleImg) c.log(`thumbnail no estilo do modelo: ${path.basename(styleImg)} vai como referência para ${p.id}/${model}`);
     if (p.kind === 'snapgen') {
-      await prov.snapgenImage(p, model, prompt, { aspect, resolution: '1K', dest: file, signal: c.signal, log: c.log, imagePath: styleImg });
+      /* cena: até 10 imagens de referência (elenco, anexos de referência/personagem, imagem de estilo) — mesmo rosto e estilo */
+      const refs = k === 'image' ? sceneReferenceImages(c, [], 10) : [];
+      if (refs.length) c.log(`Snapgen ${model}: ${refs.length} imagem(ns) de referência enviadas (máx. 10)`);
+      await prov.snapgenImage(p, model, prompt, { aspect, resolution: '1K', dest: file, signal: c.signal, log: c.log, imagePath: styleImg, imagePaths: refs });
       return { files: [file] };
     }
     const { w, h } = ff.resolution(aspect);
@@ -759,9 +762,7 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
     const noText = ' No text, captions, subtitles, titles, labels or letters anywhere on screen.';
     const prompt = museTalk ? museSpeechPrompt(c) + refNote + noText : /^(meta-ai|muse)/i.test(model) ? `${visualPrompt(c)}${refNote}\n\nNo dialogue and no voice in this clip: only natural movement and ambient sound.${noText}` : visualPrompt(c) + refNote + noText;
     /* referências do elenco (biblioteca/projeto) para o Muse: até 10 imagens, mantendo o mesmo rosto em todas as cenas */
-    const refFiles = c.scene ? charactersInScene(c.projectDir, c.scene, 9)
-      .map((ch) => characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name))
-      .filter((f) => !!f && f !== img && fs.existsSync(f)).slice(0, 9) : [];
+    const refFiles = sceneReferenceImages(c, img ? [img] : [], img ? 9 : 10);
     /* sem personagem na biblioteca: a 1ª cena é a referência da protagonista (no anime da bateria o Muse trocou a
        protagonista por outra de cabelo roxo numa cena) — mesma regra do Flow; o podcast ilustra o assunto */
     const first = c.project.scenes[0];
@@ -769,7 +770,7 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
       const f0 = path.join(c.projectDir, 'scenes', first.id, 'frames', 'frame.png');
       if (fs.existsSync(f0) && f0 !== img) { refFiles.push(f0); c.log(`Snapgen ${model}: 1ª cena como referência da protagonista`); }
     }
-    if (refFiles.length) c.log(`Snapgen ${model}: ${refFiles.length} referência(s) de personagem(ens) da biblioteca`);
+    if (refFiles.length) c.log(`Snapgen ${model}: ${refFiles.length} imagem(ns) de referência (elenco, anexos e estilo)${img ? ' + o quadro da cena' : ''}`);
     await prov.snapgenVideo(p, model, prompt, { imagePath: img, imagePaths: refFiles, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
     if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
     return { files: [file] };
@@ -1470,6 +1471,9 @@ export function autoMotion(s: Scene, params: Record<string, unknown>): SceneEffe
   if (params.autoMotion && (!e.zoom) && (s.kind === 'image' || s.kind === 'stock')) e.zoom = MOVES[(s.index - 1) % MOVES.length]!;
   const tr = typeof params.defaultTransition === 'string' ? params.defaultTransition as SceneEffects['transition'] : undefined;
   if (tr && !e.transition) { e.transition = tr; e.transitionSec ??= Number(params.transitionSec ?? 0.6); }
+  /* filtro e textura padrão da skill (assistente de skill, tela 12): valem onde a cena não define os seus */
+  if (typeof params.defaultFilter === 'string' && !e.filter) e.filter = params.defaultFilter as SceneEffects['filter'];
+  if (typeof params.defaultTexture === 'string' && !e.texture) e.texture = params.defaultTexture as SceneEffects['texture'];
   return Object.keys(e).length ? e : undefined;
 }
 
@@ -2361,7 +2365,7 @@ const builtinExec = (o: ExecutorOptions): Executor => async (c) => {
     /* Masterização YouTube: -14 LUFS, true peak -1 dB. */
     try {
       const norm = path.join(c.outDir, 'final.norm.mp4');
-      await ff.run(c.settings.ffmpeg, ['-y', '-i', final, '-c:v', 'copy', '-af', `loudnorm=I=-14:TP=-1:LRA=11,aresample=48000,atrim=duration=${timeline.total.toFixed(6)}`, '-ar', '48000', '-ac', '2', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', norm], c.signal);
+      await ff.run(c.settings.ffmpeg, ['-y', '-i', final, '-c:v', 'copy', '-af', `loudnorm=I=${Math.min(-8, Math.max(-30, Number((c.step.params as Record<string, unknown> | undefined)?.['lufs'] ?? -14) || -14))}:TP=-1:LRA=11,aresample=48000,atrim=duration=${timeline.total.toFixed(6)}`, '-ar', '48000', '-ac', '2', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', norm], c.signal);
       try { fs.renameSync(norm, final); }
       catch { fs.copyFileSync(norm, final); fs.rmSync(norm, { force: true }); }
       c.log('áudio masterizado para -14 LUFS (YouTube)');
@@ -2718,6 +2722,31 @@ async function lyricSong(c: ExecContext, o: ExecutorOptions): Promise<ExecResult
  * usuário — o arquivo que mais combina com a cena (termos de busca, título e intenção visual), sem repetir no vídeo.
  * Sem arquivo novo que sirva → erro → próximo provedor da cadeia.
  */
+/**
+ * Imagens de referência para geradores que aceitam várias (SnapGen Muse/Meta/Nano Banana: até 10), sem repetir:
+ * 1) elenco citado na cena (foto da biblioteca/projeto ou retrato gerado); 2) anexos de personagem; 3) anexos de
+ * referência (imagens); 4) imagem de estilo do projeto; 5) o resto do elenco do projeto. `exclude` = já enviadas.
+ */
+export function sceneReferenceImages(c: Pick<ExecContext, 'project' | 'projectDir' | 'scene'>, exclude: string[] = [], max = 10): string[] {
+  const out: string[] = [];
+  const seen = new Set(exclude.map((x) => path.resolve(x).toLowerCase()));
+  const add = (f?: string) => {
+    if (!f || out.length >= max) return;
+    const abs = path.isAbsolute(f) ? f : path.join(c.projectDir, f);
+    const key = path.resolve(abs).toLowerCase();
+    if (seen.has(key) || !/\.(png|jpe?g|webp)$/i.test(abs) || !fs.existsSync(abs)) return;
+    seen.add(key); out.push(abs);
+  };
+  if (c.scene) for (const ch of charactersInScene(c.projectDir, c.scene, 10)) add(characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name));
+  const atts = (c.project.attachments ?? []).filter((a) => a.kind === 'image');
+  for (const a of atts.filter((x) => x.use === 'character')) add(attachmentPath(c.projectDir, a));
+  for (const a of atts.filter((x) => x.use === 'reference')) add(attachmentPath(c.projectDir, a));
+  add(c.project.styleRef?.file);
+  for (const f of c.project.skill?.refImages ?? []) add(f);
+  for (const ch of c.project.characters ?? []) add(characterPhoto(c.project, c.projectDir, (ch as { name: string }).name));
+  return out;
+}
+
 async function mediaFolder(c: ExecContext): Promise<ExecResult> {
   if (!c.scene) throw new Error('pasta/banco de mídia: só nas etapas por cena (imagem ou vídeo)');
   const kind: 'image' | 'video' = c.step.kind === 'video' ? 'video' : 'image';

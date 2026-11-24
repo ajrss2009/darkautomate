@@ -1391,3 +1391,19 @@ body.ed-dragging, body.ed-dragging * { user-select:none !important; }
 .tg-msg { padding:8px 10px; border-radius:10px; white-space:pre-wrap; max-width:85%; border:1px solid var(--line); }
 .tg-msg.user { align-self:flex-end; background:var(--accent, #7c5cff); color:#fff; border-color:transparent; }
 .tg-msg.assistant { align-self:flex-start; background:var(--panel); }
+
+/* assistente de skill (13 telas) */
+.wiz .wiz-steps { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0 10px; }
+.wiz .wiz-dot { display:flex; align-items:center; gap:5px; padding:3px 8px; border-radius:999px; font-size:11px; opacity:.55; }
+.wiz .wiz-dot b { display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--line, #333); font-size:10px; }
+.wiz .wiz-dot.seen { opacity:.85; } .wiz .wiz-dot.on { opacity:1; outline:2px solid var(--acc, #7aa2ff); }
+.wiz .wiz-dot.bad b { background:#c0392b; color:#fff; }
+.wiz .wiz-body { min-height:300px; max-height:62vh; overflow:auto; display:flex; flex-direction:column; gap:10px; }
+.wiz .wiz-field { display:flex; flex-direction:column; gap:3px; flex:1 1 auto; min-width:140px; }
+.wiz .wiz-field textarea, .wiz .wiz-field input:not([type=checkbox]):not([type=range]) { width:100%; box-sizing:border-box; }
+.wiz .wiz-genrow input[type=range] { width:220px; } .wiz .wiz-genrow .num { width:44px; text-align:right; }
+.wiz .wiz-errs { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.wiz .wiz-card { padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
+.wiz .wiz-swatches { display:inline-flex; gap:2px; } .wiz .wiz-sw { width:14px; height:14px; border-radius:3px; border:1px solid rgba(0,0,0,.3); }
+.wiz .wiz-ref { padding:4px 0; border-bottom:1px solid var(--line, #2a2a2a); }
+.wiz #wiz-md { max-height:260px; overflow:auto; white-space:pre-wrap; }

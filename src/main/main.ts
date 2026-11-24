@@ -94,6 +94,9 @@ import { CATEGORY_LABEL, mergeWan2gpModels, scanWan2gpCatalog } from './wan2gp-c
 import { AUDIO_EXT, buildCompilation } from './music-compilation';
 import { analyzeBeats, cutMusicSegment, parseClock } from './beat-grid';
 import { importAvatarPoses } from './avatar-poses';
+import { configProjectFields, deleteProjectConfig, exportAppSettings, exportProjectConfig, importAppSettings, listProjectConfigs, mergeConfigProviders, readProjectConfig, saveProjectConfig, type ProjectConfig } from './config-backup';
+import { wizardAnalyze, wizardSave, type WizardAnalyzeInput } from './skill-wizard-main';
+import type { SkillWizardState } from '../shared/skill-wizard';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
@@ -1051,6 +1054,9 @@ function registerIpc() {
   h('skill:favorite', (id: string, on: boolean) => { const f = lib.setFavoriteSkill(settings, id, on); saveSettings(settings); syncRecordsQuiet('favorite_skill', f.map((x, i) => ({ id: x, data: { order: i } }))); return lib.listSkills(settings); });
   h('route:favorite', (id: string, on: boolean) => { const f = lib.setFavoriteRoute(settings, id, on); saveSettings(settings); syncRecordsQuiet('favorite_route', f.map((x, i) => ({ id: x, data: { order: i } }))); return lib.listRoutes(settings); });
   h('skill:save', (k: Parameters<typeof lib.saveSkill>[1]) => lib.saveSkill(settings, k));
+  /* assistente de skill (13 telas): mede referências e grava skill + rota + banco de uma vez */
+  h('wizard:analyze', (input: WizardAnalyzeInput) => wizardAnalyze(settings, input, AbortSignal.timeout(5 * 60_000)));
+  h('wizard:save', (state: SkillWizardState) => wizardSave(settings, state, saveSettings));
   h('skill:delete', (id: string) => { lib.deleteSkill(settings, id); return true; });
   h('vtype:list', () => lib.listTypes(settings));
   h('vtype:save', (t: Parameters<typeof lib.saveType>[1]) => lib.saveType(settings, t));
@@ -2202,6 +2208,53 @@ function registerIpc() {
   /* perfil portátil: onde ficam os dados e como levar tudo para outro PC */
   h('portable:info', () => ({ portable: !!dataRoot, root: dataRoot?.root, reason: dataRoot?.reason, settingsFile: settingsFile(), workspace: settings.workspace,
     plugins: pluginsRoot(settings), projects: projectsDir(settings) }));
+  /* ── salvar/restaurar as configurações do app (arquivo único; chaves cifradas com senha ou fora) ── */
+  h('settings:backup-export', async (o: { password?: string } = {}) => {
+    const r = await dialog.showSaveDialog(win!, { title: 'Salvar configurações do app', defaultPath: path.join(app.getPath('documents'), `filmforge-config-${new Date().toISOString().slice(0, 10)}.ffsettings.json`), filters: [{ name: 'Configurações do FilmForge', extensions: ['json'] }] });
+    if (r.canceled || !r.filePath) return null;
+    const b = exportAppSettings(settings, { password: o.password || undefined });
+    fs.writeFileSync(r.filePath, JSON.stringify(b, null, 2));
+    return { file: r.filePath, secrets: b.secrets, providers: settings.providers.length };
+  });
+  h('settings:backup-import', async (o: { password?: string } = {}) => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Restaurar configurações do app', properties: ['openFile'], filters: [{ name: 'Configurações do FilmForge', extensions: ['json'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const b = JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8'));
+    settings = importAppSettings(settings, b, { password: o.password || undefined });
+    saveSettings(settings);
+    return { file: r.filePaths[0], secrets: b.secrets, providers: settings.providers.length };
+  });
+  /* ── configuração COMPLETA do projeto (rota com provedores por etapa, vozes, legenda, efeitos…) + os provedores que usa ── */
+  const applyProjectConfig = (p: Project, cfg: ProjectConfig, password?: string) => {
+    const m = mergeConfigProviders(settings, cfg, password);
+    if (m.added.length) { settings = m.settings; saveSettings(settings); }
+    Object.assign(p, configProjectFields(cfg));
+    return { added: m.added, missing: m.missing };
+  };
+  h('projcfg:save', async (id: string, o: { name?: string; password?: string; toFile?: boolean } = {}) => {
+    const p = ops.readProject(settings, id);
+    const cfg = saveProjectConfig(settings, exportProjectConfig(settings, p, { name: o.name, password: o.password || undefined }));
+    let file: string | undefined;
+    if (o.toFile) {
+      const r = await dialog.showSaveDialog(win!, { title: 'Exportar configuração do projeto', defaultPath: path.join(app.getPath('documents'), `${cfg.id}.ffproject.json`), filters: [{ name: 'Configuração de projeto', extensions: ['json'] }] });
+      if (!r.canceled && r.filePath) { fs.writeFileSync(r.filePath, JSON.stringify(cfg, null, 2)); file = r.filePath; }
+    }
+    return { id: cfg.id, name: cfg.name, file, providers: cfg.providers.api.length + cfg.providers.comfyServers.length + Object.keys(cfg.providers.harnesses).length + cfg.providers.mediaBanks.length + (cfg.providers.wan2gp ? 1 : 0) };
+  });
+  h('projcfg:list', () => listProjectConfigs(settings));
+  h('projcfg:delete', (id: string) => { deleteProjectConfig(settings, id); return true; });
+  h('projcfg:import-file', async () => {
+    const r = await dialog.showOpenDialog(win!, { title: 'Importar configuração de projeto', properties: ['openFile'], filters: [{ name: 'Configuração de projeto', extensions: ['json'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const c = readProjectConfig(settings, r.filePaths[0]);
+    return saveProjectConfig(settings, { ...c, id: '' }).id;
+  });
+  h('projcfg:apply', (id: string, cfgId: string, password?: string) => {
+    const p = ops.readProject(settings, id);
+    const r = applyProjectConfig(p, readProjectConfig(settings, cfgId), password || undefined);
+    ops.saveProjectFile(settings, p);
+    return r;
+  });
   h('portable:export', async () => {
     const r = await dialog.showOpenDialog(win!, { title: `Pasta onde criar ${DATA_DIR_NAME} (perfil portátil)`, properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return null;
@@ -2286,6 +2339,12 @@ function registerIpc() {
     /* música do projeto: arquivo = trilha; pasta = coletânea montada aqui (faixas em ordem, transições suaves) */
     if (input.musicSource) { await applyMusicSource(p, input.musicSource, input.musicSegment); ops.saveProjectFile(settings, p); }
     /* avatar reativo: pasta de poses (avatar_neutro.png, avatar_surpreso.png…) → assets/user/avatar */
+    /* configuração salva de projeto: rota (com provedores por etapa), vozes, legenda, efeitos… + provedores que faltarem */
+    if (input.configId) {
+      const r = applyProjectConfig(p, readProjectConfig(settings, input.configId), input.configPassword);
+      ops.saveProjectFile(settings, p);
+      if (r.missing.length) (p as Project & { warnings?: string[] }).warnings = [...((p as Project & { warnings?: string[] }).warnings ?? []), `configuração: falta ${r.missing.join('; ')}`];
+    }
     if (input.avatarDir) { p.avatarPoses = importAvatarPoses(attachments.userDir(projectDirOf(settings, p.id)), input.avatarDir); ops.saveProjectFile(settings, p); }
     /* thumbnail de referência (imagem ou link de vídeo): baixa, mede a paleta e anexa; o prompt da thumbnail segue ela */
     if (input.thumbRef?.file || input.thumbRef?.url) {

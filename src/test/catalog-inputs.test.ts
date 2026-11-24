@@ -45,3 +45,27 @@ function main() {
 
 main();
 console.log('catalog-inputs tests: OK');
+
+/* Referências para o SnapGen (Muse/Meta/Nano Banana): até 10, sem repetir, de todas as fontes */
+import { sceneReferenceImages } from '../main/executors';
+(() => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-refs-'));
+  const user = path.join(dir, 'assets', 'user'); fs.mkdirSync(user, { recursive: true });
+  const atts: Array<{ file: string; kind: 'image' | 'audio'; use: 'reference' | 'character' | 'scene' | 'music'; character?: string }> = [];
+  for (let i = 1; i <= 8; i++) { fs.writeFileSync(path.join(user, `ref${i}.png`), 'x'); atts.push({ file: `ref${i}.png`, kind: 'image', use: 'reference' }); }
+  fs.writeFileSync(path.join(user, 'ana.jpg'), 'x'); atts.push({ file: 'ana.jpg', kind: 'image', use: 'character', character: 'Ana' });
+  fs.writeFileSync(path.join(user, 'cena.png'), 'x'); atts.push({ file: 'cena.png', kind: 'image', use: 'scene' });
+  fs.writeFileSync(path.join(user, 'trilha.mp3'), 'x'); atts.push({ file: 'trilha.mp3', kind: 'audio', use: 'music' });
+  const style = path.join(dir, 'estilo.webp'); fs.writeFileSync(style, 'x');
+  const skillRef = path.join(dir, 'skillref.png'); fs.writeFileSync(skillRef, 'x');
+  const project = { attachments: atts, styleRef: { file: style, stylePrompt: '', at: '' }, skill: { refImages: [skillRef] }, characters: [] } as never;
+  const all = sceneReferenceImages({ project, projectDir: dir, scene: undefined }, [], 20);
+  assert.equal(all[0], path.join(user, 'ana.jpg'), 'personagem primeiro');
+  assert.ok(all.includes(style) && all.includes(skillRef), 'estilo e referências da skill entram');
+  assert.ok(!all.some((f) => /cena\.png|trilha/.test(f)), 'mídia de cena e áudio não são referência');
+  assert.equal(sceneReferenceImages({ project, projectDir: dir, scene: undefined }).length, 10, 'no máximo 10');
+  const ex = sceneReferenceImages({ project, projectDir: dir, scene: undefined }, [path.join(user, 'ana.jpg')], 9);
+  assert.ok(!ex.includes(path.join(user, 'ana.jpg')) && ex.length === 9, 'quadro já enviado não repete; 9 + o quadro = 10');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('  ✓ referências SnapGen: personagem → anexos → estilo → skill, até 10');
+})();

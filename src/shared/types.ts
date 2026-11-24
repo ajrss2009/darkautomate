@@ -324,6 +324,8 @@ export interface Skill {
   storyboard?: boolean;
   /** Diálogo com várias vozes: cada cena tem um `speaker` e o projeto define o elenco (voz por personagem). */
   multiVoice?: boolean;
+  /** imagens de referência da skill (identidade/estilo; biblioteca skill-refs): vão junto aos geradores que aceitam referências */
+  refImages?: string[];
   /** Prefixo fixo de TODO prompt visual (imagem e vídeo) dos projetos desta skill — estética, filme, som. */
   promptPrefix?: string;
   /** Critérios da etapa de revisão (review) para esta skill. */

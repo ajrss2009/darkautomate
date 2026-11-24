@@ -9,6 +9,7 @@ import { ANGLE_GROUPS, angleLabel } from '../shared/angles';
 import { STOCK_SOURCES, STOCK_THEMES, stockInfo } from '../shared/stock-sources';
 import { SHOWRUNNER_DIRECTORS, WAN2GP_PROFILES } from '../shared/types';
 import { askConfirm, showMessage } from './dialogs';
+import { openSkillWizard } from './skill-wizard-ui';
 
 /* Abas: Rotas (biblioteca), Skills, Tipos de vídeo e Configurações. Recebe helpers do renderer principal. */
 type Child = Node | string | null | undefined | false;
@@ -867,6 +868,7 @@ export async function renderSkills(c: Ctx) {
     paint();
     main.replaceChildren(
       head(h('button', { class: 'primary', id: 'skill-new', onclick: () => { skillOrigin = undefined; skillDraft = { id: '', name: 'Nova skill', description: '', global: '', steps: {}, appearance: 'custom', routeId: routes[0]?.id, aspect: '16:9', durationSec: 60, language: 'pt-BR', presentation: 'generated', mediaSources: [], outputStyle: '' }; again(); } }, '＋ Nova skill'),
+        h('button', { class: 'primary', id: 'skill-wizard-open', title: 'Assistente em 13 telas: descrição, geração, voz, música, lipsync, estilo, título, thumbnail, referências, decupagem, pasta de mídia, edição e revisão — grava a skill e a rota de uma vez', onclick: () => void openSkillWizard(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '🧭 Assistente de skill'),
         h('button', { class: 'primary', id: 'skill-from-videos', title: 'Analisa vídeos de referência e cria uma skill nova no padrão do app', onclick: () => void openSkillFromVideos(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '🎬 Skill a partir de vídeos'),
         h('button', { class: 'primary', id: 'skill-from-doc', title: 'Converte um documento de prompts/diretrizes de canal (.docx, .md, .txt) numa skill — com o harness e o modelo que você escolher', onclick: () => void openSkillFromDoc(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '📄 Skill a partir de documento'),
         h('button', { class: 'primary', id: 'skill-import-claude', title: 'Skill, kit ou plugin do Claude/Codex (SKILL.md, pasta, .zip, .plugin ou GitHub) → skill com as regras e as bibliotecas + rota', onclick: () => void openImportClaudeSkill(c, (k) => { skillOrigin = k; skillDraft = clone(k); again(); }) }, '📥 Importar skill / kit (.zip)'),
@@ -1643,6 +1645,25 @@ export async function renderSettings(c: Ctx, reload = true) {
             S = undefined; toast(`Pasta dos projetos: ${r2.dir}${move.checked ? ` (${r2.moved} movido/s)` : ''}`); void renderSettings(c, true);
           }) }, 'Aplicar'),
           h('button', { onclick: () => void forge['openProjectsRoot']() }, 'Abrir pasta'))));
+
+    /* backup das configurações do app: um arquivo; chaves cifradas com senha (ou fora) */
+    const bpw = h('input', { type: 'password', id: 'cfg-backup-pw', class: 'grow', autocomplete: 'new-password', placeholder: 'Senha (opcional): com senha, as chaves de API e tokens vão cifrados no arquivo; sem senha, ficam de fora' }) as HTMLInputElement;
+    const bout = h('div', { class: 'muted', id: 'cfg-backup-out' });
+    body.append(h('h3', {}, '💾 Salvar e restaurar configurações'),
+      h('p', { class: 'muted' }, 'Um arquivo com tudo de Configurações: provedores e modelos, harnesses, servidores ComfyUI, Wan2GP, bancos de mídia, canais, automações, Telegram, padrões e perfis de executores. Ao restaurar, as pastas desta máquina (workspace, projetos, plugins) são mantidas.'),
+      h('div', { class: 'card', id: 'cfg-backup' },
+        h('div', { class: 'row' }, bpw),
+        h('div', { class: 'row' },
+          h('button', { class: 'primary', id: 'cfg-backup-save', onclick: () => void guard(async () => {
+            const r = (await forge['settingsBackupExport']({ password: bpw.value || undefined })) as { file: string; secrets: string; providers: number } | null;
+            if (r) { bout.textContent = `Salvo em ${r.file} — ${r.providers} provedor(es), chaves ${r.secrets === 'encrypted' ? 'cifradas com a senha' : 'NÃO incluídas'}.`; toast('Configurações salvas'); }
+          }) }, '💾 Salvar configurações…'),
+          h('button', { id: 'cfg-backup-restore', onclick: () => void guard(async () => {
+            if (!await askConfirm('Restaurar configurações de um arquivo? As configurações atuais (provedores, harnesses, servidores, canais…) passam a ser as do arquivo; chaves que o arquivo não tiver continuam as daqui.')) return;
+            const r = (await forge['settingsBackupImport']({ password: bpw.value || undefined })) as { file: string; secrets: string; providers: number } | null;
+            if (r) { S = undefined; toast(`Configurações restauradas de ${r.file}`); void renderSettings(c, true); }
+          }) }, '📂 Restaurar…')),
+        bout));
 
     /* perfil portátil: skills, rotas, plugins, vozes, perfis e chaves viajam numa pasta só */
     const pi = (await forge['portableInfo']()) as { portable: boolean; root?: string; reason?: string; settingsFile: string; workspace: string; plugins: string; projects: string };

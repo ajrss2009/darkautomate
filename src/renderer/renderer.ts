@@ -45,6 +45,8 @@ function costBadge(p: Pick<ProjectRow, 'cost'>): HTMLElement | null {
   return h('span', { class: 'cost-badge', title: tip }, h('b', {}, '$'), ` ${c.currency === 'USD' ? '' : c.currency + ' '}${fmt(c.perVideo)}`);
 }
 interface Forge {
+  projectConfigList(): Promise<unknown>; projectConfigSave(id: string, o?: unknown): Promise<unknown>; projectConfigImportFile(): Promise<unknown>;
+  projectConfigApply(id: string, cfgId: string, password?: string): Promise<unknown>; projectConfigDelete(id: string): Promise<unknown>;
   meta(): Promise<{ videoTypes: Array<{ id: string; label: string; defaultAspect: string; defaultDurationSec: number; sceneKind?: SceneKind }>; routes: Route[]; skills: Skill[]; agents: Agent[]; thumbnails: ThumbnailTemplate[]; voices: Array<{ name: string; path: string }>; profiles?: ExecutorProfile[]; sfxLibrary?: SfxItem[] }>;
   migrateLanguage(id: string, o: { language: string; visuals?: boolean; run?: boolean }): Promise<{ project: Project; run?: { ok: boolean; error?: string } }>;
   deriveProject(id: string, i: Record<string, unknown>): Promise<Project>;
@@ -597,6 +599,7 @@ async function renderProjects() {
         h('button', { class: 'q-add', onclick: () => { if (inQ) { queue = queue.filter((x) => x !== p.id); queueStatus.delete(p.id); saveQueue(); } else enqueue([p.id]); void renderProjects(); } }, inQ ? '✓ No lote' : '＋ Lote'),
         h('button', { class: 'dup', onclick: () => void guard(async () => { await forge.duplicateProject(p.id); void renderProjects(); }) }, 'Duplicar'),
         h('button', { class: 'derive', title: 'Criar um NOVO projeto a partir deste trocando estilo/skill, rota, formato, idioma ou duração (o original não muda)', disabled: !!p.running, onclick: () => void openDeriveDialog(p) }, '🔀 Variação'),
+        h('button', { class: 'cfg-save', title: 'Salvar a configuração COMPLETA deste projeto (rota com o provedor/modelo de cada etapa, vozes, elenco, legenda, efeitos, música, publicação) e os provedores que ela usa — ou aplicar uma configuração salva', disabled: !!p.running, onclick: () => void openProjectConfigDialog(p) }, '💾 Config'),
         h('button', { class: 'lang-mig', title: 'Criar uma cópia em outro idioma: traduz o roteiro e refaz narração, legendas e cenas com texto', disabled: !!p.running, onclick: () => openMigrateDialog(p) }, '🌐 Idioma'),
         h('button', { class: 'ren', onclick: () => void guard(async () => { const n = prompt('Novo nome:', p.name); if (n && n.trim()) { await forge.updateProject(p.id, { name: n.trim() }); void renderProjects(); } }) }, 'Renomear'),
         h('button', { class: 'fold', title: 'Abrir a pasta do projeto', onclick: () => void forge.openFolder(p.id) }, 'Pasta'),
@@ -1022,6 +1025,12 @@ async function renderNew() {
   /* CORTES DE LIVE: quantos clipes distintos a execução entrega (um MP4 por corte) */
   const clipN = h('input', { type: 'number', id: 'np-clips', min: '1', max: '10', step: '1', value: '1', class: 'num', title: 'Cortes de live: quantos cortes distintos sair desta live (1 a 10). Cada um vira um MP4 em out/cortes.' }) as HTMLInputElement;
   const clipBox = h('label', { class: 'inline', id: 'np-clips-box' }, '✂ Quantidade de clipes', clipN);
+  /* CONFIGURAÇÃO SALVA: rota com provedores por etapa, vozes, legenda, efeitos… de um projeto anterior */
+  const npCfg = h('select', { id: 'np-config', title: 'Usa a configuração completa salva de outro projeto (botão 💾 Config na lista de projetos). Vence a rota e os ajustes escolhidos aqui.' }, h('option', { value: '' }, '— nenhuma —')) as HTMLSelectElement;
+  const npCfgPw = h('input', { id: 'np-config-pw', type: 'password', placeholder: 'senha das chaves (se houver)', autocomplete: 'off', style: 'display:none' }) as HTMLInputElement;
+  void guard(() => forge.projectConfigList() as Promise<Array<{ id: string; name: string; secrets: string; route?: string }>>).then((l) => { for (const c of l ?? []) npCfg.append(h('option', { value: c.id, 'data-secrets': c.secrets }, `${c.name}${c.route ? ` · ${c.route}` : ''}${c.secrets === 'encrypted' ? ' · 🔐' : ''}`)); });
+  npCfg.addEventListener('change', () => { npCfgPw.style.display = npCfg.selectedOptions[0]?.getAttribute('data-secrets') === 'encrypted' ? '' : 'none'; });
+  const cfgBox = h('div', { class: 'row', id: 'np-config-box' }, h('strong', {}, '💾 Configuração salva'), npCfg, npCfgPw);
   /* AVATAR REATIVO: pasta com as poses em PNG (avatar_neutro.png, avatar_surpreso.png…) */
   let avatarDir = '';
   const avLbl = h('span', { class: 'muted', id: 'np-avatar-lbl' }, 'nenhuma');
@@ -1781,6 +1790,7 @@ async function renderNew() {
       musicSource: mus.value(),
       musicSegment: mus.segment(),
       avatarDir: avatarDir || undefined,
+      configId: npCfg.value || undefined, configPassword: npCfgPw.value || undefined,
       clipCount: Number(clipN.value) > 1 ? Math.min(10, Math.round(Number(clipN.value))) : undefined,
       publishTargets: pub.targets().length ? pub.targets() : undefined,
       publishVisibility: pub.targets().length ? pub.visibility() as 'UNLISTED' : undefined,
@@ -1972,7 +1982,7 @@ async function renderNew() {
       h('label', { title: 'Etapas do Google Flow deste projeto usam esta conta (vence a conta escolhida na etapa da rota)' }, '🌊 Conta do Flow', flowSel),
       h('label', { title: 'Canal de destino (aba Canais). Ao publicar, o vídeo vai para ele — a conta e a marca vêm do canal.' }, '📺 Canal de destino', chSel),
       h('label', { class: 'inline chk', title: 'Acrescenta à rota a etapa "Enviar ao YouTube": ao terminar, o vídeo vai como NÃO LISTADO com título, descrição e thumbnail do SEO (conta Google das Automações)' }, autoUp, '⬆ Enviar ao YouTube ao terminar (não listado)'),
-      pub.el, prod.el, mus.el, clipBox, avatarBox,
+      pub.el, prod.el, mus.el, clipBox, avatarBox, cfgBox,
       h('h3', {}, 'Produção'),
       h('div', { class: 'row' },
         h('label', { title: 'Uma execução é interrompida ao atingir este tempo (o que já foi gerado fica em cache).' }, 'Tempo máximo (min)', h('span', { class: 'row' }, maxMin, noLimit.parentElement!)),
@@ -2279,7 +2289,7 @@ async function renderNew() {
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
       drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb), wmRow),
       drawer('np-g-catalog', 'Diretrizes 11/2026 · disclosure · gerador', () => `${discLabel.value.trim() || 'sem disclosure'}${genOn.checked ? ` · ${genFamily.value}/${genModel.value.trim() || 'sem ID'}` : ''}`, catalogBox),
-      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el, prod.el, mus.el, clipBox, avatarBox,
+      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el, prod.el, mus.el, clipBox, avatarBox, cfgBox,
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),
       drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
@@ -2869,6 +2879,47 @@ async function openUploadDialog(p: Project) {
 }
 
 /** Migrar para outro idioma: cria uma cópia traduzida e refaz o que depende do idioma. */
+/** Configuração completa do projeto: salvar (biblioteca e/ou arquivo, chaves com senha) ou aplicar uma salva. */
+async function openProjectConfigDialog(p: ProjectRow) {
+  const name = h('input', { id: 'pcfg-name', class: 'grow', value: `Configuração de ${p.name}` }) as HTMLInputElement;
+  const pw = h('input', { id: 'pcfg-pw', type: 'password', placeholder: 'Senha (opcional): inclui as chaves de API cifradas', autocomplete: 'new-password', class: 'grow' }) as HTMLInputElement;
+  const toFile = h('input', { type: 'checkbox', id: 'pcfg-file' }) as HTMLInputElement;
+  const out = h('div', { id: 'pcfg-out' });
+  const list = ((await guard(() => forge.projectConfigList() as Promise<Array<{ id: string; name: string; createdAt: string; fromProject?: string; secrets: string; route?: string; skill?: string }>>)) ?? []);
+  const pick = h('select', { id: 'pcfg-pick' }, h('option', { value: '' }, list.length ? '— escolha uma configuração salva —' : '— nenhuma salva ainda —'),
+    ...list.map((c) => h('option', { value: c.id }, `${c.name}${c.route ? ` · ${c.route}` : ''}${c.secrets === 'encrypted' ? ' · 🔐' : ''}`))) as HTMLSelectElement;
+  const pw2 = h('input', { id: 'pcfg-pw2', type: 'password', placeholder: 'Senha (se a configuração tem chaves cifradas)', autocomplete: 'off', class: 'grow' }) as HTMLInputElement;
+  const close = () => bg.remove();
+  const bg = h('div', { class: 'modal-bg', id: 'project-config-modal', onclick: (e) => { if (e.target === bg) close(); } },
+    h('div', { class: 'modal regenbox' },
+      h('div', { class: 'row' }, h('h3', {}, `💾 Configuração de "${p.name}"`), h('span', { class: 'sp' }), h('button', { onclick: close }, '✕')),
+      h('p', { class: 'muted' }, 'Salva TUDO o que é configuração: rota com o provedor e o modelo de cada etapa, skill, formato, duração, idioma, vozes e elenco, legenda, efeitos e acabamento, música e volumes, publicação, marca d\'água — e os provedores que a rota usa (APIs, servidores ComfyUI, Wan2GP, harnesses, contas do Flow, bancos de mídia). Não leva o conteúdo (ideia, cenas, anexos).'),
+      h('h4', {}, 'Salvar'),
+      h('div', { class: 'row' }, h('label', { class: 'grow' }, 'Nome', name)),
+      h('div', { class: 'row' }, pw),
+      h('label', { class: 'inline chk' }, toFile, 'Também exportar para um arquivo (.ffproject.json)'),
+      h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { class: 'primary', id: 'pcfg-save', onclick: () => void guard(async () => {
+        const r = (await forge.projectConfigSave(p.id, { name: name.value, password: pw.value || undefined, toFile: toFile.checked })) as { id: string; name: string; file?: string; providers: number };
+        out.replaceChildren(h('div', { class: 'tag done' }, `✓ "${r.name}" salva com ${r.providers} provedor(es)${pw.value ? ' e chaves cifradas' : ' (sem chaves)'}${r.file ? ` · arquivo: ${r.file}` : ''}`));
+        toast('Configuração do projeto salva');
+      }) }, '💾 Salvar configuração')),
+      h('h4', {}, 'Aplicar uma configuração salva neste projeto'),
+      h('div', { class: 'row' }, pick, h('button', { id: 'pcfg-import', title: 'Importar um arquivo .ffproject.json para a biblioteca', onclick: () => void guard(async () => {
+        const id = (await forge.projectConfigImportFile()) as string | null; if (id) { close(); toast('Configuração importada'); void openProjectConfigDialog(p); }
+      }) }, '📂 Importar arquivo…')),
+      h('div', { class: 'row' }, pw2),
+      h('div', { class: 'row actions' }, h('span', { class: 'sp' }), h('button', { id: 'pcfg-apply', onclick: () => void guard(async () => {
+        if (!pick.value) { toast('Escolha uma configuração.', true); return; }
+        if (!await askConfirm('Aplicar a configuração neste projeto? Rota, vozes, legenda, efeitos e demais ajustes passam a ser os dela (ideia, cenas e anexos ficam).', { danger: false, ok: 'Aplicar' })) return;
+        const r = (await forge.projectConfigApply(p.id, pick.value, pw2.value || undefined)) as { added: string[]; missing: string[] };
+        out.replaceChildren(h('div', { class: 'tag done' }, '✓ Configuração aplicada'), ...(r.added.length ? [h('div', { class: 'muted' }, `Provedores adicionados: ${r.added.join(', ')}`)] : []), ...r.missing.map((m) => h('div', { class: 'tag running' }, `⚠ Falta: ${m}`)));
+        toast('Configuração aplicada'); void renderProjects();
+      }) }, '✅ Aplicar neste projeto'),
+      h('button', { class: 'danger', id: 'pcfg-del', onclick: () => void guard(async () => { if (!pick.value || !await askConfirm('Excluir esta configuração salva?')) return; await forge.projectConfigDelete(pick.value); close(); void openProjectConfigDialog(p); }) }, 'Excluir')),
+      out));
+  document.body.append(bg);
+}
+
 function openMigrateDialog(p: ProjectRow) {
   const lang = h('select', { id: 'mig-lang' }, ...LANGUAGES.filter(([v]) => v !== p.language).map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
   const vis = h('input', { type: 'checkbox', id: 'mig-visuals' }) as HTMLInputElement;
