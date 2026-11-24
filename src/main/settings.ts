@@ -137,8 +137,14 @@ export interface NewProjectInput {
   publishVisibility?: 'UNLISTED' | 'PRIVATE' | 'PUBLIC';
   /** música do projeto: um ARQUIVO de áudio (trilha) ou uma PASTA (coletânea) */
   musicSource?: string;
+  /** trecho da música (arquivo): início/fim em s ou "m:ss" — o vídeo herda a duração */
+  musicSegment?: { start?: number | string; end?: number | string };
   /** clip de venda de produto (o arquivo é copiado para assets/product do projeto) */
   productClip?: import('../shared/types').ProductClip;
+  /** avatar reativo: pasta com avatar_<pose>.png (ou uma imagem só) */
+  avatarDir?: string;
+  /** cortes de live: quantidade de clipes (1–10) */
+  clipCount?: number;
   /** conta (Automações) do Antigravity para este projeto */
   agyAccount?: string;
   /** conta (Automações) do Google Flow para este projeto */
@@ -420,6 +426,7 @@ export function createProject(s: Settings, input: NewProjectInput): Project {
   }
   /* clip de venda: copiado para dentro do projeto (portátil) */
   if (input.productClip?.file) project.productClip = copyProductClip(dir, input.productClip);
+  if (Number(input.clipCount) > 1) project.clipCount = Math.min(10, Math.round(Number(input.clipCount)));
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(project, null, 2));
   return project;
 }

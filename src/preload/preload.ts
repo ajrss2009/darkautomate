@@ -161,7 +161,7 @@ contextBridge.exposeInMainWorld('forge', {
   projectApprove: (id: string, ok: boolean) => call('project:approve', id, ok),
   projectPublishAll: (id: string, targets?: string[], visibility?: string) => call('project:publish-all', id, targets, visibility),
   projectProductClip: (id: string, clip: unknown) => call('project:product-clip', id, clip),
-  projectMusicSource: (id: string, src: string | null) => call('project:music-source', id, src),
+  projectMusicSource: (id: string, src: string | null, segment?: { start?: number | string; end?: number | string }) => call('project:music-source', id, src, segment),
   telegramGet: () => call('telegram:get'),
   telegramSet: (patch: unknown) => call('telegram:set', patch),
   telegramAllow: (chatId: number, allow: boolean) => call('telegram:allow', chatId, allow),

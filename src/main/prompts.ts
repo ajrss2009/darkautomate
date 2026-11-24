@@ -25,6 +25,7 @@ import { cartoon3dScenePrompt, storyboardFor, storyboardPrompt } from './cartoon
 import { allThumbTemplates } from './thumb-render';
 import { rhythmText } from './references';
 import { chapterLines } from './music-compilation';
+import { avatarPrompt } from './avatar-poses';
 import { mark, stripMarks } from '../shared/strict';
 
 /** Arquivo principal que cada etapa deve produzir. */
@@ -197,6 +198,10 @@ export function referenceText(p: Project, kind: string): string {
     out.push(`ROTEIRO DE REFERÊNCIA${p.refScript.transcribed ? ' (transcrição de vídeo)' : ''} — arquivo completo: ${p.refScript.textFile ?? p.refScript.file}. Use-o como MODELO DE ESTILO: estrutura, ritmo, tamanho das frases, ganchos, tom e vocabulário. Adapte esse estilo ao tema deste projeto; NÃO copie frases nem o conteúdo.${t ? '\n---\n' + t + '\n---' : ''}`);
   }
   /* COLETÂNEA (música do projeto vinda de uma pasta): a descrição traz a lista de faixas com o início de cada uma */
+  if (p.musicSegment && (kind === 'script' || kind === 'scene_plan')) {
+    const s = p.musicSegment, len = Math.round((s.end - s.start) * 10) / 10;
+    out.push(`TRECHO DA MÚSICA: o vídeo usa só ${len} s da faixa (de ${s.start} s a ${s.end} s)${s.bpm ? `, a ${s.bpm} BPM` : ''}. A duração TOTAL das cenas é exatamente ${len} s — o roteiro se adapta à música.${s.bpm ? ` Use durações múltiplas do compasso (4 batidas = ${Math.round((240 / s.bpm) * 100) / 100} s): os cortes são encaixados na batida.` : ''}`);
+  }
   if (p.musicCompilation?.tracks?.length && kind === 'metadata') {
     out.push(`COLETÂNEA: o vídeo usa ${p.musicCompilation.tracks.length} faixa(s) em sequência. Inclua na descrição a lista de faixas com os tempos EXATOS abaixo (viram capítulos):\n${chapterLines(p.musicCompilation.tracks).join('\n')}`);
   }
@@ -376,7 +381,16 @@ export function loopVideoPrompt(c: ExecContext): string {
   ].filter(Boolean).join('\n');
 }
 
+/** Prompt visual de imagem/vídeo; o prefixo da skill (promptPrefix) abre TODOS eles. */
 export function visualPrompt(c: ExecContext): string {
+  return withPromptPrefix(c.project.skill?.promptPrefix, visualPromptBody(c));
+}
+export function withPromptPrefix(prefix: string | undefined, prompt: string): string {
+  const pre = prefix?.trim();
+  if (!pre || prompt.trimStart().startsWith(pre)) return prompt;
+  return `${pre}\n${prompt}`;
+}
+function visualPromptBody(c: ExecContext): string {
   const vt = getVideoType(c.project.videoType);
   const s = c.scene;
   if (c.step?.kind === 'video' && isMusicClip(c.project)) return loopVideoPrompt(c);
@@ -1032,7 +1046,9 @@ export function buildPromptMarked(c: ExecContext): string {
     const own = `ISOLAMENTO: trabalhe SOMENTE dentro da pasta deste projeto (${c.projectDir}). NUNCA leia, copie, liste ou reaproveite arquivos de outros projetos (outras pastas em ${path.dirname(c.projectDir)}) nem de vídeos já prontos — o vídeo é ORIGINAL, feito agora com a ideia acima. Mídia de fora só se a ideia der um link ou caminho explícito.`;
     /* ferramentas do app (o agente perdia minutos procurando ffmpeg/python no PATH) */
     const tools = `FERRAMENTAS: ffmpeg = "${c.settings.ffmpeg}" · ffprobe = "${c.settings.ffprobe}" (use esses caminhos). Confira o resultado antes de entregar: o vídeo precisa ter imagem visível (não preta), movimento e a duração pedida.`;
-    return `${p.idea.trim()}\n\n${plugins ? plugins + '\n\n' : ''}---\n${own}\n${tools}\nEntrega: grave o vídeo final em ${out} (crie a pasta, se precisar).`;
+    const n = Math.min(10, p.clipCount ?? 1);
+    const batch = n > 1 ? `\nLOTE DE CORTES: entregue ${n} cortes DISTINTOS (trechos sem sobreposição, cada um com UM momento, UMA emoção e o seu próprio gancho) em ${path.join(path.dirname(out), 'cortes')}\\corte-01.mp4 … corte-${String(n).padStart(2, '0')}.mp4, cada um com corte-NN.json ao lado (título de gancho, início/fim na live, emoção, crédito e link original). Ordene do mais forte para o mais fraco e copie o corte-01 para o vídeo final abaixo.` : '';
+    return `${p.idea.trim()}\n\n${plugins ? plugins + '\n\n' : ''}---\n${own}\n${tools}${batch}\nEntrega: grave o vídeo final em ${out} (crie a pasta, se precisar).`;
   }
   const vt = getVideoType(p.videoType);
   const file = primaryFile(c.step.kind, c);
@@ -1047,7 +1063,7 @@ export function buildPromptMarked(c: ExecContext): string {
   const skill = [skillText(p, c.step), userStyles(p), identityPrompt(channel, c.step.kind), projectPalettePrompt(p.palette, c.step.kind),
     charactersPrompt(p, c.step.kind, c.scene), mixPrompt(p, c.step.kind), productCtaPrompt(channel?.products, c.step.kind),
     seriesBlock(p, c.step.kind), styleBlock(p, c.step.kind)].filter(Boolean).join('\n');
-  const extra = [workerText(p, c.step), briefText(c.projectDir, c.step.kind), referenceText(p, c.step.kind),
+  const extra = [workerText(p, c.step), briefText(c.projectDir, c.step.kind), referenceText(p, c.step.kind), avatarPrompt(p.avatarPoses, path.join(c.projectDir, 'assets', 'user'), c.step.kind),
     sceneImageText(c), sceneRigText(c),
     attachmentsText(p, c.projectDir, c.step.kind, c.scene, (c.step.kind === 'code_scene' || c.step.kind === 'motion_graphics') && c.sceneDir ? path.dirname(primaryFile(c.step.kind, c)) : undefined)].filter(Boolean).join('\n');
   const plugins = pluginPrompt(c.settings, p.plugins, p.pluginStyles, { projectDir: c.projectDir, stepKind: c.step.kind, sceneDir: c.sceneDir, budget });

@@ -324,6 +324,8 @@ export interface Skill {
   storyboard?: boolean;
   /** Diálogo com várias vozes: cada cena tem um `speaker` e o projeto define o elenco (voz por personagem). */
   multiVoice?: boolean;
+  /** Prefixo fixo de TODO prompt visual (imagem e vídeo) dos projetos desta skill — estética, filme, som. */
+  promptPrefix?: string;
   /** Critérios da etapa de revisão (review) para esta skill. */
   reviewCriteria?: string;
   /** plugins (formato Claude) que toda produção com esta skill usa — ex.: skill importada de um SKILL.md */
@@ -555,6 +557,14 @@ export interface Project {
   /** clip de venda de produto inserido no vídeo final (início, meio, fim ou segundo) + link na descrição */
   productClip?: ProductClip;
   /** música do projeto vinda de uma PASTA = coletânea (faixas em ordem, transições suaves); o arquivo montado é o anexo "trilha sonora" */
+  /** avatar reativo: pose → arquivo em assets/user (avatar/avatar_<pose>.png) */
+  avatarPoses?: Record<string, string>;
+  /** cortes de live: quantos clipes distintos a execução entrega (1–10; out/cortes/corte-NN.mp4) */
+  clipCount?: number;
+  /** trecho da música escolhido (início/fim em s): o vídeo herda a duração do trecho */
+  musicSegment?: { start: number; end: number; bpm?: number };
+  /** beat grid da trilha (catálogo Parte LVII): BPM e cortes no beat */
+  beatSync?: { bpm: number; cuts: number; onBeat: number };
   musicCompilation?: { dir: string; total: number; tracks: Array<{ title: string; file: string; start: number; seconds: number }> };
   /** storyboard depois do plano de cenas (opcionalmente com aprovação do usuário) */
   storyboard?: StoryboardOptions;

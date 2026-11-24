@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { stripAvatarTags } from './avatar-poses';
 import * as path from 'node:path';
 import type { CastMember, Project, Scene } from '../shared/types';
 import { characterSheet } from './prompts';
@@ -68,7 +69,7 @@ export function splitSpeakerTag(line: string): { speaker?: string; text: string 
 
 /** Texto que o TTS fala: tira o prefixo "NOME:" quando é o próprio falante (legado ou modelo teimoso). */
 export function spokenText(scene: Pick<Scene, 'narration' | 'speaker'>): string {
-  const raw = (scene.narration ?? '').trim();
+  const raw = stripAvatarTags(scene.narration ?? '');
   if (!raw) return raw;
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   /* uma fala por cena: remove só o prefixo do falante desta cena */

@@ -56,7 +56,7 @@ import * as sceneReview from './scene-review';
 import { thumbStyleImage } from './thumb-ref';
 import { editParamsFromRef } from './references';
 import { clipInsertAt, insertProductClip, productClipInfoFile } from './product-clip';
-import { IMAGE_EXT, takeMedia, words as mediaWords } from './media-bank';
+import { IMAGE_EXT, takeMedia, bankCoverage, words as mediaWords } from './media-bank';
 import { llmJson } from './editor';
 import { languageName } from './prompts';
 import { inScene } from './characters';
@@ -2725,7 +2725,17 @@ async function mediaFolder(c: ExecContext): Promise<ExecResult> {
   const banks = (c.settings.mediaBanks ?? []).filter((b) => !want || b.id === want);
   if (!banks.length) throw new Error(want ? `banco de mídia "${want}" não existe (Provedores → Pastas e bancos de mídia)` : 'nenhuma pasta/banco de mídia em Provedores → Pastas e bancos de mídia');
   const terms = mediaWords([termsText(c.scene.searchTerms), c.scene.title, c.scene.visualIntent].join(' ')).slice(0, 40);
-  const got = takeMedia({ banks, kind, terms, outDir: c.outDir, sceneKey: `${c.project.id}/${c.scene.id}` });
+  /* cobertura antes do render (uma vez por etapa): avisa se o banco não tem arquivos novos para todas as cenas */
+  const covFile = path.join(c.outDir, `media-bank-coverage.${kind}.json`);
+  if (!fs.existsSync(covFile)) {
+    const need = c.project.scenes.filter((s) => (c.step.onlySceneKinds ?? [kind]).includes(s.kind ?? 'image')).length;
+    try {
+      const cov = bankCoverage(banks, { image: kind === 'image' ? need : 0, video: kind === 'video' ? need : 0 }, c.outDir);
+      fs.mkdirSync(c.outDir, { recursive: true }); fs.writeFileSync(covFile, JSON.stringify(cov, null, 1));
+      for (const l of cov.lines) c.log(`📁 cobertura do banco — ${l}`);
+    } catch { /* cobertura é só aviso */ }
+  }
+  const got = takeMedia({ banks, kind, terms, outDir: c.outDir, sceneKey: `${c.project.id}/${c.scene.id}`, tools: c.settings.ffmpeg && c.settings.ffprobe ? { ffmpeg: c.settings.ffmpeg, ffprobe: c.settings.ffprobe } : undefined, sceneSec: c.scene.durationSec });
   if (!got) throw new Error(`pasta/banco de mídia: nenhum${kind === 'video' ? ' clipe' : 'a imagem'} novo(a) para esta cena (todos já usados ou pasta vazia)`);
   const dest0 = primaryFile(c.step.kind, c);
   ensureDir(dest0);
@@ -2737,7 +2747,19 @@ async function mediaFolder(c: ExecContext): Promise<ExecResult> {
     if (kind === 'image' && !IMAGE_EXT.test(dest)) dest = dest0;
     fs.copyFileSync(got.item.file, dest);
   }
-  c.log(`📁 ${got.bank.name}: ${got.item.rel}${terms.length ? ` (combina com: ${terms.slice(0, 6).join(', ')})` : ''}`);
+  /* clipe mais curto que a cena: até 20% mais curto → câmera lenta (0,8×); mais curto que isso → congela o último quadro */
+  const sceneLen = c.scene.durationSec ?? 0, have = got.meta?.duration ?? 0;
+  if (kind === 'video' && sceneLen > 0 && have > 0 && have < sceneLen - 0.1) {
+    const fitted = dest.replace(/\.\w+$/, '.fit.mp4');
+    const slow = have >= sceneLen * 0.8;
+    const vf = slow ? `setpts=${(sceneLen / have).toFixed(4)}*PTS` : `tpad=stop_mode=clone:stop_duration=${(sceneLen - have + 0.2).toFixed(2)}`;
+    try {
+      await ff.run(c.settings.ffmpeg, ['-y', '-v', 'error', '-i', dest, '-vf', vf, '-an', '-t', String(sceneLen), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', fitted], c.signal);
+      fs.rmSync(dest, { force: true }); dest = dest.replace(/\.\w+$/, '.mp4'); fs.renameSync(fitted, dest);
+      c.log(`📁 clipe de ${have.toFixed(1)} s para cena de ${sceneLen} s → ${slow ? 'câmera lenta' : 'último quadro congelado'}`);
+    } catch (er) { c.log(`⚠ ajuste do clipe curto falhou: ${(er as Error).message.slice(0, 100)}`); }
+  }
+  c.log(`📁 ${got.bank.name}: ${got.item.rel}${terms.length ? ` (combina com: ${terms.slice(0, 6).join(', ')})` : ''}${got.score !== undefined ? ` · nota ${got.score}${got.meta?.avg ? ` · cor ${got.meta.avg}` : ''}${got.meta?.motion !== undefined && kind === 'video' ? ` · movimento ${got.meta.motion}` : ''}` : ''}`);
   return { files: [dest] };
 }
 

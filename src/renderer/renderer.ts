@@ -1019,6 +1019,15 @@ async function renderNew() {
   const prod = productClipBox('np-product');
   /* MÚSICA DO PROJETO: um arquivo (trilha) ou uma pasta (coletânea: as faixas em ordem, com transições) */
   const mus = musicSourceBox('np-music');
+  /* CORTES DE LIVE: quantos clipes distintos a execução entrega (um MP4 por corte) */
+  const clipN = h('input', { type: 'number', id: 'np-clips', min: '1', max: '10', step: '1', value: '1', class: 'num', title: 'Cortes de live: quantos cortes distintos sair desta live (1 a 10). Cada um vira um MP4 em out/cortes.' }) as HTMLInputElement;
+  const clipBox = h('label', { class: 'inline', id: 'np-clips-box' }, '✂ Quantidade de clipes', clipN);
+  /* AVATAR REATIVO: pasta com as poses em PNG (avatar_neutro.png, avatar_surpreso.png…) */
+  let avatarDir = '';
+  const avLbl = h('span', { class: 'muted', id: 'np-avatar-lbl' }, 'nenhuma');
+  const avatarBox = h('div', { class: 'row', id: 'np-avatar-box', title: 'Poses do avatar: PNG com fundo transparente, um por pose (avatar_neutro, avatar_surpreso, avatar_cetico, avatar_medo, avatar_riso, avatar_pensativo, avatar_apontando, avatar_perfil). O roteiro só usa as poses que existem.' },
+    h('strong', {}, '🎭 Poses do avatar'),
+    h('button', { onclick: () => void guard(async () => { const d = await (forge as unknown as { openDir: (o: unknown) => Promise<string | null> }).openDir({ title: 'Pasta com as poses do avatar (PNG)' }); if (d) { avatarDir = d; avLbl.textContent = '📁 ' + basename(d); } }) }, '📁 Pasta…'), avLbl);
   chSel.addEventListener('change', () => pub.selectChannel(chSel.value));
   if (pendingIdea) { (idea as HTMLTextAreaElement).value = pendingIdea; pendingIdea = undefined; }
   const episode = pendingEpisode; pendingEpisode = undefined;
@@ -1704,6 +1713,8 @@ async function renderNew() {
     showSkill(); paintTeam(); paintCast(); paintRoutePlan(); paintMusic(); paintVoice();
   });
   route.addEventListener('change', showSkill);
+  const paintClips = () => { clipBox.style.display = /cortes/.test((route as HTMLSelectElement).value) ? '' : 'none'; avatarBox.style.display = /avatar/.test((skill as HTMLSelectElement).value) ? '' : 'none'; };
+  route.addEventListener('change', paintClips); skill.addEventListener('change', () => setTimeout(paintClips, 0)); paintClips();
   /* a rota mudou: as escolhas por etapa eram da rota anterior */
   route.addEventListener('change', () => { if (providers?.steps) { providers = { ...providers, steps: undefined, label: providers.label.replace(/ \+ \d+ etapa.*$/, '') }; } });
   route.addEventListener('change', paintRoutePlan);
@@ -1768,6 +1779,9 @@ async function renderNew() {
       autoUpload: autoUp.checked && !pub.targets().length ? { visibility: 'UNLISTED' } : undefined,
       productClip: prod.value(),
       musicSource: mus.value(),
+      musicSegment: mus.segment(),
+      avatarDir: avatarDir || undefined,
+      clipCount: Number(clipN.value) > 1 ? Math.min(10, Math.round(Number(clipN.value))) : undefined,
       publishTargets: pub.targets().length ? pub.targets() : undefined,
       publishVisibility: pub.targets().length ? pub.visibility() as 'UNLISTED' : undefined,
       agyAccount: agySel.value || undefined,
@@ -1958,7 +1972,7 @@ async function renderNew() {
       h('label', { title: 'Etapas do Google Flow deste projeto usam esta conta (vence a conta escolhida na etapa da rota)' }, '🌊 Conta do Flow', flowSel),
       h('label', { title: 'Canal de destino (aba Canais). Ao publicar, o vídeo vai para ele — a conta e a marca vêm do canal.' }, '📺 Canal de destino', chSel),
       h('label', { class: 'inline chk', title: 'Acrescenta à rota a etapa "Enviar ao YouTube": ao terminar, o vídeo vai como NÃO LISTADO com título, descrição e thumbnail do SEO (conta Google das Automações)' }, autoUp, '⬆ Enviar ao YouTube ao terminar (não listado)'),
-      pub.el, prod.el, mus.el,
+      pub.el, prod.el, mus.el, clipBox, avatarBox,
       h('h3', {}, 'Produção'),
       h('div', { class: 'row' },
         h('label', { title: 'Uma execução é interrompida ao atingir este tempo (o que já foi gerado fica em cache).' }, 'Tempo máximo (min)', h('span', { class: 'row' }, maxMin, noLimit.parentElement!)),
@@ -2265,7 +2279,7 @@ async function renderNew() {
       drawer('np-g-style', 'Estilo e imagem', styleSum, styleBox, paletteCard, mixBox, rowOf(scriptStyle)!),
       drawer('np-g-audio', 'Áudio e trilha', audioSum, musicBox, labelOf(subsSel), labelOf(subsFont), labelOf(subsKind), labelOf(audioFirstCb), labelOf(codeMusicCb), wmRow),
       drawer('np-g-catalog', 'Diretrizes 11/2026 · disclosure · gerador', () => `${discLabel.value.trim() || 'sem disclosure'}${genOn.checked ? ` · ${genFamily.value}/${genModel.value.trim() || 'sem ID'}` : ''}`, catalogBox),
-      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el, prod.el, mus.el,
+      drawer('np-g-prod', 'Produção', prodSum, routePlan, prodRow!, h('div', { class: 'row' }, labelOf(agySel), labelOf(flowSel)), labelOf(autoUp), pub.el, prod.el, mus.el, clipBox, avatarBox,
         pickScript.closest('.refbox')?.parentElement as HTMLElement | null, pickAttachFiles.closest('.refbox')?.parentElement as HTMLElement | null,
         rowOf(orch)!, teamInfo),
       drawer('np-g-plugins', 'Plugins e estilos', plugSum, iTeam >= 0 ? kids[iTeam + 1] ?? null : null),
@@ -3769,18 +3783,22 @@ function agyAccountSelect(id: string, value = '', onChange?: (v: string) => void
 
 /** Canal de destino (aba Canais): vazio = pergunta na hora de publicar. Preenchido de forma assíncrona. */
 /** "Música do projeto": ARQUIVO de áudio (a trilha) ou PASTA (coletânea — as faixas em ordem, com transições suaves). */
-function musicSourceBox(id: string): { el: HTMLElement; value: () => string | undefined } {
+function musicSourceBox(id: string): { el: HTMLElement; value: () => string | undefined; segment: () => { start?: string; end?: string } | undefined } {
   let src = '', isDir = false;
   const lbl = h('span', { class: 'muted', id: `${id}-lbl` }, 'nenhuma — a rota gera ou escolhe a trilha');
-  const paint = () => { lbl.textContent = src ? `${isDir ? '📁 coletânea: ' : '🎵 '}${basename(src)}` : 'nenhuma — a rota gera ou escolhe a trilha'; clr.style.display = src ? '' : 'none'; };
+  /* trecho (só arquivo): início → fim; o vídeo herda a duração e os cortes caem no beat */
+  const segStart = h('input', { id: `${id}-start`, class: 'num', placeholder: 'início 0:32', title: 'Início do trecho (m:ss ou segundos). Vazio = do começo.' }) as HTMLInputElement;
+  const segEnd = h('input', { id: `${id}-end`, class: 'num', placeholder: 'fim 1:04', title: 'Fim do trecho (m:ss ou segundos). Vazio = até o fim.' }) as HTMLInputElement;
+  const segRow = h('div', { class: 'row', title: 'Trecho da música: a duração do vídeo vira a do trecho e os cortes entre as cenas caem na batida (BPM detectado).' }, h('span', { class: 'muted' }, '✂ Trecho'), segStart, h('span', { class: 'muted' }, '→'), segEnd);
+  const paint = () => { lbl.textContent = src ? `${isDir ? '📁 coletânea: ' : '🎵 '}${basename(src)}` : 'nenhuma — a rota gera ou escolhe a trilha'; clr.style.display = src ? '' : 'none'; segRow.style.display = src && !isDir ? '' : 'none'; };
   const clr = h('button', { class: 'small', title: 'Tirar', onclick: () => { src = ''; paint(); } }, '✕') as HTMLButtonElement;
   const el = h('div', { class: 'refbox', id }, h('strong', { title: 'Arquivo: a música vira a trilha do vídeo. Pasta: as faixas da pasta (em ordem de nome) viram uma COLETÂNEA com transições suaves; a lista de faixas com os tempos vai para a descrição como capítulos.' }, '🎵 Música do projeto'),
     h('div', { class: 'row' },
       h('button', { id: `${id}-file`, onclick: () => void guard(async () => { const f = await forge.openFile({ title: 'Música do projeto', filters: [{ name: 'Áudio', extensions: ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'opus'] }] }); if (f) { src = f; isDir = false; paint(); } }) }, '🎵 Arquivo…'),
       h('button', { id: `${id}-dir`, onclick: () => void guard(async () => { const d = (await (forge as unknown as { openDir: (o: unknown) => Promise<string | null> }).openDir({ title: 'Pasta de músicas (coletânea)' })); if (d) { src = d; isDir = true; paint(); } }) }, '📁 Pasta (coletânea)…'),
-      lbl, clr));
+      lbl, clr), segRow);
   paint();
-  return { el, value: () => src || undefined };
+  return { el, value: () => src || undefined, segment: () => (src && !isDir && (segStart.value.trim() || segEnd.value.trim()) ? { start: segStart.value.trim() || undefined, end: segEnd.value.trim() || undefined } : undefined) };
 }
 
 /** "Clip de venda de produto": vídeo (arquivo ou o final de um projeto pronto), posição e link/chamada do produto. */

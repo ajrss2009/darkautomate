@@ -119,7 +119,8 @@ function main() {
   for (const id of ['musica-natalina-retro', 'natal-retrofuturista-50', 'natal-anos-60']) {
     const k = BUILTIN_SKILLS.find((x) => x.id === id);
     assert.ok(k, `skill ${id}`);
-    assert.equal(k!.routeId, 'musica-natalina-retro');
+    /* a retrofuturista 50 gera direto do prompt (rota t2v, prefixo Atompunk/Technicolor); as outras animam o quadro-chave */
+    assert.equal(k!.routeId, id === 'natal-retrofuturista-50' ? 'musica-natalina-retro-t2v' : 'musica-natalina-retro');
     assert.equal(k!.durationSec, 60);
     assert.match(k!.global, /6 cenas de 10 s/);
     assert.match(k!.global, /ORIGINAL/);

@@ -10,6 +10,8 @@ import type {
 import { bindingLabel, termsText } from '../shared/types';
 import { AUTO_ORDER, abortMessage, isHttpHarness, resolveHarness, resolveHarnessCommand } from './harness';
 import { duration as probeDuration } from './ffmpeg';
+import { analyzeBeats, cutsOnBeat, snapToBeats } from './beat-grid';
+import { musicAttachment } from './attachments';
 import { autoCast, splitSpeakerTag } from './cast';
 import { syncBibleToLibrary } from './characters';
 import { CODE_SCENE_MIN_SEC, fitSceneKinds, isCastStory, isLongCodeVideo, isLyricVideo, isMusicClip, mergeShortCodeScenes, routeSceneKinds, splitLongScenes } from './prompts';
@@ -561,6 +563,37 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
     } catch { /* pré-checagem nunca impede a execução */ }
   }
 
+  /** Trilha que conduz a edição: música do usuário (arquivo/trecho/coletânea) ou a canção gerada (out/music.mp3). */
+  function drivingMusic(): string | undefined {
+    const att = musicAttachment(project, projectDir);
+    if (att) return att;
+    const song = path.join(projectDir, 'out', 'music.mp3');
+    return isLyricVideo(project) && fs.existsSync(song) ? song : undefined;
+  }
+  /**
+   * Videoclipe (canção com letra, pasta do usuário, trecho de música): cada corte entre cenas vai para a batida
+   * mais próxima (tempo forte preferido), sem passar do limite do clipe. Cenas com duração manual ficam como estão.
+   */
+  function beatSnapScenes(list: Array<Partial<Scene>>, maxClip: number): Array<Partial<Scene>> | undefined {
+    const musical = isLyricVideo(project) || !!project.skill?.musicVideo || !!project.musicSegment || /^music/.test(String(project.skill?.appearance ?? ''));
+    if (!musical || isMusicClip(project) || list.length < 2 || !deps.settings.ffmpeg) return undefined;
+    const music = drivingMusic();
+    if (!music) return undefined;
+    try {
+      const grid = analyzeBeats(deps.settings.ffmpeg, music);
+      if (grid.beats.length < 8 || grid.confidence < 0.15) { emit({ t: 'log', line: `beat grid: batida pouco clara em ${path.basename(music)} — cortes ficam como no plano` }); return undefined; }
+      const durs = list.map((s) => Math.max(0.5, Number(s.durationSec) || 0));
+      if (durs.some((d) => !(d > 0))) return undefined;
+      const r = snapToBeats(durs, grid, { maxSec: maxClip > 0 ? maxClip : undefined, locked: list.map((s) => !!s.manualDuration) });
+      const qa = cutsOnBeat(r.durations, grid.beats);
+      try { fs.mkdirSync(path.join(projectDir, 'out'), { recursive: true }); fs.writeFileSync(path.join(projectDir, 'out', 'beats.json'), JSON.stringify(grid, null, 1)); } catch { /* opcional */ }
+      project.beatSync = { bpm: grid.bpm, cuts: qa.cuts, onBeat: qa.onBeat };
+      emit({ t: 'log', line: `beat grid: ${grid.bpm} BPM (${grid.beats.length} batidas) — ${qa.onBeat}/${qa.cuts} cortes no beat (±1 quadro)` });
+      if (!r.snapped) return undefined;
+      return list.map((s, i) => ({ ...s, durationSec: r.durations[i] }));
+    } catch (e) { emit({ t: 'log', line: `⚠ beat grid: ${(e as Error).message.split('\n')[0]}` }); return undefined; }
+  }
+
   function loadScenes() {    const file = path.join(projectDir, 'scenes.json');
     const raw = readJson<Array<Partial<Scene>>>(file, []);
     let list = Array.isArray(raw) ? raw : [];
@@ -593,7 +626,9 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
       const maxClip = Number((vstep?.params as Record<string, unknown> | undefined)?.['maxClipSec'] ?? 0);
       const split = splitLongScenes(list, maxClip);
       if (split.changed) { emit({ t: 'log', line: `plano de cenas: cenas com mais de ${maxClip} s divididas (${list.length} → ${split.list.length} cenas)` }); list = split.list; }
-      if (fit.changed || split.changed) { try { fs.writeFileSync(file, JSON.stringify(list, null, 2)); } catch { /* só o projeto em memória */ } }
+      const beat = beatSnapScenes(list, maxClip);
+      if (beat) list = beat;
+      if (fit.changed || split.changed || beat) { try { fs.writeFileSync(file, JSON.stringify(list, null, 2)); } catch { /* só o projeto em memória */ } }
     }
     const prevScenes = new Map(project.scenes.map((x) => [x.id, x]));
     project.scenes = list.map((s, i) => {
@@ -845,6 +880,12 @@ export async function runRoute(opts: RunOptions): Promise<{ ok: boolean; error?:
               log: (line) => emit({ t: 'log', stepId: step.id, sceneId, line }),
             });
             release?.(); /* aprovação e gravação do cache não seguram a fila do modelo local */
+            if (step.kind === 'free' && (project.clipCount ?? 1) > 1) {
+              const cd = path.join(outDir, 'cortes');
+              const clips = fs.existsSync(cd) ? fs.readdirSync(cd).filter((f) => /^corte-\d+\.mp4$/i.test(f)).sort().map((f) => path.join(cd, f)).filter((f) => fs.statSync(f).size > 0) : [];
+              emit({ t: 'log', stepId: step.id, line: `✂ cortes: ${clips.length} de ${project.clipCount} entregues em out/cortes${clips.length < project.clipCount! ? ' — ⚠ faltaram cortes' : ''}` });
+              for (const f of clips) if (!res.files.includes(f)) res.files.push(f);
+            }
             const bad = res.files.filter((f) => !fs.existsSync(f) || fs.statSync(f).size === 0);
             if (bad.length > 0) throw new Error(`arquivo(s) ausente(s)/vazio(s): ${bad.map((b) => path.basename(b)).join(', ')}`);
             if (res.files.length === 0 && !step.optional) throw new Error('nenhum artefato produzido');

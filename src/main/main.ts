@@ -92,6 +92,8 @@ import { h3Options, scanH3Loras } from './h3accel';
 import { scanSpecialModels } from './wan2gp-special';
 import { CATEGORY_LABEL, mergeWan2gpModels, scanWan2gpCatalog } from './wan2gp-catalog';
 import { AUDIO_EXT, buildCompilation } from './music-compilation';
+import { analyzeBeats, cutMusicSegment, parseClock } from './beat-grid';
+import { importAvatarPoses } from './avatar-poses';
 import { cloneChannel, clonePlatform, cloneStore, listChannelClones, listPendingClones, type ChannelCloneInput, type CloneProgress } from './channel-clone';
 import { accountOfAgyHome, recordAgyUsage, usageReport } from './usage';
 import { setHarnessUsageSink } from './harness';
@@ -648,7 +650,7 @@ async function projectRow(id: string) {
 }
 
 /** Música do projeto: ARQUIVO → anexo "trilha sonora"; PASTA → coletânea (assets/user/music/coletanea.mp3) como trilha. */
-async function applyMusicSource(p: Project, src: string): Promise<void> {
+async function applyMusicSource(p: Project, src: string, segment?: { start?: number | string; end?: number | string }): Promise<void> {
   if (!fs.existsSync(src)) throw new Error(`música não encontrada: ${src}`);
   const dir = projectDirOf(settings, p.id);
   for (const a of p.attachments ?? []) if (a.use === 'music') a.use = 'reference';   // só uma trilha
@@ -662,8 +664,28 @@ async function applyMusicSource(p: Project, src: string): Promise<void> {
     const [a] = attachments.addAttachments(p, dir, [src]);
     if (a) attachments.updateAttachment(p, a.file, { use: 'music' });
     delete p.musicCompilation;
+    /* trecho (início → fim): vira a trilha e define a duração do projeto — o roteiro se adapta à música */
+    const s0 = parseClock(segment?.start), s1 = parseClock(segment?.end);
+    if (a && (s0 !== undefined || s1 !== undefined)) {
+      const full = attachments.attachmentPath(dir, a);
+      const total = await probeAudioSeconds(full);
+      const start = s0 ?? 0, end = Math.min(s1 ?? total, total || Infinity);
+      const seg = cutMusicSegment(settings.ffmpeg, full, path.join(attachments.userDir(dir), 'music'), start, end);
+      const rel = path.relative(attachments.userDir(dir), seg.file).replace(/\\/g, '/');
+      attachments.updateAttachment(p, a.file, { use: 'reference' });
+      p.attachments = [...(p.attachments ?? []).filter((x) => x.file !== rel), { file: rel, kind: 'audio', use: 'music', note: `Trecho ${fmtClock(start)} → ${fmtClock(end)} (${seg.seconds} s) de "${path.basename(src)}"` }];
+      let bpm: number | undefined;
+      try { bpm = analyzeBeats(settings.ffmpeg, seg.file).bpm; } catch { /* sem beat */ }
+      p.musicSegment = { start, end, bpm };
+      p.targetDurationSec = Math.round(seg.seconds);
+    } else delete p.musicSegment;
   }
 }
+
+async function probeAudioSeconds(f: string): Promise<number> {
+  try { return await ff.duration(settings.ffprobe, f); } catch { return 0; }
+}
+const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}${s % 1 ? (s % 1).toFixed(1).slice(1) : ''}`;
 
 /** Junta o catálogo do Wan2GP em settings.wan2gpModels; devolve quantos modelos entraram. */
 function syncWan2gpCatalog(): number {
@@ -2262,7 +2284,9 @@ function registerIpc() {
     const p = createProject(settings, input);
     if (input.attachFiles?.length) { attachments.addAttachments(p, projectDirOf(settings, p.id), input.attachFiles); ops.saveProjectFile(settings, p); }
     /* música do projeto: arquivo = trilha; pasta = coletânea montada aqui (faixas em ordem, transições suaves) */
-    if (input.musicSource) { await applyMusicSource(p, input.musicSource); ops.saveProjectFile(settings, p); }
+    if (input.musicSource) { await applyMusicSource(p, input.musicSource, input.musicSegment); ops.saveProjectFile(settings, p); }
+    /* avatar reativo: pasta de poses (avatar_neutro.png, avatar_surpreso.png…) → assets/user/avatar */
+    if (input.avatarDir) { p.avatarPoses = importAvatarPoses(attachments.userDir(projectDirOf(settings, p.id)), input.avatarDir); ops.saveProjectFile(settings, p); }
     /* thumbnail de referência (imagem ou link de vídeo): baixa, mede a paleta e anexa; o prompt da thumbnail segue ela */
     if (input.thumbRef?.file || input.thumbRef?.url) {
       try { await prepareThumbRef(settings, p, projectDirOf(settings, p.id), input.thumbRef, AbortSignal.timeout(90_000)); ops.saveProjectFile(settings, p); }
@@ -2282,10 +2306,10 @@ function registerIpc() {
   h('projects:open-root', () => { fs.mkdirSync(projectsDir(settings), { recursive: true }); return shell.openPath(projectsDir(settings)); });
   h('project:get', (id: string) => ops.readProject(settings, id));
   /* música de um projeto existente: arquivo ou pasta (coletânea); null tira a trilha do usuário */
-  h('project:music-source', async (id: string, src: string | null) => {
+  h('project:music-source', async (id: string, src: string | null, segment?: { start?: number | string; end?: number | string }) => {
     const p = ops.readProject(settings, id);
-    if (src) await applyMusicSource(p, src);
-    else { for (const a of p.attachments ?? []) if (a.use === 'music') a.use = 'reference'; delete p.musicCompilation; }
+    if (src) await applyMusicSource(p, src, segment);
+    else { for (const a of p.attachments ?? []) if (a.use === 'music') a.use = 'reference'; delete p.musicCompilation; delete p.musicSegment; }
     ops.saveProjectFile(settings, p);
     return { attachments: p.attachments ?? [], compilation: p.musicCompilation ?? null };
   });
