@@ -1,0 +1,28 @@
+{
+  "workspace": "{DATA}/workspace",
+  "projectsDir": "{DATA}/projects",
+  "pluginsDir": "{DATA}/plugins",
+  "thumbnails": [
+    {
+      "id": "impacto",
+      "name": "Impacto (assunto grande + texto curto)",
+      "prompt": "YouTube thumbnail, 16:9, one large clear subject on the left, dramatic rim light, saturated contrasting colors, bold 3-word title text \"{{thumb_text}}\" in thick sans-serif, high contrast, topic: {{title}}"
+    },
+    {
+      "id": "explicativo",
+      "name": "Explicativo (ilustração limpa)",
+      "prompt": "YouTube thumbnail, 16:9, clean {{style}} illustration explaining {{title}}, big readable text \"{{thumb_text}}\", simple background, three-color palette"
+    },
+    {
+      "id": "documentario",
+      "name": "Documentário (cinematográfico)",
+      "prompt": "YouTube thumbnail, 16:9, cinematic documentary still about {{title}}, moody lighting, shallow depth of field, small elegant title \"{{thumb_text}}\""
+    },
+    {
+      "id": "youtube-thumb-lx79njzodz8",
+      "name": "Referência YouTube (lx79NjzOdz8)",
+      "prompt": "YouTube thumbnail, 16:9, FOLLOW THE ATTACHED REFERENCE THUMBNAIL as the style model: same composition, framing, focal-point position, text size and placement, contrast, lighting and color palette. NEW subject and headline about {{title}}, with the headline \"{{thumb_text}}\" in bold outlined type and no other words. Do NOT copy the reference's text, logos, brands or real faces.",
+      "preview": "{DATA}/workspace/library/thumb-refs/lx79NjzOdz8.jpg"
+    }
+  ]
+}
