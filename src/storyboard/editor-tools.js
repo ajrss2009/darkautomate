@@ -49,5 +49,23 @@
     scene.add(sp); objects.push(sp); window.__hl?.(sp); renderer.render(scene, camera); log('balão criado');
   };
   refresh();
+  /* bookmark de câmeras (adicionar e recuperar) */
+  const camSel = document.createElement('select');
+  camSel.innerHTML = '<option value="CAM-01">CAM-01</option><option value="CAM-02">CAM-02</option>';
+  const camAdd = document.createElement('button'); camAdd.textContent = '+ Câmera';
+  const cams = { 'CAM-01': null, 'CAM-02': null };
+  camAdd.onclick = () => {
+    const name = 'CAM-' + String(Object.keys(cams).length + 1).padStart(2, '0');
+    cams[name] = { theta: orbit.theta, phi: orbit.phi, r: orbit.r, fov: camera.fov, target: orbit.target.toArray() };
+    const o = document.createElement('option'); o.value = name; o.textContent = name; camSel.appendChild(o);
+    log('câmera adicionada: ' + name);
+  };
+  camSel.onchange = () => {
+    const c = cams[camSel.value]; if (!c) return;
+    orbit.theta = c.theta; orbit.phi = c.phi; orbit.r = c.r; camera.fov = c.fov; orbit.target.fromArray(c.target);
+    camera.updateProjectionMatrix(); updateCam(); renderer.render(scene, camera);
+  };
+  aside.appendChild(camSel); aside.appendChild(camAdd);
+
   log('ferramentas: câmera, objeto, cuts e balão');
 })();
