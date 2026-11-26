@@ -71,7 +71,7 @@ export async function buildCompilation(o: { ffmpeg: string; ffprobe: string; dir
   for (let i = 1; i < ok.length; i++) {
     const d = Math.max(0.1, Math.min(cf, ok[i - 1]!.d / 3, ok[i]!.d / 3));
     const lbl = i === ok.length - 1 ? 'mix' : `x${i}`;
-    chain += `;[${last}][n${i}]acrossfade=d=${d.toFixed(2)}:c1=tri:c2=tri[${lbl}]`;
+    chain += `;[${last}][n${i}]acrossfade=d=${d.toFixed(2)}:c1=qsin:c2=qsin[${lbl}]`;
     last = lbl;
   }
   const graph = ok.length === 1 ? `${norm[0]!.replace('[n0]', '[mix]')}` : norm.join(';') + chain;
