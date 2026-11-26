@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Editor de Storyboard 3D — Dark Automate</title>
+<style>
+  :root{--bg:#0e1116;--pan:#161b22;--line:#2a3340;--txt:#e6edf3;--mut:#9aa7b4;--acc:#22c55e;--acc2:#38bdf8}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.4 Segoe UI,Arial,sans-serif;overflow:hidden}
+  header{height:46px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0b0f14;border-bottom:1px solid var(--line)}
+  header b{font-size:15px} header .sp{flex:1}
+  button{background:#1f2937;color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 10px;cursor:pointer}
+  button:hover{border-color:#3b4b5e} button.pri{background:var(--acc);color:#04130a;border-color:var(--acc);font-weight:700}
+  button.blue{background:#0b3a52;border-color:#155e75;color:#bae6fd}
+  #wrap{display:grid;grid-template-columns:250px 1fr 300px;height:calc(100vh - 46px)}
+  aside{background:var(--pan);border-right:1px solid var(--line);padding:10px;overflow:auto}
+  aside.r{border-right:0;border-left:1px solid var(--line)}
+  h3{margin:12px 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+  label{display:block;font-size:11px;color:var(--mut);margin:6px 0 2px}
+  input,select,textarea{width:100%;background:#0d1319;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px}
+  textarea{resize:vertical;min-height:46px}
+  #stage{position:relative;background:#05070a}
+  #stage canvas{display:block;width:100%;height:100%}
+  #hud{position:absolute;left:10px;bottom:10px;font-size:11px;color:#cbd5e1;background:#000a;padding:4px 8px;border-radius:5px}
+  body.clean header,body.clean aside,body.clean #shots,body.clean #hud{display:none!important}
+  body.clean #wrap{display:block;height:100vh}
+  body.clean #stage{width:100vw;height:100vh}
+  #caption{position:absolute;left:0;right:0;bottom:0;display:none;padding:16px 22px;background:linear-gradient(transparent,#000c 45%);color:#fff;font-size:22px;line-height:1.35}
+  body.clean #caption{display:block}
+  #caption b{font-size:26px} #caption .sp{color:#fca5a5;font-weight:700}
+  #shots{display:flex;gap:8px;padding:8px;background:#0b0f14;border-top:1px solid var(--line);overflow:auto;height:96px}
+  .shot{min-width:120px;height:76px;border:1px solid var(--line);border-radius:6px;background:#111827;cursor:pointer;position:relative;overflow:hidden}
+  .shot.sel{border-color:var(--acc)} .shot img{width:100%;height:100%;object-fit:cover}
+  .shot span{position:absolute;left:4px;top:3px;font-size:10px;background:#000b;padding:1px 4px;border-radius:4px}
+  .row{display:flex;gap:6px}.row>*{flex:1}
+  .tag{display:inline-block;font-size:10px;background:#0b3a52;color:#bae6fd;border:1px solid #155e75;border-radius:10px;padding:1px 7px;margin:2px 4px 2px 0}
+</style>
+</head>
+<body>
+<header>
+  <b>🎬 Editor de Storyboard 3D</b><span class="tag">A forma é proxy; a câmera é intenção; o painel salvo é contrato</span>
+  <span class="sp"></span>
+  <button id="btnPreset" class="blue">Carregar exemplo (Kyra + Marlok)</button>
+  <button id="btnPng">Salvar painel PNG</button>
+  <button id="btnJpg">JPG</button>
+  <button id="btnAll" class="pri">Exportar storyboard</button>
+</header>
+<div id="wrap">
+  <aside>
+    <h3>Elementos</h3>
+    <div class="row"><button data-add="kyra">+ Kyra</button><button data-add="marlok">+ Marlok</button></div>
+    <div class="row"><button data-add="spider">+ Aranha</button><button data-add="rock">+ Rocha</button></div>
+    <div class="row"><button data-add="cactus">+ Cacto</button><button data-add="box">+ Caixa</button></div>
+    <label>Texto na cena</label>
+    <div class="row"><input id="txtIn" placeholder="Texto do painel" /><button id="btnTxt">+</button></div>
+    <h3>Selecionado</h3>
+    <div id="selInfo" style="font-size:11px;color:var(--mut)">clique num objeto</div>
+    <label>X <span id="px"></span></label><input id="pxi" type="range" min="-8" max="8" step="0.1" value="0" />
+    <label>Z <span id="pz"></span></label><input id="pzi" type="range" min="-12" max="4" step="0.1" value="0" />
+    <label>Rotação Y</label><input id="ryi" type="range" min="-180" max="180" step="1" value="0" />
+    <label>Escala</label><input id="sci" type="range" min="0.4" max="2" step="0.05" value="1" />
+    <h3>Câmera</h3>
+    <label>Plano</label>
+    <select id="shotType">
+      <option value="aberto">Aberto (wide)</option><option value="medio">Médio</option><option value="close">Close</option>
+      <option value="ots">Over-the-shoulder</option><option value="baixo">Contra-plongée (baixo)</option><option value="alto">Plongée (alto)</option><option value="pov">POV</option>
+    </select>
+    <label>Movimento</label>
+    <select id="move"><option>dolly</option><option>truck</option><option>pan</option><option>tilt</option><option>orbit</option><option>handheld</option><option>fixo</option></select>
+    <div class="row"><button id="camA">CAM-01</button><button id="camB">CAM-02</button></div>
+    <label>Lente</label><input id="lens" type="range" min="18" max="85" value="35" />
+    <h3>Luz</h3>
+    <label>Preset</label>
+    <select id="lightPreset"><option>dourado</option><option>azul-noite</option><option>contra-luz</option><option>estudio</option><option>tempestade</option></select>
+    <label>Intensidade</label><input id="li" type="range" min="0" max="3" step="0.05" value="1.4" />
+    <label>Cor</label><input id="lc" type="color" value="#ffb570" />
+    <label>Temperatura</label><input id="lt" type="range" min="-1" max="1" step="0.05" value="0.2" />
+  </aside>
+  <div id="stage"><div id="hud">arraste para orbitar · roda para zoom · clique num objeto para mover</div>
+    <div id="caption"><b id="capT"></b><div id="capS" class="sp"></div><div id="capC"></div></div>
+    <div id="shots"></div>
+  </div>
+  <aside class="r">
+    <h3>Painel <span id="shotN">1</span></h3>
+    <label>Título</label><input id="pTitle" value="Plano 1" />
+    <label>SPEAK</label><textarea id="pSpeak" placeholder="Nome: fala exata"></textarea>
+    <label>CAM</label><input id="pCam" value="CAM-01 · plano aberto · dolly-in" />
+    <label>ACTION</label><textarea id="pAction" placeholder="o que acontece"></textarea>
+    <label>HOLD</label><input id="pHold" value="10" />
+    <label>CUT</label><input id="pCut" value="corte seco" />
+    <label>Prompt de cena (inglês)</label><textarea id="pPrompt" placeholder="photorealistic live-action ..."></textarea>
+    <div class="row"><button id="btnShot">Salvar painel</button><button id="btnNew">Novo</button></div>
+    <h3>Exportação</h3>
+    <label>Pasta (dentro do projeto)</label><input id="outDir" value="storyboards/kyra-marlok" />
+    <div class="row"><button id="btnMotion" class="blue">Renderizar MP4 (motion)</button></div>
+    <div id="log" style="font-size:11px;color:var(--mut);margin-top:8px;white-space:pre-wrap"></div>
+  </aside>
+</div>
+<script src="three.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const SB = { shots: [], sel: null, anim: null, preset: 'aberto' };
+const stage = $('stage');
+let W = stage.clientWidth, H = stage.clientHeight - 96;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+stage.insertBefore(renderer.domElement, $('shots'));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#1b2430');
+scene.fog = new THREE.Fog('#1b2430', 18, 60);
+/* céu em degradê */
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(120, 32, 16),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { top: { value: new THREE.Color('#2b3a55') }, mid: { value: new THREE.Color('#c98a5b') }, bot: { value: new THREE.Color('#f2c078') } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform vec3 top; uniform vec3 mid; uniform vec3 bot; varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = h > 0.0 ? mix(mid, top, pow(h,0.75)) : mix(mid, bot, pow(-h,0.6)); gl_FragColor = vec4(c,1.0); }'
+  })
+);
+scene.add(sky);
+const camera = new THREE.PerspectiveCamera(35, W / H, 0.1, 300);
+camera.position.set(6, 3, 9); camera.lookAt(0, 1, 0);
+const orbit = { theta: 0.6, phi: 1.15, r: 11, target: new THREE.Vector3(0, 1.1, 0) };
+
+/* luz */
+const hemi = new THREE.HemisphereLight('#ffd9a0', '#2b1a12', 0.6); scene.add(hemi);
+const key = new THREE.DirectionalLight('#ffb570', 2.2); key.position.set(-6, 8, 6); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048); key.shadow.camera.left = -20; key.shadow.camera.right = 20; key.shadow.camera.top = 20; key.shadow.camera.bottom = -20;
+scene.add(key);
+const rim = new THREE.DirectionalLight('#7dd3fc', 1.1); rim.position.set(7, 5, -8); scene.add(rim);
+const fill = new THREE.PointLight('#ffd7a8', 12, 40); fill.position.set(3, 3, 4); scene.add(fill);
+
+/* chão deserto */
+const groundMat = new THREE.MeshStandardMaterial({ color: '#c97b46', roughness: .95, metalness: 0 });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200, 60, 60), groundMat);
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+/* dunas */
+for (let i = 0; i < 14; i++) {
+  const r = 3 + Math.random() * 7, d = 14 + Math.random() * 26;
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), groundMat);
+  m.position.set(Math.cos(i * 2.1) * d, -r * .25, Math.sin(i * 2.1) * d); m.scale.y = .35; m.receiveShadow = true; scene.add(m);
+}
+/* sol */
+const sun = new THREE.Mesh(new THREE.SphereGeometry(2.4, 24, 20), new THREE.MeshBasicMaterial({ color: '#ffe0b0' }));
+sun.position.set(-26, 9, -40); scene.add(sun);
+
+/* helpers */
+function mat(color, rough = .8) { return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: .05 }); }
+function box(w, h, d, color, y = 0, rough) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color, rough)); m.position.y = y; m.castShadow = true; m.receiveShadow = true; return m; }
+function cyl(rt, rb, h, color, y = 0) { const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 16), mat(color)); m.position.y = y; m.castShadow = true; return m; }
+function sph(r, color) { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 14), mat(color)); m.castShadow = true; return m; }
+
+function makeKyra() {
+  const g = new THREE.Group();
+  const suit = '#12151b', fur = '#9aa3ad';
+  g.add(box(.62, .8, .38, suit, 1.25));
+  g.add(sph(.24, fur)); g.children[1].position.y = 1.86;
+  const ear = (x) => { const e = new THREE.Mesh(new THREE.ConeGeometry(.1, .2, 8), mat(fur)); e.position.set(x, 2.03, 0); e.castShadow = true; return e; };
+  g.add(ear(-.14)); g.add(ear(.14));
+  const gog = box(.42, .1, .06, '#7c3aed', 1.9); gog.position.z = .2; g.add(gog);
+  g.add(cyl(.1, .12, .7, suit, .45)); g.children[g.children.length - 1].position.x = -.18;
+  g.add(cyl(.1, .12, .7, suit, .45)); g.children[g.children.length - 1].position.x = .18;
+  g.add(cyl(.08, .1, .62, suit, 1.15)); g.children[g.children.length - 1].position.set(-.42, 1.3, 0);
+  g.add(cyl(.08, .1, .62, suit, 1.15)); g.children[g.children.length - 1].position.set(.42, 1.3, 0);
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(.05, .03, .9, 8), mat(fur)); tail.position.set(0, 1.0, -.42); tail.rotation.x = .9; tail.castShadow = true; g.add(tail);
+  g.userData = { kind: 'kyra', name: 'Kyra' };
+  return g;
+}
+function makeMarlok() {
+  const g = new THREE.Group();
+  const scale = '#5f7f3e', armor = '#9b1c1c', pants = '#5b4126';
+  g.add(box(.9, 1.0, .48, scale, 1.5));
+  const chest = box(.84, .38, .52, armor, 1.86); g.add(chest);
+  g.add(sph(.27, scale)); g.children[g.children.length - 1].position.y = 2.18;
+  const band = box(.56, .14, .5, '#7f1d1d', 2.3); g.add(band);
+  // cabelo branco
+  g.add(box(.5, .3, .16, '#e5e7eb', 2.12)); g.children[g.children.length - 1].position.z = -.22;
+  g.add(cyl(.14, .16, .85, armor, 1.0)); g.children[g.children.length - 1].position.x = -.24;
+  g.add(cyl(.14, .16, .85, armor, 1.0)); g.children[g.children.length - 1].position.x = .24;
+  g.add(cyl(.13, .15, .8, pants, .45)); g.children[g.children.length - 1].position.set(-.22, .45, 0);
+  g.add(cyl(.13, .15, .8, pants, .45)); g.children[g.children.length - 1].position.set(.22, .45, 0);
+  g.add(cyl(.1, .1, .8, scale, 1.55)); g.children[g.children.length - 1].position.set(-.62, 1.6, 0);
+  g.add(cyl(.1, .1, .8, scale, 1.55)); g.children[g.children.length - 1].position.set(.62, 1.6, 0);
+  // cauda metálica
+  const tail = new THREE.Mesh(new THREE.TorusGeometry(.55, .07, 8, 24, Math.PI * 1.2), mat('#9ca3af', .3)); tail.position.set(0, .8, -.55); tail.rotation.set(1.2, 0, 0); tail.castShadow = true; g.add(tail);
+  g.scale.setScalar(1.15);
+  g.userData = { kind: 'marlok', name: 'Marlok' };
+  return g;
+}
+function makeSpider() {
+  const g = new THREE.Group();
+  const body = sph(1.15, '#0b0d10'); body.position.y = 2.1; body.scale.set(1.3, .85, 1.1); g.add(body);
+  const head = sph(.62, '#111418'); head.position.set(0, 2.0, 1.25); g.add(head);
+  for (let i = 0; i < 4; i++) { const e = sph(.09, '#ef4444'); e.material.emissive = new THREE.Color('#ef4444'); e.material.emissiveIntensity = 2; e.position.set(-.3 + i * .2, 2.18, 1.75); g.add(e); }
+  for (let i = 0; i < 8; i++) {
+    const side = i < 4 ? -1 : 1, k = i % 4;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(.07, .05, 2.6, 8), mat('#15181d', .6));
+    leg.position.set(side * 1.0, 1.5, -.7 + k * .55); leg.rotation.z = side * .8; leg.rotation.x = .2 - k * .15; leg.castShadow = true; g.add(leg);
+  }
+  g.userData = { kind: 'spider', name: 'Aranha' };
+  return g;
+}
+function makeRock(s = 1) { const r = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2 * s, 0), mat('#8a5a3b', 1)); r.position.y = .5 * s; r.castShadow = true; r.receiveShadow = true; return r; }
+function makeCactus() { const g = new THREE.Group(); g.add(cyl(.16, .2, 2.2, '#3f6212', 1.1)); g.add(cyl(.12, .12, .9, '#3f6212', 1.5)); g.children[1].position.x = .45; g.children[1].rotation.z = -.5; return g; }
+function makeText(t) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 256;
+  const x = c.getContext('2d'); x.fillStyle = 'rgba(0,0,0,.55)'; x.fillRect(0, 0, 1024, 256);
+  x.fillStyle = '#fff'; x.font = 'bold 92px Segoe UI,Arial'; x.textAlign = 'center'; x.fillText(t.slice(0, 20), 512, 150);
+  const tex = new THREE.CanvasTexture(c);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  sp.scale.set(3.2, .8, 1); sp.position.y = 3.2; sp.userData = { kind: 'text', name: t }; return sp;
+}
+
+const objects = [];
+function addObj(o, x = 0, z = 0) { o.position.x = x; o.position.z = z; scene.add(o); objects.push(o); }
+const K = makeKyra(), M = makeMarlok(), S = makeSpider();
+S.scale.setScalar(1.7);
+addObj(M, -1.4, 0); addObj(K, 1.6, .4); addObj(S, 0, -9);
+addObj(makeRock(1.4), -5, -3); addObj(makeCactus(), 4.5, -2);
+K.userData.name = 'Kyra'; M.userData.name = 'Marlok'; S.userData.name = 'Aranha';
+const SUBJECT = { kyra: K, marlok: M, spider: S, both: M };
+
+/* câmera */
+function updateCam() {
+  const p = camera.position;
+  p.set(orbit.target.x + orbit.r * Math.sin(orbit.phi) * Math.sin(orbit.theta), orbit.target.y + orbit.r * Math.cos(orbit.phi), orbit.target.z + orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta));
+  camera.lookAt(orbit.target);
+}
+/* presets de plano */
+const PRESETS = {
+  aberto: { r: 13, phi: 1.18, lens: 32, ty: 1.4 }, medio: { r: 7.5, phi: 1.2, lens: 40, ty: 1.4 },
+  close: { r: 3.2, phi: 1.42, lens: 58, ty: 1.85 }, ots: { r: 4.6, phi: 1.25, lens: 45, ty: 1.7 },
+  baixo: { r: 8, phi: 1.62, lens: 28, ty: 1.9 }, alto: { r: 9, phi: .7, lens: 30, ty: .9 }, pov: { r: 2.6, phi: 1.35, lens: 60, ty: 1.8 }
+};
+function applyShot(kind) {
+  const p = PRESETS[kind] || PRESETS.aberto; orbit.r = p.r; orbit.phi = p.phi; camera.fov = p.lens; orbit.target.y = p.ty;
+  $('lens').value = p.lens; camera.updateProjectionMatrix(); updateCam(); SB.preset = kind;
+}
+function camA() { orbit.theta = .55; applyShot(SB.preset); }
+function camB() { orbit.theta = -.65; applyShot(SB.preset); }
+
+/* luz presets */
+const LIGHTS = {
+  dourado: { key: '#ffb570', i: 2.4, hemi: '#ffd9a0', sky: '#1b2430', rim: '#7dd3fc', sun: '#ffe0b0' },
+  'azul-noite': { key: '#93c5fd', i: 1.5, hemi: '#1e293b', sky: '#05070f', rim: '#a78bfa', sun: '#c7d2fe' },
+  'contra-luz': { key: '#ffd7a0', i: 2.8, hemi: '#3b2a1f', sky: '#2a1a12', rim: '#fb923c', sun: '#fff1c0' },
+  estudio: { key: '#ffffff', i: 1.8, hemi: '#dbeafe', sky: '#111827', rim: '#e5e7eb', sun: '#ffffff' },
+  tempestade: { key: '#94a3b8', i: 1.1, hemi: '#334155', sky: '#11161d', rim: '#64748b', sun: '#cbd5e1' }
+};
+function applyLight(name) {
+  const L = LIGHTS[name] || LIGHTS.dourado;
+  key.color.set(L.key); key.intensity = L.i * (Number($('li').value) / 1.4);
+  hemi.color.set(L.hemi); scene.background.set(L.sky); scene.fog.color.set(L.sky);
+  rim.color.set(L.rim); sun.material.color.set(L.sun);
+  $('lc').value = L.key;
+}
+
+/* seleção e arrasto */
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+let drag = false;
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  ptr.x = (e.clientX / W) * 2 - 1; ptr.y = -(e.clientY / H) * 2 + 1;
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects(objects, true)[0];
+  if (hit) { let o = hit.object; while (o.parent && !objects.includes(o)) o = o.parent; SB.sel = o; drag = true; syncSel(); }
+});
+window.addEventListener('pointerup', () => drag = false);
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (drag && SB.sel) {
+    ptr.x = (e.clientX / W) * 2 - 1; ptr.y = -(e.clientY / H) * 2 + 1;
+    ray.setFromCamera(ptr, camera);
+    const p = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const pt = new THREE.Vector3(); ray.ray.intersectPlane(p, pt);
+    if (pt) { SB.sel.position.x = Math.max(-8, Math.min(8, pt.x)); SB.sel.position.z = Math.max(-12, Math.min(4, pt.z)); syncSel(); }
+  }
+});
+let orb = false, lx = 0, ly = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => { if (!SB.sel) { orb = true; lx = e.clientX; ly = e.clientY; } });
+window.addEventListener('pointermove', (e) => { if (orb) { orbit.theta -= (e.clientX - lx) * .006; orbit.phi = Math.max(.35, Math.min(1.62, orbit.phi - (e.clientY - ly) * .004)); lx = e.clientX; ly = e.clientY; updateCam(); } });
+window.addEventListener('pointerup', () => { orb = false; });
+renderer.domElement.addEventListener('wheel', (e) => { orbit.r = Math.max(1.5, Math.min(40, orbit.r + e.deltaY * .01)); updateCam(); e.preventDefault(); }, { passive: false });
+
+function syncSel() {
+  if (!SB.sel) return;
+  $('selInfo').textContent = (SB.sel.userData?.name || SB.sel.userData?.kind || 'objeto') + ' selecionado';
+  $('pxi').value = SB.sel.position.x; $('pzi').value = SB.sel.position.z; $('ryi').value = THREE.MathUtils.radToDeg(SB.sel.rotation.y); $('sci').value = SB.sel.scale.x;
+  $('px').textContent = SB.sel.position.x.toFixed(1); $('pz').textContent = SB.sel.position.z.toFixed(1);
+}
+['pxi', 'pzi', 'ryi', 'sci'].forEach((id) => $(id).addEventListener('input', () => {
+  if (!SB.sel) return; SB.sel.position.x = Number($('pxi').value); SB.sel.position.z = Number($('pzi').value);
+  SB.sel.rotation.y = THREE.MathUtils.degToRad(Number($('ryi').value)); SB.sel.scale.setScalar(Number($('sci').value));
+  $('px').textContent = SB.sel.position.x.toFixed(1); $('pz').textContent = SB.sel.position.z.toFixed(1);
+}));
+
+/* elementos */
+document.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
+  const k = b.dataset.add;
+  const o = k === 'kyra' ? makeKyra() : k === 'marlok' ? makeMarlok() : k === 'spider' ? makeSpider() : k === 'rock' ? makeRock() : k === 'cactus' ? makeCactus() : box(1, 1, 1, '#64748b', .5);
+  addObj(o, (Math.random() - .5) * 4, -1 - Math.random() * 5); SB.sel = o; syncSel();
+}));
+$('btnTxt').addEventListener('click', () => { const t = $('txtIn').value.trim(); if (!t) return; const o = makeText(t); addObj(o, 0, -2); $('txtIn').value = ''; });
+
+/* painéis */
+function shotState() {
+  return {
+    id: SB.shots.length + 1, title: $('pTitle').value, speak: $('pSpeak').value, cam: $('pCam').value, action: $('pAction').value,
+    hold: Number($('pHold').value) || 10, cut: $('pCut').value, prompt: $('pPrompt').value,
+    camera: { theta: orbit.theta, phi: orbit.phi, r: orbit.r, fov: camera.fov, target: orbit.target.toArray(), preset: SB.preset },
+    light: { preset: $('lightPreset').value, intensity: Number($('li').value), color: $('lc').value, temp: Number($('lt').value) },
+    objects: objects.map((o) => ({ kind: o.userData?.kind || 'obj', name: o.userData?.name || '', pos: o.position.toArray(), rotY: o.rotation.y, scale: o.scale.x }))
+  };
+}
+function loadState(st) {
+  orbit.theta = st.camera.theta; orbit.phi = st.camera.phi; orbit.r = st.camera.r; camera.fov = st.camera.fov; orbit.target.fromArray(st.camera.target); camera.updateProjectionMatrix(); updateCam();
+  $('lightPreset').value = st.light.preset; $('li').value = st.light.intensity; $('lc').value = st.light.color; $('lt').value = st.light.temp; applyLight(st.light.preset);
+  $('pTitle').value = st.title; $('pSpeak').value = st.speak; $('pCam').value = st.cam; $('pAction').value = st.action; $('pHold').value = st.hold; $('pCut').value = st.cut; $('pPrompt').value = st.prompt; $('shotN').textContent = st.id;
+}
+function renderShots() {
+  const box = $('shots'); box.innerHTML = '';
+  SB.shots.forEach((s, i) => {
+    const d = document.createElement('div'); d.className = 'shot' + (i === SB.shots.length - 1 ? ' sel' : '');
+    d.innerHTML = `<span>${String(i + 1).padStart(4, '0')}</span><img src="${s.thumb}">`;
+    d.onclick = () => loadState(s); box.appendChild(d);
+  });
+}
+function capture(sizeW = 1920, sizeH = 1080) {
+  const w0 = renderer.domElement.width, h0 = renderer.domElement.height;
+  renderer.setSize(sizeW, sizeH); camera.aspect = sizeW / sizeH; camera.updateProjectionMatrix(); renderer.render(scene, camera);
+  const url = renderer.domElement.toDataURL('image/png');
+  renderer.setSize(w0, h0); camera.aspect = W / H; camera.updateProjectionMatrix(); renderer.render(scene, camera);
+  return url;
+}
+function saveShot() {
+  const st = shotState();
+  st.thumb = capture(480, 270);
+  const i = SB.shots.findIndex((x) => x.id === st.id);
+  if (i >= 0) SB.shots[i] = st; else SB.shots.push(st);
+  renderShots();
+  log(`painel ${st.id} salvo (${st.title})`);
+}
+$('btnShot').onclick = saveShot;
+$('btnNew').onclick = () => { $('shotN').textContent = SB.shots.length + 1; $('pTitle').value = 'Plano ' + (SB.shots.length + 1); };
+$('shotType').onchange = () => { applyShot($('shotType').value); $('pCam').value = `CAM-01 · ${$('shotType').value} · ${$('move').value}`; };
+$('lightPreset').onchange = () => applyLight($('lightPreset').value);
+$('li').oninput = () => applyLight($('lightPreset').value);
+$('camA').onclick = camA; $('camB').onclick = camB;
+$('lens').oninput = () => { camera.fov = Number($('lens').value); camera.updateProjectionMatrix(); };
+
+function log(x) { const l = $('log'); l.textContent = x + '\n' + l.textContent; }
+
+/* exportação */
+async function dataUrlToBytes(u) { const b = atob(u.split(',')[1]); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+async function exportAll() {
+  if (!SB.shots.length) { log('nenhum painel salvo'); return; }
+  const dir = $('outDir').value.trim() || 'storyboards/sem-nome';
+  const files = [];
+  for (let i = 0; i < SB.shots.length; i++) {
+    loadState(SB.shots[i]);
+    const png = capture();
+    files.push({ name: `${String(i + 1).padStart(4, '0')}.png`, dataUrl: png });
+    const meta = { ...SB.shots[i], thumb: undefined };
+    files.push({ name: `${String(i + 1).padStart(4, '0')}.json`, text: JSON.stringify(meta, null, 2) });
+  }
+  files.push({ name: 'storyboard.json', text: JSON.stringify({ title: 'Kyra e Marlok no deserto', dir, shots: SB.shots.map(({ thumb, ...r }) => r) }, null, 2) });
+  if (window.forge?.storyboard3dSave) {
+    await window.forge.storyboard3dSave({ dir, files });
+    log('salvo em ' + dir);
+  } else {
+    for (const f of files) {
+      const a = document.createElement('a');
+      a.href = f.dataUrl || URL.createObjectURL(new Blob([f.text], { type: 'application/json' }));
+      a.download = f.name; a.click();
+    }
+    log('baixado pelo navegador');
+  }
+}
+$('btnAll').onclick = exportAll;
+$('btnPng').onclick = () => { const u = capture(); const a = document.createElement('a'); a.href = u; a.download = `painel-${Date.now()}.png`; a.click(); };
+$('btnJpg').onclick = () => { renderer.render(scene, camera); const a = document.createElement('a'); a.href = renderer.domElement.toDataURL('image/jpeg', .95); a.download = `painel-${Date.now()}.jpg`; a.click(); };
+
+/* presets de storyboard */
+function buildPreset() {
+  SB.shots = [];
+  const defs = [
+    { t: 'Plano 1 — Marlok de costas', type: 'aberto', theta: .6, phi: 1.15, r: 12, light: 'dourado', speak: '', action: 'Marlok stands on a dune seen from behind, metal tail in the wind.', cam: 'CAM-01 · aberto · dolly-in', prompt: 'wardrobe: green lizard-man, crimson armor, white hair, red bandana, metal tail; desert dunes at dusk, huge pale sun, dust haze, photorealistic live-action, 35mm anamorphic' },
+    { t: 'Plano 2 — "What the hell!"', type: 'close', theta: .25, phi: 1.45, r: 3.0, light: 'contra-luz', speak: 'Marlok: What the hell!', action: 'Marlok turns his head sharply, eyes wide, bandana snapping.', cam: 'CAM-02 · close · handheld', prompt: 'close-up of Marlok the lizard-man, yellow reptilian eyes, angry shock, white hair, red bandana, crimson armor, desert dusk backlight' },
+    { t: 'Plano 3 — a aranha', type: 'baixo', theta: 0, phi: 1.55, r: 8, light: 'tempestade', speak: '', action: 'The giant spider monster rises over the dune against the pale sun.', cam: 'CAM-01 · contra-plongée · tilt up', prompt: 'colossal black armored spider with eight legs and red glowing eyes rising over a dune, backlit by the pale sun, dust, photorealistic' },
+    { t: 'Plano 4 — "You need to stop the danger!"', type: 'ots', theta: -.35, phi: 1.22, r: 4.8, light: 'contra-luz', speak: 'Marlok: You need to stop the danger!', action: 'Over Marlok shoulder, he points at the spider.', cam: 'CAM-01 · OTS · pan', prompt: 'over-the-shoulder shot of Marlok facing the giant spider, pointing, crimson armor, dust, dusk, photorealistic' },
+    { t: 'Plano 5 — "I don\'t owe nothing!"', type: 'close', theta: .2, phi: 1.4, r: 2.8, light: 'azul-noite', speak: "Kyra: I don't owe nothing!", action: 'Kyra crosses her arms, chin up, defiant.', cam: 'CAM-02 · close · handheld', prompt: 'close-up of Kyra the gray cat-woman, blue cat eyes, black tactical suit with purple lights, arms crossed, desert night, rim light' },
+    { t: 'Plano 6 — os dois', type: 'aberto', theta: -.5, phi: 1.12, r: 10, light: 'dourado', speak: '', action: 'Wide two-shot: Kyra and Marlok face the spider together.', cam: 'CAM-01 · aberto · orbit', prompt: 'wide two-shot of Kyra and Marlok on a dune facing the giant spider, sunset, dust, photorealistic' }
+  ];
+  defs.forEach((d) => {
+    $('pTitle').value = d.t; $('pSpeak').value = d.speak; $('pCam').value = d.cam; $('pAction').value = d.action; $('pHold').value = '10'; $('pCut').value = 'corte seco'; $('pPrompt').value = d.prompt;
+    $('lightPreset').value = d.light; applyLight(d.light);
+    orbit.theta = d.theta; orbit.phi = d.phi; orbit.r = d.r; orbit.target.set(0, 1.4, -2); applyShot(d.type); camera.updateProjectionMatrix(); updateCam();
+    saveShot();
+  });
+  log('exemplo carregado: ' + SB.shots.length + ' planos');
+}
+
+const DEFS = [
+  { t: 'Plano 1 — Marlok de costas', type: 'aberto', subject: 'marlok', back: true, theta: 3.14, phi: 1.18, r: 7, light: 'dourado', speak: '', action: 'Marlok stands on a dune seen from behind, metal tail in the wind.', cam: 'CAM-01 · aberto · dolly-in' },
+  { t: 'Plano 2 — "What the hell!"', type: 'close', subject: 'marlok', theta: 0.25, phi: 1.45, r: 2.6, light: 'contra-luz', speak: 'Marlok: What the hell!', action: 'Marlok turns his head sharply, eyes wide.', cam: 'CAM-02 · close · handheld' },
+  { t: 'Plano 3 — a aranha', type: 'baixo', subject: 'spider', theta: 0.2, phi: 1.55, r: 10, light: 'tempestade', speak: '', action: 'The giant spider monster rises over the dune.', cam: 'CAM-01 · contra-plongée · tilt up' },
+  { t: 'Plano 4 — "You need to stop the danger!"', type: 'ots', subject: 'marlok', back: true, theta: 3.0, phi: 1.22, r: 4.2, light: 'contra-luz', speak: 'Marlok: You need to stop the danger!', action: 'Over Marlok shoulder, he points at the spider.', cam: 'CAM-01 · OTS · pan' },
+  { t: 'Plano 5 — "I don\'t owe nothing!"', type: 'close', subject: 'kyra', theta: 0.15, phi: 1.35, r: 2.4, light: 'azul-noite', speak: "Kyra: I don't owe nothing!", action: 'Kyra crosses her arms, chin up, defiant.', cam: 'CAM-02 · close · handheld' },
+  { t: 'Plano 6 — os dois', type: 'aberto', subject: 'both', theta: -0.55, phi: 1.12, r: 8.5, light: 'dourado', speak: '', action: 'Kyra and Marlok face the spider together.', cam: 'CAM-01 · aberto · orbit' }
+];
+function applyDef(d) {
+  $('pTitle').value = d.t; $('pSpeak').value = d.speak || ''; $('pCam').value = d.cam; $('pAction').value = d.action; $('pHold').value = '10'; $('pCut').value = 'corte seco';
+  $('pPrompt').value = $('pPrompt').value || 'photorealistic live-action, desert epic, 35mm anamorphic';
+  $('lightPreset').value = d.light; applyLight(d.light);
+  const subj = SUBJECT[d.subject] || M;
+  M.rotation.y = d.back ? Math.PI : 0;
+  const ty = d.subject === 'spider' ? 3.4 : 1.7;
+  orbit.target.set(subj.position.x, ty, subj.position.z);
+  orbit.theta = d.theta; orbit.phi = d.phi; orbit.r = d.r;
+  applyShot(d.type); camera.updateProjectionMatrix(); updateCam();
+  $('capT').textContent = d.t; $('capS').textContent = d.speak || ''; $('capC').textContent = d.cam;
+  renderer.render(scene, camera);
+}
+SB.applyDef = applyDef;
+const Q = new URLSearchParams(location.search);
+if (Q.get('panel')) {
+  document.body.classList.add('clean');
+  const d = DEFS[Math.max(0, Math.min(DEFS.length - 1, Number(Q.get('panel')) - 1))];
+  setTimeout(() => {
+    try {
+      applyDef(d);
+      W = window.innerWidth; H = window.innerHeight; renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix(); updateCam(); renderer.render(scene, camera);
+      const snap = renderer.domElement.toDataURL('image/png');
+      const img = document.createElement('img');
+      img.src = snap; img.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;z-index:1';
+      document.body.appendChild(img);
+    } catch (e) {
+      $('capT').textContent = 'ERRO: ' + e.message;
+    }
+  }, 120);
+}
+
+/* loop */
+let tf = 0;
+function tick() { tf++; if (!document.body.classList.contains('clean') || tf < 40) requestAnimationFrame(tick); renderer.render(scene, camera); }
+window.addEventListener('resize', () => { W = stage.clientWidth; H = stage.clientHeight - 96; renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix(); });
+applyShot('aberto'); applyLight('dourado'); updateCam(); tick();
+window.SB = { buildPreset, exportAll, shots: () => SB.shots, saveShot, capture, loadState };
+</script>
+<script src="storyboard-extra.js"></script>
+</body>
+</html>
