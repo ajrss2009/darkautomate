@@ -152,12 +152,12 @@ export function charactersInScene(projectDir: string, scene: Pick<Scene, 'speake
 export const portraitFile = (projectDir: string, name: string) =>
   path.join(projectDir, 'assets', 'characters', `${name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'personagem'}.png`);
 
-export const portraitPrompt = (ch: { name: string; look: string }, style = '') =>
-  `Character reference sheet portrait of ${ch.name}: ${ch.look}. Single person, front view, head to knees, neutral expression, plain light grey studio background, soft even light, sharp focus, no text.${style ? ` Style: ${style}` : ''}`;
+export const portraitPrompt = (ch: { name: string; look: string; age?: string }, style = '') =>
+  `Character reference sheet portrait of ${ch.name}: ${ch.age ? `age ${ch.age} years old — announced before hair, face, body and outfit. ` : ''}${ch.look}. Single person, front view, head to knees, neutral expression, plain light grey studio background, soft even light, sharp focus, no text.${style ? ` Style: ${style}` : ''}`;
 
 /** Texto do MiniMax H3 ref2video: <Picture 1> = quadro da cena; <Picture 2..> = retratos do elenco. */
-export function castRefPrompt(prompt: string, chars: Array<{ name: string; look: string }>): string {
-  const subjects = chars.map((ch, i) => `<Subject ${i + 1}> is ${ch.name}, the person in <Picture ${i + 2}> (${ch.look}); preserve face, hair, body and outfit exactly from <Picture ${i + 2}>.`).join('\n');
+export function castRefPrompt(prompt: string, chars: Array<{ name: string; look: string; age?: string }>): string {
+  const subjects = chars.map((ch, i) => `<Subject ${i + 1}> is ${ch.name}${ch.age ? `, age ${ch.age} years old` : ''}, the person in <Picture ${i + 2}> (${ch.look}); preserve age, face, hair, body and outfit exactly from <Picture ${i + 2}>.`).join('\n');
   return `subject_definitions:\n\n<Picture 1> is the scene composition (setting, framing, light and positions) to follow.\n${subjects}\n\nsummary:\n\n[reference generation] ${prompt}\n\n` +
     `detailed_description:\n\n${prompt} Keep every subject identical to its reference picture in every frame.\n\noverall_soundscape:\n\nSubtle ambient sound that fits the scene. No speech.\n\nnon_diegetic_music:\n\nNone.`;
 }

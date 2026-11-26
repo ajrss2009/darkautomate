@@ -400,7 +400,13 @@ function visualPromptBody(c: ExecContext): string {
      o texto); o cenário já está na imagem da cena */
   const h3Talk = c.step?.kind === 'video' && isH3Video(c.binding) && h3SpeechScene(c.project, s, c.binding);
   const lib = !h3Talk && (c.project.characters ?? []).some((x) => x.entity) ? charactersPrompt({ characters: (c.project.characters ?? []).filter((x) => x.entity) }, 'image', s) : '';
-  return [s?.visualIntent ?? c.project.idea, s?.notes, characterLock(c.projectDir, s?.visualIntent ?? ''), lib, styleVisual(c.project), c.project.videoStyle, pal && `color palette: ${pal}`,
+  /* Idade é identidade: declara ANTES do visual, em inglês, para todas as cenas em que o personagem aparece. */
+  const ageLine = (() => {
+    const text = `${s?.visualIntent ?? ''} ${s?.narration ?? ''}`.toLowerCase();
+    const hit = characterSheet(c.projectDir).filter((ch) => ch.age && ch.name.split(/\s+/).some((w) => w.length > 2 && text.includes(w.toLowerCase())));
+    return hit.length ? `AGES (declared before hair, face, body and outfit — keep them stable in every shot): ${hit.map((ch) => `${ch.name} is ${ch.age} years old`).join('; ')}. ` : '';
+  })();
+  return [ageLine + (s?.visualIntent ?? c.project.idea), s?.notes, characterLock(c.projectDir, s?.visualIntent ?? ''), lib, styleVisual(c.project), c.project.videoStyle, pal && `color palette: ${pal}`,
     c.project.styleRef ? '' : vt?.stylePrompt, s?.camera ? `camera: ${s.camera}` : '']
     .filter(Boolean).join('. ');
 }
@@ -410,7 +416,7 @@ function visualPromptBody(c: ExecContext): string {
  * com linhas "- **Nome**: aparência". Cada prompt de imagem recebe a descrição exata dos personagens
  * citados na cena — assim eles têm a mesma aparência em todas as imagens.
  */
-export function characterSheet(projectDir: string): Array<{ name: string; look: string }> {
+export function characterSheet(projectDir: string): Array<{ name: string; look: string; age?: string }> {
   try {
     const md = fs.readFileSync(path.join(projectDir, 'assets', 'assets.md'), 'utf8');
     const at = md.search(/^#+\s*Personagens fixos/im);
@@ -418,13 +424,13 @@ export function characterSheet(projectDir: string): Array<{ name: string; look: 
     const rest = md.slice(at).split('\n').slice(1);
     const end = rest.findIndex((l) => /^#+\s/.test(l));
     return (end < 0 ? rest : rest.slice(0, end)).map((l) => /^\s*[-*]\s*\*\*([^*]+)\*\*\s*[:—–-]\s*(.+)$/.exec(l)).filter((m): m is RegExpExecArray => !!m)
-      .map((m) => ({ name: m[1]!.trim().replace(/:$/, ''), look: m[2]!.trim() }));
+      .map((m) => { const look = m[2]!.trim(); const age = (look.match(/\b(\d{1,2})\s*(?:anos|years?(?:[- ]old)?)/i) || [])[1]; return { name: m[1]!.trim().replace(/:$/, ''), look, age }; });
   } catch { return []; }
 }
 export function characterLock(projectDir: string, visual: string): string {
   const low = visual.toLowerCase();
   const hit = characterSheet(projectDir).filter((ch) => ch.name.split(/\s+/).some((w) => w.length > 2 && low.includes(w.toLowerCase())));
-  return hit.length ? `SAME CHARACTERS IN EVERY IMAGE, keep identical appearance: ${hit.map((ch) => `${ch.name} = ${ch.look}`).join('; ')}` : '';
+  return hit.length ? `SAME CHARACTERS IN EVERY IMAGE, keep identical appearance: ${hit.map((ch) => `${ch.name}${ch.age ? ` (age ${ch.age} years old)` : ''} = ${ch.look}`).join('; ')}` : '';
 }
 
 /** Instrução da skill para esta etapa: por id da etapa, senão pelo tipo. */
