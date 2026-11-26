@@ -98,6 +98,28 @@ export function normalizeCharacter(raw: Partial<LibraryCharacter>): Omit<Library
   };
 }
 
+/**
+ * Avatar visível obrigatório: qualquer item adicionado à Biblioteca recebe uma imagem de avatar.
+ * Se o item já trouxer folha/retrato/imagem, usa essa; senão cria um SVG com as iniciais e uma cor
+ * derivada do id (determinístico, portátil, sem depender de rede).
+ */
+function ensureAvatar(s: Settings, c: LibraryCharacter): void {
+  const hasImage = !!(c.thumb || c.sheet || c.portrait || (c.images?.length ?? 0) > 0 || (c.models?.length ?? 0) > 0 || c.rig);
+  if (hasImage) return;
+  const dir = charDir(s, c.id);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'avatar.svg');
+  if (fs.existsSync(file)) { c.thumb = 'avatar.svg'; return; }
+  let hash = 0;
+  for (const ch of c.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const hue = hash % 360;
+  const initials = String(c.name || c.id).split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '?';
+  const safeName = String(c.name || c.id).replace(/[<>&"']/g, (m) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[m] ?? m).slice(0, 40);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue},58%,42%)"/><stop offset="1" stop-color="hsl(${(hue + 40) % 360},64%,26%)"/></linearGradient></defs><rect width="256" height="256" rx="48" fill="url(#g)"/><circle cx="128" cy="100" r="46" fill="rgba(255,255,255,.18)"/><text x="128" y="126" text-anchor="middle" font-family="Arial,sans-serif" font-size="62" font-weight="bold" fill="#fff">${initials}</text><text x="128" y="218" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" fill="#fff" opacity=".92">${safeName}</text></svg>`;
+  fs.writeFileSync(file, svg, 'utf8');
+  c.thumb = 'avatar.svg';
+}
+
 /** Cria (sem id) ou atualiza (com id) um item. */
 export function saveCharacter(s: Settings, raw: Partial<LibraryCharacter>): LibraryCharacter {
   const n = normalizeCharacter(raw);
@@ -112,6 +134,9 @@ export function saveCharacter(s: Settings, raw: Partial<LibraryCharacter>): Libr
     storyId: n.storyId ?? prev?.storyId };
   if (!c.variants) delete c.variants;
   fs.mkdirSync(charDir(s, id), { recursive: true });
+  /* Regra do app: TODO item adicionado à Biblioteca tem avatar visível.
+     Se não veio nenhuma imagem, cria um avatar em SVG (imagem) com as iniciais e a cor do item. */
+  ensureAvatar(s, c);
   adoptVoice(s, c);
   fs.writeFileSync(path.join(charDir(s, id), 'character.json'), JSON.stringify(c, null, 2));
   return c;
@@ -224,6 +249,8 @@ export function addCharacterImage(s: Settings, id: string, file: string, role: '
   fs.copyFileSync(file, path.join(charDir(s, id), name));
   if (variant) variant.sheet = name;
   else if (role === 'sheet') c.sheet = name; else if (role === 'portrait') c.portrait = name; else c.images = [...(c.images ?? []), name].slice(-12);
+  /* imagem real adicionada vira avatar visível (substitui o avatar provisório) */
+  if (role === 'sheet' || role === 'portrait') c.thumb = name;
   c.updatedAt = new Date().toISOString();
   fs.writeFileSync(path.join(charDir(s, id), 'character.json'), JSON.stringify(c, null, 2));
   return c;
