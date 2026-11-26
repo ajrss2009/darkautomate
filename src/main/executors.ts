@@ -774,8 +774,22 @@ const apiExec = (o: ExecutorOptions): Executor => async (c) => {
       if (fs.existsSync(f0) && f0 !== img) { refFiles.push(f0); c.log(`Snapgen ${model}: 1ª cena como referência da protagonista`); }
     }
     if (refFiles.length) c.log(`Snapgen ${model}: ${refFiles.length} imagem(ns) de referência (elenco, anexos e estilo)${img ? ' + o quadro da cena' : ''}`);
-    await prov.snapgenVideo(p, model, prompt, { imagePath: img, imagePaths: refFiles, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
+    const take = () => ({ imagePath: img, imagePaths: refFiles, seconds: clamp(c.scene?.durationSec ?? 8, 2, 12), ratio: c.project.aspect, dest: file, signal: c.signal, log: c.log });
+    await prov.snapgenVideo(p, model, prompt, take());
     if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
+    /* REVISOR DE QUADRINHO: fala unica e exata, idioma do projeto, sem narracao, movimentos do prompt. Reprovou -> refaz. */
+    if (museTalk && String(c.scene?.narration ?? '').trim()) {
+      let extra = '';
+      for (let tent = 1; tent <= 3; tent++) {
+        const fail = await comicReview(c, file, o.toolsDir).catch(() => '');
+        if (!fail) { c.log(`revisor de quadrinho: cena ${c.scene!.id} aprovada`); break; }
+        c.log(`revisor de quadrinho: cena ${c.scene!.id} reprovada ${tent}/3 - ${String(fail).slice(0, 220)}`);
+        if (tent === 3) break;
+        extra += ` CORRECTION ${tent}: ${fail}. Fix it in this new take: one single speaker only, every other character silent with the mouth closed, the exact line in ${h3Language(c.project.language)}, only the described movements, no narration.`;
+        await prov.snapgenVideo(p, model, prompt + extra, take());
+        if (museTalk) await keepVideoAudio(c, file, o.toolsDir, 'Muse AI');
+      }
+    }
     return { files: [file] };
   }
   if (k === 'video' && p.kind === 'seedance') {
@@ -1246,24 +1260,100 @@ async function keepVideoSpeech(c: ExecContext, video: string, toolsDir?: string)
 /** Prompt do Muse/Meta AI com a fala: o modelo gera a voz no clipe (10 s), sem TTS. */
 function museSpeechPrompt(c: ExecContext): string {
   const s = c.scene!;
-  const lang = h3Language(c.project.language);
   const how = deliveryEnglish(s);
   const quem = s.speaker ?? 'the main character';
+  const isPt = /^pt/i.test(String(c.project.language || 'pt-BR').trim());
+  const lang = isPt ? 'Brazilian Portuguese (pt-BR)' : h3Language(c.project.language);
+  const idiomaRegra = isPt ? ' Speak Brazilian Portuguese with a natural Brazilian accent. NEVER speak English. NEVER use European Portuguese (pt-PT).' : '';
   const member = castFor(c.project, s.speaker);
   const desc = (member?.description ?? '').trim();
   const [lookFromCast, vozDesc] = desc.split(/\s+-\s+voz:\s*/i);
   /* a aparencia do falante vem da biblia do projeto (assets.md): nome + idade + pele + olhos + cabelo + roupa */
   const look = characterSheet(c.projectDir).find((ch) => ch.name.trim().toLowerCase() === quem.trim().toLowerCase()
     || ch.name.split(/\s+/).some((w) => w.length > 2 && quem.toLowerCase().includes(w.toLowerCase())))?.look || lookFromCast || '';
-  const aparencia = look ? ` The character speaking is ${quem}, and this is exactly how ${quem} looks: ${look}.` : ` The character speaking is ${quem}.`;
-  const voz = vozDesc ? ` Voice type for ${quem}: ${vozDesc}.` : '';
-  return `${visualPrompt(c)}\n\nSPEAKER AND LINE — ${quem} is the one who speaks the line below.${aparencia}${voz} ${quem} speaks in ${lang}, in a ${how} tone, and says exactly: "${h3SpokenText(s.narration)}". Only ${quem} moves their lips. Nobody else speaks: no narrator, no voice-over, no second voice.`;
+  const aparencia = look ? ` How ${quem} looks: ${look}.` : '';
+  const voz = vozDesc ? ` Voice type: ${vozDesc}.` : '';
+  /* a fala vem PRIMEIRO: prompt longo em ingles no fim fazia o Muse narrar em ingles */
+  return `SPOKEN AUDIO - ONE SINGLE LINE, NOTHING ELSE.
+Language: ${lang}.${idiomaRegra}
+The speaker is ${quem}. Only ${quem} speaks and only ${quem}'s lips move; every other person in frame keeps their mouth closed and silent.
+The ONLY words spoken in this clip, exactly word for word: "${h3SpokenText(s.narration)}"
+Say nothing before and nothing after this line. Do NOT narrate, do NOT describe the scene, do NOT comment, do NOT paraphrase, do NOT translate. No narrator, no voice-over, no second voice, no chorus, no echo. The line is already in ${lang} - pronounce it exactly as written, in a ${how} tone.${aparencia}${voz}
+
+SHOT: ${visualPrompt(c)}`;
 }
 
 /**
  * Voz gerada pelo próprio vídeo (Muse/Meta AI): o áudio do clipe vira a narração da cena,
  * como no MiniMax H3, mas sem silenciar nada (o clipe já traz a ambiência).
  */
+/**
+ * REVISOR DE QUADRINHO: confere a fala (texto exato, idioma do projeto, sem narração) e o visual
+ * (só um personagem fala; movimentos fora do prompt; cabelo/olhos/roupa). Devolve o motivo da
+ * reprovação ou '' quando o clipe está aprovado.
+ */
+async function comicReview(c: ExecContext, video: string, toolsDir?: string): Promise<string> {
+  void toolsDir;
+  const sc = c.scene;
+  const want = String(sc?.narration ?? '').trim();
+  if (!want || !c.sceneDir) return '';
+  const nrm = (t: unknown) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  let heard = '';
+  try { heard = JSON.parse(fs.readFileSync(wordsPath(c.sceneDir), 'utf8')).text ?? ''; } catch { heard = ''; }
+  const h = nrm(heard);
+  const tw = nrm(want).split(' ').filter(Boolean);
+  const sh = new Set(h.split(' '));
+  const ratio = tw.length ? tw.filter((x) => sh.has(x)).length / tw.length : 1;
+  const ptptMarks = /\b(estas a|estou a|telemovel|ecra|autocarro|pequeno almoco|casa de banho|rapariga|fixe|giro|portagem)\b/.test(h);
+  const brMarks = /\b(voce|a gente|celular|onibus|garoto|garota|banheiro|cafe da manha|legal|bacana)\b/.test(h);
+  const enStop = (h.match(/\b(the|and|you|your|this|that|with|there|they|are|is|what|have|from|very|love|dance|happy|beautiful|together|night|garden|look|at|them|make|such|couple|do|does|did|not|of|to|in|on|for|it|was|were|be|been|will|would|can|could|should|my|me|we|us|our|his|her|their)\b/g) || []).length;
+  const ptStop = (h.match(/\b(de|que|nao|e|o|a|os|as|um|uma|para|com|por|do|da|dos|das|no|na|nos|nas|se|me|te|ele|ela|eles|elas|voce|voces|meu|minha|seu|sua|muito|mais|ja|so|aqui|ali|isso|isto|aquilo|tem|ter|vai|vou|foi|era|sou|esta|estou)\b/g) || []).length;
+  const esMarks = /\b(el|los|las|que|con|para|muy|noche|jardin|amor|bella|hermosa)\b/.test(h);
+  const projLang = String(c.project.language || 'pt-BR');
+  const isPt = /^pt/i.test(projLang);
+  const isEn = /^en/i.test(projLang);
+  const langName = isPt ? 'portugues do Brasil (pt-BR)' : h3Language(projLang);
+  const bad: string[] = [];
+  if (ratio < 0.6) bad.push(`the spoken line does not match the script (heard: "${heard}"; expected: "${want}")`);
+  if (isPt) {
+    if (enStop > ptStop && enStop >= 2) bad.push('the line was spoken in English; the project requires Brazilian Portuguese (pt-BR)');
+    if (ptptMarks) bad.push('the line was spoken in European Portuguese; the project requires Brazilian Portuguese (pt-BR)');
+  } else if (isEn) {
+    if (ptptMarks || brMarks || esMarks) bad.push('the line was spoken in another language; the project language is English');
+  }
+  try {
+    const dir = path.join(c.sceneDir, 'review');
+    fs.mkdirSync(dir, { recursive: true });
+    const sheet = path.join(dir, 'comic-sheet.jpg');
+    await sceneReview.reviewSheet(c.settings.ffmpeg, c.settings.ffprobe, video, sheet, c.signal, c.project.aspect);
+    if (fs.existsSync(sheet)) {
+      const prompt = [
+        `Voce e o REVISOR DE QUADRINHO do FilmForge. Abra o contact sheet "${sheet}" (8 quadros, com o tempo) do clipe "${video}".`,
+        `MOVIMENTOS E ACAO PREVISTOS (o unico movimento permitido no clipe): ${String(sc?.visualIntent ?? '').slice(0, 1400)}`,
+        `A UNICA fala do clipe e de ${sc?.speaker ?? 'um personagem'}: "${want}".`,
+        `Idioma do projeto: ${langName}. A fala TEM de estar exatamente nesse idioma: reprove se sair em outro idioma ou com sotaque de outro pais.`,
+        'Responda SO com JSON: {"ok": true|false, "issues": ["..."]}.',
+        `Reprove (ok:false) se: (1) MAIS DE UM personagem mexe a boca ou parece falar a mesma frase (coro, unissono, eco) - so ${sc?.speaker ?? 'o falante'} pode falar; (2) ha narrador, voz em off, segunda voz ou legenda; (3) alguem descreve a cena em vez de dizer a frase; (4) cabelo, cor dos olhos, pele ou roupa de um personagem mudou em relacao a referencia; (5) aparece texto, letreiro ou marca d'agua; (6) qualquer movimento, gesto, acao, entrada ou saida de personagem, beijo, danca, corrida, briga, mudanca de camera ou de cenario que NAO esteja em MOVIMENTOS E ACAO PREVISTOS; (7) alguem faz algo diferente do descrito (ex.: personagem que so observa entra na danca, ou um gesto que o prompt nao pede).`,
+        'issues vazio se estiver tudo certo.',
+      ].join('\n');
+      const vision: any[] = [{ type: 'harness', harness: 'antigravity' }, { type: 'harness', harness: 'claude', model: 'sonnet' }, { type: 'harness', harness: 'codex' }];
+      for (const b of vision) {
+        try {
+          const { cfg, model } = await resolveHarness(c.settings, b);
+          const http = isHttpHarness(cfg);
+          const r = await runHarness(cfg, { cwd: dir, prompt, model, signal: c.signal, timeoutSec: 300, images: http ? [sheet] : undefined, tools: http ? undefined : { roots: [dir], allowShell: false } });
+          if (!r.ok && !r.stdout.includes('{')) continue;
+          const issues = sceneReview.parseReview(r.stdout);
+          if (!Array.isArray(issues)) continue;
+          if (issues.length) bad.push(...issues);
+          break;
+        } catch (e) { c.log(`revisor de quadrinho: ${(e as Error).message.slice(0, 120)}`); }
+      }
+    }
+  } catch (e) { c.log(`revisor de quadrinho (visual): ${(e as Error).message.slice(0, 120)}`); }
+  return bad.join('; ');
+}
+
 async function keepVideoAudio(c: ExecContext, video: string, toolsDir?: string, label = 'Muse AI'): Promise<void> {
   if (!c.sceneDir) return;
   const dir = path.join(c.sceneDir, 'audio');
@@ -2795,6 +2885,18 @@ export function sceneReferenceImages(c: Pick<ExecContext, 'project' | 'projectDi
     seen.add(key); out.push(abs);
   };
   if (c.scene) for (const ch of charactersInScene(c.projectDir, c.scene, 10)) add(characterPhoto(c.project, c.projectDir, ch.name) ?? portraitFile(c.projectDir, ch.name));
+  /* folhas de locais e objetos da Biblioteca do projeto: so as citadas no texto desta cena */
+  try {
+    const man = JSON.parse(fs.readFileSync(path.join(c.projectDir, 'assets', 'library.json'), 'utf8')) as Array<{ name?: string; id?: string; file?: string }>;
+    const normL = (v: unknown) => String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    const texto = normL([c.scene?.title, c.scene?.visualIntent, c.scene?.narration, c.scene?.speaker].filter(Boolean).join(' '));
+    for (const it of man) {
+      const nome = normL(it?.name ?? it?.id ?? '');
+      if (!nome || !it.file) continue;
+      const palavras = nome.split(' ').filter((w) => w.length > 3);
+      if (texto.includes(nome) || (palavras.length && palavras.every((w) => texto.includes(w)))) add(it.file);
+    }
+  } catch { /* projeto sem manifesto da biblioteca */ }
   const atts = (c.project.attachments ?? []).filter((a) => a.kind === 'image');
   for (const a of atts.filter((x) => x.use === 'character')) add(attachmentPath(c.projectDir, a));
   for (const a of atts.filter((x) => x.use === 'reference')) add(attachmentPath(c.projectDir, a));
