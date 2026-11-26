@@ -445,11 +445,14 @@ if (Q.get('panel')) {
 
 /* loop */
 let tf = 0;
-function tick() { tf++; if (!document.body.classList.contains('clean') || tf < 40) requestAnimationFrame(tick); renderer.render(scene, camera); }
+function tick() { tf++; const finite = document.body.classList.contains('clean') || location.search.includes('ui'); if (!finite || tf < 60) requestAnimationFrame(tick); renderer.render(scene, camera); }
 window.addEventListener('resize', () => { W = stage.clientWidth; H = stage.clientHeight - 96; renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix(); });
 applyShot('aberto'); applyLight('dourado'); updateCam(); tick();
 window.SB = { buildPreset, exportAll, shots: () => SB.shots, saveShot, capture, loadState };
 </script>
 <script src="storyboard-extra.js"></script>
+<script src="storyboard-tools.js"></script>
+<script src="storyboard-bones.js"></script>
+<script src="storyboard-gizmo.js"></script>
 </body>
 </html>
