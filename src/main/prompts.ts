@@ -430,7 +430,7 @@ export function characterSheet(projectDir: string): Array<{ name: string; look: 
 export function characterLock(projectDir: string, visual: string): string {
   const low = visual.toLowerCase();
   const hit = characterSheet(projectDir).filter((ch) => ch.name.split(/\s+/).some((w) => w.length > 2 && low.includes(w.toLowerCase())));
-  return hit.length ? `SAME CHARACTERS IN EVERY IMAGE, keep identical appearance: ${hit.map((ch) => `${ch.name}${ch.age ? ` (age ${ch.age} years old)` : ''} = ${ch.look}`).join('; ')}` : '';
+  return hit.length ? `SAME CHARACTERS IN EVERY IMAGE, keep identical appearance: ${hit.map((ch) => `${ch.name}${ch.age ? ` (age ${ch.age} years old)` : ''} = ${ch.look}`).join('; ')}. Locked traits: age, skin tone, eye color, hair color, hair length and hairstyle stay exactly the same in every shot - never change hair color or eye color.` : '';
 }
 
 /** Instrução da skill para esta etapa: por id da etapa, senão pelo tipo. */

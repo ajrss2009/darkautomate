@@ -25,7 +25,7 @@ import { applyH3Choice, applyHyperflowDefault, h3Family } from './h3accel';
 import { frameEditPrompt, prepareViggleSource, VIGGLE_MODEL, viggleInputs, viggleMode, viggleprompt } from './viggle';
 import { SFX_DEFAULT_VOLUME } from './ffmpeg';
 import { buildFreeBase, applyFreeSoundtrack, musicFile } from './soundtrack';
-import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, compilationPlan, narrationInstructions, primaryFile, primaryFileFor, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
+import { TEXT_KINDS, isLyricVideo, buildPrompt, buildPromptMarked, dedupeDestructuring, importBareLibNames, preferLibRigs, ensureForgeContract, ensureSfxExport, ensureCanvasShim, ensureThreeImport, extractHtmlPage, fixArrowBodies, fixLibCalls, freeThreePrompt, freeHtmlPrompt, freeHtmlProblem, freeLibProblem, freeLibMisuse, rawCanvasToLib, freeLibMissing, ensureImportMap, castFor, characterSheet, compilationPlan, narrationInstructions, primaryFile, primaryFileFor, renderedClip, thumbnailPrompt, visualPrompt, workersFor } from './prompts';
 import { fetchForScene } from './stock';
 import { orderStockSources } from '../shared/stock-sources';
 import { cutWords, estimateWords, readWords, stampWords, transcribe, wordsFresh, wordsPath, type WordTime } from './whisper';
@@ -1248,7 +1248,16 @@ function museSpeechPrompt(c: ExecContext): string {
   const s = c.scene!;
   const lang = h3Language(c.project.language);
   const how = deliveryEnglish(s);
-  return `${visualPrompt(c)}\n\nDialogue — the only spoken words in this video: ${s.speaker ?? 'the narrator'} speaks in ${lang}, in a ${how} tone, and says: "${h3SpokenText(s.narration)}" Lips move naturally with the words; there is no other speech before or after this line.`;
+  const quem = s.speaker ?? 'the main character';
+  const member = castFor(c.project, s.speaker);
+  const desc = (member?.description ?? '').trim();
+  const [lookFromCast, vozDesc] = desc.split(/\s+-\s+voz:\s*/i);
+  /* a aparencia do falante vem da biblia do projeto (assets.md): nome + idade + pele + olhos + cabelo + roupa */
+  const look = characterSheet(c.projectDir).find((ch) => ch.name.trim().toLowerCase() === quem.trim().toLowerCase()
+    || ch.name.split(/\s+/).some((w) => w.length > 2 && quem.toLowerCase().includes(w.toLowerCase())))?.look || lookFromCast || '';
+  const aparencia = look ? ` The character speaking is ${quem}, and this is exactly how ${quem} looks: ${look}.` : ` The character speaking is ${quem}.`;
+  const voz = vozDesc ? ` Voice type for ${quem}: ${vozDesc}.` : '';
+  return `${visualPrompt(c)}\n\nSPEAKER AND LINE — ${quem} is the one who speaks the line below.${aparencia}${voz} ${quem} speaks in ${lang}, in a ${how} tone, and says exactly: "${h3SpokenText(s.narration)}". Only ${quem} moves their lips. Nobody else speaks: no narrator, no voice-over, no second voice.`;
 }
 
 /**

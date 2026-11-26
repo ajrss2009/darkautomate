@@ -138,7 +138,9 @@ export function autoCast(project: Project, projectDir: string, voiceFiles: strin
 /** Personagens que aparecem na cena: quem fala primeiro, depois os citados no visual/narração (na ordem da bíblia). */
 export function charactersInScene(projectDir: string, scene: Pick<Scene, 'speaker' | 'visualIntent' | 'narration'> & { videoPrompt?: string }, max = 2): Array<{ name: string; look: string }> {
   const sheet = characterSheet(projectDir);
-  const text = `${scene.visualIntent ?? ''} ${scene.videoPrompt ?? ''} ${scene.narration ?? ''}`.toLowerCase();
+  /* a fala pode apenas MENCIONAR alguem que nao aparece: o visual manda; a narracao so entra quando nao ha visual */
+  const visual = `${scene.videoPrompt ?? ''} ${scene.visualIntent ?? ''}`.trim();
+  const text = (visual || `${scene.narration ?? ''}`).toLowerCase();
   const out: Array<{ name: string; look: string }> = [];
   const sp = scene.speaker ? sheet.find((ch) => norm(ch.name) === norm(scene.speaker!)) : undefined;
   if (sp) out.push(sp);
