@@ -1,4 +1,4 @@
-/* Filtros cinematográficos no editor de storyboard */
+/* Filtros cinematográficos (Technicolor 3 tiras etc.) */
 (function () {
   const $ = (id) => document.getElementById(id);
   const d = document.createElement('div');
@@ -6,24 +6,27 @@
     <label>Preset</label>
     <select id="fx-filter">
       <option value="none">Sem filtro</option>
-      <option value="technicolor">Technicolor 3 tiras</option>
+      <option value="technicolor" selected>Technicolor 3 tiras</option>
       <option value="noir">Noir</option>
       <option value="golden">Dourado / crepúsculo</option>
     </select>`;
-  document.querySelector('aside').appendChild(d);
+  const aside = document.querySelector('aside');
+  aside.insertBefore(d, aside.firstChild);
   const F = {
     none: 'none',
-    technicolor: 'saturate(1.45) contrast(1.14) sepia(0.10) hue-rotate(-5deg)',
-    noir: 'grayscale(1) contrast(1.30) brightness(0.95)',
-    golden: 'sepia(0.25) saturate(1.25) contrast(1.08)'
+    technicolor: 'saturate(1.9) contrast(1.32) sepia(0.18) hue-rotate(-10deg) brightness(1.03)',
+    noir: 'grayscale(1) contrast(1.45) brightness(0.92)',
+    golden: 'sepia(0.45) saturate(1.5) contrast(1.15) brightness(1.05)'
   };
-  $('fx-filter').onchange = () => {
-    const v = F[$('fx-filter').value] || 'none';
-    window.__FILTER = v;
-    renderer.domElement.style.filter = v;
+  function apply(v) {
+    const f = F[v] || 'none';
+    window.__FILTER = f;
+    renderer.domElement.style.filter = f;
+    document.querySelectorAll('canvas').forEach((c) => { c.style.filter = f; });
     renderer.render(scene, camera);
-    log('filtro: ' + $('fx-filter').value);
-  };
-  renderer.domElement.style.transition = 'filter .2s';
+    log('filtro: ' + v);
+  }
+  $('fx-filter').onchange = () => apply($('fx-filter').value);
+  setTimeout(() => apply($('fx-filter').value), 300);
   log('filtros prontos: Technicolor 3 tiras');
 })();
