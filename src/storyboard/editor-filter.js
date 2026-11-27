@@ -1,17 +1,12 @@
-/* Filtros cinematográficos (Technicolor 3 tiras etc.) */
+/* Filtro cinematográfico na barra superior (em linha com os demais controles) */
 (function () {
   const $ = (id) => document.getElementById(id);
-  const d = document.createElement('div');
-  d.innerHTML = `<h3>Filtro cinematográfico</h3>
-    <label>Preset</label>
-    <select id="fx-filter">
-      <option value="none">Sem filtro</option>
-      <option value="technicolor" selected>Technicolor 3 tiras</option>
-      <option value="noir">Noir</option>
-      <option value="golden">Dourado / crepúsculo</option>
-    </select>`;
-  const aside = document.querySelector('aside');
-  aside.insertBefore(d, aside.firstChild);
+  const wrap = document.createElement('span');
+  wrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-right:6px';
+  wrap.innerHTML = '<label style="margin:0;color:#9aa7b4;font-size:11px">Filtro</label><select id="fx-filter" style="width:auto;padding:5px 8px"><option value="none">Sem filtro</option><option value="technicolor" selected>Technicolor 3 tiras</option><option value="noir">Noir</option><option value="golden">Dourado</option></select>';
+  const header = document.querySelector('header');
+  const anchor = document.getElementById('btnPreset');
+  header.insertBefore(wrap, anchor);
   const F = {
     none: 'none',
     technicolor: 'saturate(1.9) contrast(1.32) sepia(0.18) hue-rotate(-10deg) brightness(1.03)',
@@ -21,7 +16,6 @@
   function apply(v) {
     const f = F[v] || 'none';
     window.__FILTER = f;
-    renderer.domElement.style.filter = f;
     document.querySelectorAll('canvas').forEach((c) => { c.style.filter = f; });
     renderer.render(scene, camera);
     log('filtro: ' + v);
