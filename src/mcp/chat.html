@@ -1,0 +1,32 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<title>MCP — Dark Automate</title>
+<style>
+:root{--bg:#0e1116;--pan:#171c24;--line:#2a3340;--txt:#e6edf3;--mut:#9aa7b4;--acc:#10a37f}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.5 Segoe UI,Arial;height:100vh;display:flex;flex-direction:column}
+header{height:48px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line);background:#0b0f14}
+header b{font-size:15px} .sp{flex:1}
+.tab{padding:6px 12px;border:1px solid var(--line);border-radius:16px;background:transparent;color:var(--mut);cursor:pointer}
+.tab.on{color:#fff;border-color:var(--acc);background:#0d3a2d}
+#tools{width:260px;background:var(--pan);border-right:1px solid var(--line);padding:10px;overflow:auto;font-size:12px}
+#tools h4{margin:10px 0 4px;color:var(--mut);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+#tools div{padding:4px 6px;border-radius:5px;background:#101720;margin:3px 0}
+main{flex:1;display:flex;min-height:0}#chat{flex:1;display:flex;flex-direction:column;min-width:0}
+#log{flex:1;overflow:auto;padding:16px 24px}.msg{max-width:760px;margin:10px auto;padding:12px 14px;border-radius:10px;background:var(--pan);border:1px solid var(--line);white-space:pre-wrap}
+.msg.user{background:#12332a;border-color:#1d6b54;margin-left:auto}.msg small{display:block;color:var(--mut);margin-bottom:4px}
+#bar{padding:10px 24px;border-top:1px solid var(--line);display:flex;gap:8px}
+textarea{flex:1;background:#0b1016;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:10px;resize:none;height:52px;font:inherit}
+button.send{background:var(--acc);border:0;color:#04130a;font-weight:700;border-radius:8px;padding:0 18px;cursor:pointer}
+</style></head><body>
+<header><b>🔌 MCP — Dark Automate</b><button class="tab on" data-p="claude">Claude</button><button class="tab" data-p="gemini">Gemini</button><button class="tab" data-p="chatgpt">ChatGPT</button><span class="sp"></span><span id="prov" class="tab">claude</span></header>
+<main><aside id="tools"><h4>Ferramentas MCP</h4><div id="tool-list">carregando…</div></aside>
+<div id="chat"><div id="log"></div><div id="bar"><textarea id="in" placeholder="Pergunte sobre projetos, rotas, skills ou peça uma ação…"></textarea><button class="send" id="send">Enviar</button></div></div></main>
+<script>
+const $=id=>document.getElementById(id);
+let prov='claude';
+document.querySelectorAll('.tab[data-p]').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab[data-p]').forEach(x=>x.classList.remove('on'));b.classList.add('on');prov=b.dataset.p;$('prov').textContent=prov;add('sistema','Provedor alterado para '+prov)});
+function add(who,text){const d=document.createElement('div');d.className='msg'+(who==='você'?' user':'');d.innerHTML='<small>'+who+'</small>'+String(text).replace(/</g,'&lt;');$('log').appendChild(d);$('log').scrollTop=$('log').scrollHeight}
+async function tools(){try{const [routes,skills,cat]=await Promise.all([forge.listRoutes(),forge.listSkills(),forge.catalog()]);$('tool-list').innerHTML=['projects.list','routes.list ('+(routes||[]).length+')','skills.list ('+(skills||[]).length+')','catalog ('+(cat? 'ok':'-')+')','storyboard.open','project.run'].map(x=>'<div>🔧 '+x+'</div>').join('')}catch(e){$('tool-list').textContent='ferramentas: '+e.message}}
+$('send').onclick=async()=>{const t=$('in').value.trim();if(!t)return;add('você',t);$('in').value='';add(prov,'Interface MCP pronta. Conecte um servidor MCP para responder com ferramentas do app.')};
+$('in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('send').click()}});
+add('sistema','MCP iniciado. Aba: '+prov);tools();
+</script></body></html>
