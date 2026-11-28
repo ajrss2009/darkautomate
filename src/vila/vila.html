@@ -82,4 +82,48 @@ window.addEventListener('mousemove',e=>{if(drag){x+=e.clientX-last;last=e.client
 function tick(){if(auto)x-=.35;const max=Math.max(0,el('world').scrollWidth-window.innerWidth+120);x=Math.max(-max,Math.min(0,x));el('world').style.transform='translateX('+x+'px)';requestAnimationFrame(tick);}
 tick();
 el('pedir').onclick=()=>{el('toast').textContent='Novo pedido: modo guiado ou avançado';el('toast').style.display='block';setTimeout(()=>el('toast').style.display='none',2400)};
+
+/* ===== AGENTES: a vila toca os canais sozinha ===== */
+const AGENTES = [
+ {id:'roteirista',nome:'Roteirista',icon:'✍️',casa:'Oficina'},
+ {id:'ilustrador',nome:'Ilustrador',icon:'🎨',casa:'Oficina'},
+ {id:'narrador',nome:'Narrador',icon:'🎙️',casa:'Central de Análise'},
+ {id:'editor',nome:'Editor',icon:'🎬',casa:'Central de Análise'},
+ {id:'auditor',nome:'Auditor',icon:'🔎',casa:'Prefeitura'},
+ {id:'publicador',nome:'Publicador',icon:'🚀',casa:'Correio'}
+];
+const ORDENS = JSON.parse(localStorage.getItem('vilaOrdens')||'[]');
+function saveOrdens(){localStorage.setItem('vilaOrdens',JSON.stringify(ORDENS));}
+let piloto = localStorage.getItem('vilaPiloto')==='1';
+const agentPanel = document.createElement('div');
+agentPanel.id='agentPanel';
+agentPanel.style.cssText='position:absolute;right:12px;top:44px;width:320px;max-height:70vh;overflow:auto;background:#0f1729f2;border:1px solid #3b4b70;border-radius:8px;padding:12px;display:none;z-index:8';
+el('main').appendChild(agentPanel);
+function renderPanel(){
+ agentPanel.innerHTML='<h3 style="margin:0 0 6px;color:#f5c451">Agentes da vila</h3><p style="color:#9fb0cc;font-size:11px">Clique num agente, escreva a ordem e ele trabalha na casa dele.</p>'+
+ AGENTES.map(a=>{
+  const q=ORDENS.filter(o=>o.agente===a.id&&o.estado!=='postado').length;
+  return '<div class="row" style="display:flex;justify-content:space-between;padding:5px;background:#172036;border:1px solid #2b3a5a;border-radius:5px;margin:4px 0;cursor:pointer" onclick="pedirAgente(\''+a.id+'\')"><span>'+a.icon+' '+a.nome+'</span><span style="color:#7d8bab">'+q+' ordens</span></div>';
+ }).join('')+
+ '<div style="margin-top:8px"><input id="ordemTxt" placeholder="Ex.: criar vídeo de 60s sobre finanças" style="width:100%;background:#0b1220;border:1px solid #334155;color:#dbe4f0;padding:6px;border-radius:5px"/></div>'+
+ '<div style="margin-top:6px;display:flex;gap:6px"><button onclick="enviarOrdem()" style="flex:1;background:#eab308;color:#1c1402;border:0;padding:6px;border-radius:5px;font-weight:700">Enviar ordem</button><button onclick="togglePiloto()" style="flex:1;background:'+(piloto?'#14532d':'#334155')+';color:#dbe4f0;border:0;padding:6px;border-radius:5px">'+(piloto?'Piloto ON':'Piloto OFF')+'</button></div>'+
+ '<div style="margin-top:8px;color:#9fb0cc;font-size:10px">Fila: '+ORDENS.slice(-6).reverse().map(o=>o.agente+': '+o.texto.slice(0,34)+' ('+o.estado+')').join('<br>')+'</div>';
+ agentPanel.style.display='block';
+}
+window.pedirAgente = (id)=>{const a=AGENTES.find(x=>x.id===id);el('ordemTxt').placeholder='Ordem para '+a.nome;el('ordemTxt').focus();window.__agenteSel=id;};
+window.enviarOrdem = ()=>{const txt=el('ordemTxt').value.trim();if(!txt)return;const id=window.__agenteSel||AGENTES[0].id;ORDENS.push({agente:id,texto:txt,estado:'fila',criado:Date.now()});saveOrdens();el('ordemTxt').value='';logLine('Ordem para '+id+': '+txt);renderPanel();};
+window.togglePiloto = ()=>{piloto=!piloto;localStorage.setItem('vilaPiloto',piloto?'1':'0');renderPanel();logLine('Piloto automático '+(piloto?'ligado':'desligado'));};
+function logLine(t){const d=document.createElement('div');d.innerHTML='<b>'+new Date().toLocaleTimeString('pt-BR')+'</b> · '+t;el('ticker').appendChild(d);el('ticker').scrollTop=99999;}
+function passo(){
+ if(!piloto){setTimeout(passo,4000);return;}
+ const o=ORDENS.find(x=>x.estado==='fila')||ORDENS.find(x=>x.estado==='trabalhando')||ORDENS.find(x=>x.estado==='pronto');
+ if(!o){setTimeout(passo,4000);return;}
+ if(o.estado==='fila'){o.estado='trabalhando';logLine('🤖 '+o.agente+' começou: '+o.texto.slice(0,40));}
+ else if(o.estado==='trabalhando'){o.estado='pronto';logLine('✅ '+o.agente+' entregou: '+o.texto.slice(0,40));}
+ else if(o.estado==='pronto'){o.estado='postado';logLine('🚀 Publicado no canal: '+o.texto.slice(0,40));}
+ saveOrdens();renderPanel();setTimeout(passo,6000);
+}
+document.addEventListener('click',e=>{if(e.target.closest('.house')||e.target.closest('.li')){if(!agentPanel.contains(e.target)){setTimeout(renderPanel,50);}}});
+renderPanel();agentPanel.style.display='none';
+setTimeout(passo,3000);
 </script></body></html>
