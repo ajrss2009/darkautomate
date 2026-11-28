@@ -1,67 +1,85 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Vila — FilmForge</title>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Vila Webdark — FilmForge</title>
 <style>
-body{margin:0;background:#0b1220;color:#e6edf3;font:13px Segoe UI,Arial;overflow:hidden}
-header{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0b0f14;border-bottom:1px solid #223}
-#wrap{display:flex;height:calc(100vh - 48px)}aside{width:280px;background:#111827;border-right:1px solid #223;padding:12px;overflow:auto}
-#view{flex:1;position:relative}canvas{display:block;width:100%;height:100%}
-button{background:#1f2937;color:#e6edf3;border:1px solid #334155;border-radius:7px;padding:7px 10px;cursor:pointer}
-.pri{background:#0f766e;border-color:#14b8a6}.item{padding:8px;border:1px solid #334155;border-radius:6px;margin:5px 0;cursor:pointer;font-size:12px}
-.item.sel{border-color:#22c55e;background:#0b2e1f}label{display:block;color:#94a3b8;font-size:11px;margin:9px 0 2px}
-#hint{position:absolute;left:12px;bottom:12px;background:#000a;padding:6px 10px;border-radius:6px;font-size:11px}
+*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#dbe4f0;font:12px Segoe UI,Arial;overflow:hidden}
+header{height:34px;display:flex;align-items:center;gap:16px;background:#0d1424;border-bottom:1px solid #24304a;padding:0 12px;font-size:11px}
+header b{color:#f5c451;font-size:14px}.pill{background:#172036;border:1px solid #2b3a5a;border-radius:5px;padding:3px 9px;color:#a9b8d4}
+.pill.on{background:#14532d;border-color:#22c55e;color:#dcfce7}.pill.warn{background:#7c2d12;border-color:#f97316;color:#ffedd5}
+#wrap{display:flex;height:calc(100vh - 34px)}
+aside{width:190px;background:#0e1628;border-right:1px solid #24304a;padding:8px;overflow:auto;flex:none}
+aside button{width:100%;background:#eab308;color:#1c1402;border:0;border-radius:6px;padding:9px;font-weight:700;cursor:pointer;margin-bottom:8px}
+aside h4{margin:12px 0 4px;color:#7d8bab;font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.li{padding:4px 6px;border-radius:4px;color:#b8c6dd;font-size:11px;cursor:pointer}.li:hover{background:#1c2942}.li.sel{background:#1e3a5f;color:#fff}
+#main{flex:1;position:relative;overflow:hidden;background:linear-gradient(#111b33,#1a2140 60%,#101626)}
+#sky{position:absolute;inset:0;pointer-events:none}
+#moon{position:absolute;right:90px;top:46px;width:54px;height:54px;border-radius:50%;background:#fff4cf;box-shadow:0 0 60px 22px #f8e6b455}
+.star{position:absolute;width:2px;height:2px;background:#cbd5e1;border-radius:50%;opacity:.6}
+#world{position:absolute;left:0;bottom:54px;display:flex;align-items:flex-end;gap:16px;padding:0 60px;transition:transform .05s linear}
+.house{position:relative;width:142px;flex:none;text-align:center}
+.dome{width:94px;height:52px;border-radius:94px 94px 0 0;margin:0 auto -2px;box-shadow:0 0 26px currentColor}
+.building{height:150px;border:1px solid #334155;border-radius:4px;background:linear-gradient(#1b253c,#111a2d);padding:6px;position:relative;box-shadow:inset 0 -18px 24px #0006}
+.title{font-size:10px;color:#e2e8f0;background:#0b1220;border:1px solid #334155;border-radius:4px;padding:4px 3px;margin-bottom:5px}
+.sub{font-size:8px;color:#7d8bab;margin-top:4px}
+.workers{display:flex;gap:3px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+.worker{width:15px;height:22px;border-radius:3px 3px 2px 2px;background:#4b6cb7;position:relative;animation:walk 1.6s infinite alternate ease-in-out;box-shadow:inset 0 -6px #0005}
+.worker:nth-child(3n){background:#c084fc;animation-delay:.4s}.worker:nth-child(3n+1){background:#22c55e;animation-delay:.8s}
+.worker:before{content:'';position:absolute;top:3px;left:4px;width:7px;height:7px;border-radius:50%;background:#f1c9a5}
+@keyframes walk{from{transform:translateX(-5px) rotate(-4deg)}to{transform:translateX(5px) rotate(4deg)}}
+.bar{height:5px;background:#0b1220;border-radius:3px;margin-top:7px;overflow:hidden}.bar i{display:block;height:100%;background:#22c55e;animation:prog 7s infinite linear}
+@keyframes prog{from{width:8%}to{width:96%}}
+.door{width:26px;height:30px;background:#3b2f1e;border:1px solid #6b5331;border-radius:12px 12px 0 0;margin:8px auto 0}
+#floor{position:absolute;left:0;right:0;bottom:52px;height:14px;background:linear-gradient(#2a3655,#151d33);border-top:2px solid #3b4b70}
+#road{position:absolute;left:0;right:0;bottom:0;height:52px;background:#0b1120;border-top:1px solid #2b3757}
+#road:after{content:'';position:absolute;top:18px;left:0;right:0;border-top:2px dashed #f5c45155}
+#ticker{position:absolute;left:0;right:0;bottom:0;height:52px;overflow:auto;background:#080d18;border-top:1px solid #24304a;padding:3px 10px;color:#7d8bab;font-size:10px;line-height:1.5}
+#ticker b{color:#f5c451}
+#tip{position:absolute;right:12px;top:44px;width:270px;background:#111a2eee;border:1px solid #3b4b70;border-radius:8px;padding:12px;display:none;z-index:5}
+#tip h3{margin:0 0 8px;color:#f5c451;font-size:13px}.tipbtn{background:#1f2937;color:#dbe4f0;border:1px solid #475569;border-radius:5px;padding:5px 8px;margin:3px;cursor:pointer;font-size:10px}
+#toast{position:absolute;top:44px;left:50%;transform:translateX(-50%);background:#1c2538;border:1px solid #f97316;border-radius:6px;padding:6px 12px;color:#ffedd5;font-size:11px;display:none;z-index:6}
 </style></head><body>
-<header><b>🏘️ Vila — FilmForge</b><span id="modo">Prédios = projetos e canais</span><span style="flex:1"></span>
-<button id="btnAuto">▶ Autoplay</button><button id="btnNovo" class="pri">+ Novo projeto</button><button id="btnSb">🎬 Editor de Storyboard</button></header>
-<div id="wrap"><aside><h3>Projetos na vila</h3><div id="lista"></div>
-<h3>Novo projeto</h3><label>Tipo de vídeo</label><select id="tipo"><option>microdrama</option><option>storyboard</option><option>clipe musical</option><option>documentário</option></select>
-<label>Modo</label><select id="modoNew"><option>guiado</option><option>avançado</option></select>
-<button id="criar" style="width:100%;margin-top:8px">Criar no terreno livre</button>
-<p class="small" style="color:#94a3b8;margin-top:16px">Clique num prédio para abrir. O drone passeia pela vila no autoplay.</p></aside>
-<div id="view"><div id="hint">arraste para orbitar · roda para zoom · clique no prédio</div></div></div>
-<script src="three.min.js"></script><script src="vila-data.js"></script>
+<header><b>🏘️ Vila Webdark</b><span class="pill">8 CASAS</span><span class="pill">1 TRABALHANDO</span><span class="pill on">APROVAR AQUI</span><span class="pill">19 PRONTOS P/ POSTAR</span><span class="pill">0.0% ENERGIA</span><span class="pill warn">Operário: desligado</span><span style="flex:1"></span><span class="pill">+ Casa</span><span class="pill">Relatório</span><span class="pill">Nomes</span><span class="pill">Guia</span></header>
+<div id="wrap"><aside><button id="pedir">+ PEDIR VÍDEO</button>
+<h4>Produção</h4><div class="li">Andares</div><div class="li">Construir andar</div><div class="li">Desmirar</div>
+<h4>Ferramentas</h4><div class="li" onclick="foco('Observatório')">Observatório</div><div class="li" onclick="foco('Prefeitura')">Prefeitura</div><div class="li" onclick="foco('Oficina')">Oficina</div><div class="li" onclick="foco('Central de Análise')">Central de Análise</div><div class="li" onclick="foco('Correio')">Correio</div><div class="li" onclick="foco('Arquivo')">Arquivo</div>
+<h4>Canais</h4><div id="canais"></div>
+<h4>Sistema</h4><div class="li">Conectar IA</div><div class="li">Arquivo de lições</div><div class="li">Demolidor</div><div class="li">Ajustes e ajuda</div>
+</aside>
+<div id="main"><div id="sky"></div><div id="moon"></div><div id="world"></div><div id="floor"></div><div id="road"></div><div id="ticker"></div>
+<div id="tip"><h3></h3><div id="tipbody"></div></div><div id="toast"></div></div></div>
 <script>
-const projetos = window.__PROJETOS || [];
-const view = document.getElementById('view');
-let W = view.clientWidth, H = view.clientHeight;
-const renderer = new THREE.WebGLRenderer({ antialias:true }); renderer.setSize(W,H); view.appendChild(renderer.domElement);
-const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b1220'); scene.fog = new THREE.Fog('#0b1220',30,90);
-const cam = new THREE.PerspectiveCamera(45,W/H,.1,300);
-const orbit = { th:.8, ph:1.05, r:34, target:new THREE.Vector3(0,1,0), auto:true };
-function updateCam(){ cam.position.set(orbit.target.x+orbit.r*Math.sin(orbit.ph)*Math.sin(orbit.th),orbit.target.y+orbit.r*Math.cos(orbit.ph),orbit.target.z+orbit.r*Math.sin(orbit.ph)*Math.cos(orbit.th)); cam.lookAt(orbit.target); }
-scene.add(new THREE.HemisphereLight('#bfdbfe','#1e293b',1.1));
-const sun=new THREE.DirectionalLight('#ffd9a0',2); sun.position.set(-12,20,10); sun.castShadow=true; scene.add(sun);
-const ground=new THREE.Mesh(new THREE.PlaneGeometry(90,90),new THREE.MeshStandardMaterial({color:'#142238',roughness:1})); ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
-/* ruas */
-for(let i=-2;i<=2;i++){ const r=new THREE.Mesh(new THREE.PlaneGeometry(90,1.2),new THREE.MeshBasicMaterial({color:'#1e3a5f'})); r.rotation.x=-Math.PI/2; r.position.z=i*9; scene.add(r);
- const c=new THREE.Mesh(new THREE.PlaneGeometry(1.2,90),new THREE.MeshBasicMaterial({color:'#1e3a5f'})); c.rotation.x=-Math.PI/2; c.position.x=i*9; scene.add(c); }
-function label(text){ const c=document.createElement('canvas'); c.width=512;c.height=128;const x=c.getContext('2d');x.fillStyle='rgba(3,10,20,.8)';x.fillRect(0,0,512,128);x.fillStyle='#e6edf3';x.font='bold 44px Segoe UI';x.textAlign='center';x.fillText(text.slice(0,18),256,82);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));s.scale.set(5,1.25,1);return s; }
-const buildings=[]; const cores=['#22d3ee','#a78bfa','#34d399','#f59e0b','#f472b6','#60a5fa'];
-projetos.forEach((name,i)=>{
- const col=cores[i%cores.length]; const h=2+((i*7)%5)*.8;
- const g=new THREE.Group(); const b=new THREE.Mesh(new THREE.BoxGeometry(4,h,4),new THREE.MeshStandardMaterial({color:'#123047',roughness:.7})); b.position.y=h/2; b.castShadow=true; g.add(b);
- const top=new THREE.Mesh(new THREE.BoxGeometry(4.3,.25,4.3),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.4})); top.position.y=h+.12; g.add(top);
- const lb=label(name); lb.position.y=h+1.4; g.add(lb);
- g.position.set((i%4-1.5)*9,0,(Math.floor(i/4)-.5)*9); g.userData={name,index:i}; scene.add(g); buildings.push(g);
- const li=document.createElement('div'); li.className='item'; li.textContent=(i+1)+'. '+name; li.onclick=()=>select(g); document.getElementById('lista').appendChild(li);
+const P = window.__PROJETOS || [];
+const cores=['#38bdf8','#f87171','#fbbf24','#34d399','#f472b6','#a78bfa','#60a5fa','#fb923c'];
+const funcoes=['Observatório','Prefeitura','Oficina','Central de Análise','Correio','Arquivo'];
+const el=(id)=>document.getElementById(id);
+/* estrelas */
+for(let i=0;i<70;i++){const s=document.createElement('div');s.className='star';s.style.left=(Math.random()*100)+'%';s.style.top=(Math.random()*55)+'%';el('sky').appendChild(s);}
+/* casas */
+const data=[...funcoes,...P.slice(0,4)];
+data.forEach((name,i)=>{
+ const col=cores[i%cores.length];
+ const h=document.createElement('div');h.className='house';
+ const n=3+(i%4);
+ h.innerHTML=`<div class="dome" style="background:${col};color:${col}"></div><div class="building">
+  <div class="title">${name.slice(0,20)}</div><div class="sub">${i<6?'função da vila':'canal • '+(i%3?'produzindo':'pronto')}</div>
+  <div class="workers">${'<div class="worker"></div>'.repeat(n)}</div>
+  <div class="bar"><i style="animation-delay:-${i}s"></i></div><div class="door"></div></div>`;
+ h.onclick=()=>tip(name,i);el('world').appendChild(h);
 });
-const lot=new THREE.Mesh(new THREE.BoxGeometry(4,.2,4),new THREE.MeshStandardMaterial({color:'#f59e0b',emissive:'#92400e',emissiveIntensity:.4})); lot.position.set(18,0,0); lot.userData={lote:true}; scene.add(lot);
-const lbLot=label('Terreno livre'); lbLot.position.set(18,1.6,0); scene.add(lbLot);
-let sel=null;
-function select(g){ sel=g; document.querySelectorAll('.item').forEach(x=>x.classList.remove('sel')); const li=document.querySelectorAll('.item')[g.userData.index]; if(li)li.classList.add('sel'); document.getElementById('modo').textContent='Selecionado: '+g.userData.name; }
-const rc=new THREE.Raycaster(), pv=new THREE.Vector2();
-renderer.domElement.addEventListener('pointerdown',e=>{ pv.set((e.clientX/W)*2-1,-(e.clientY/H)*2+1);rc.setFromCamera(pv,cam);const hit=rc.intersectObjects(buildings,true)[0];if(hit){let o=hit.object;while(o.parent&&!buildings.includes(o))o=o.parent;select(o);} else if(rc.intersectObject(lot).length){ document.getElementById('modoNew').scrollIntoView(); } });
-let drag=false,lx=0,ly=0;
-renderer.domElement.addEventListener('pointerdown',e=>{drag=true;lx=e.clientX;ly=e.clientY});
-window.addEventListener('pointerup',()=>drag=false);
-window.addEventListener('pointermove',e=>{if(drag){orbit.th-=(e.clientX-lx)*.006;orbit.ph=Math.max(.3,Math.min(1.5,orbit.ph-(e.clientY-ly)*.004));lx=e.clientX;ly=e.clientY;updateCam();}});
-renderer.domElement.addEventListener('wheel',e=>{orbit.r=Math.max(8,Math.min(80,orbit.r+e.deltaY*.02));updateCam();e.preventDefault()},{passive:false});
-document.getElementById('btnAuto').onclick=()=>{orbit.auto=!orbit.auto;document.getElementById('btnAuto').textContent=orbit.auto?'⏸ Pausar':'▶ Autoplay'};
-document.getElementById('btnSb').onclick=()=>window.open('storyboard-editor.html','_blank','width=1700,height=1000');
-document.getElementById('criar').onclick=()=>{document.getElementById('modo').textContent='Novo: '+document.getElementById('tipo').value+' · '+document.getElementById('modoNew').value+' (terreno livre)'};
-const drone=new THREE.Group();
-const body=new THREE.Mesh(new THREE.BoxGeometry(2.4,.5,1.2),new THREE.MeshStandardMaterial({color:'#38bdf8',emissive:'#0c4a6e',emissiveIntensity:.5}));drone.add(body);
-for(const sx of [-1,1])for(const sz of [-1,1]){const rotor=new THREE.Mesh(new THREE.TorusGeometry(.55,.07,6,16),new THREE.MeshBasicMaterial({color:'#7dd3fc'}));rotor.rotation.x=Math.PI/2;rotor.position.set(sx*1.2,0,sz*.7);drone.add(rotor);}
-scene.add(drone);
-let clock=0;
-function tick(){const still=location.search.includes('still');if(!still)requestAnimationFrame(tick);clock+=.016;orbit.th+=orbit.auto?.0025:0;orbit.ph=1.05+Math.sin(clock*.35)*.08;orbit.r=34+Math.sin(clock*.2)*3;drone.position.set(Math.sin(clock*.3)*10,9+Math.sin(clock*.6)*1.2,Math.cos(clock*.3)*10);drone.lookAt(orbit.target);updateCam();renderer.render(scene,cam);if(still&&!window.__frozen){window.__frozen=1;const im=document.createElement('img');im.src=renderer.domElement.toDataURL('image/png');im.style.cssText='position:absolute;inset:0;width:100%;height:100%;z-index:1';view.appendChild(im);}}
-updateCam();tick();
+P.forEach((p,i)=>{const d=document.createElement('div');d.className='li';d.textContent=p.slice(0,22);d.onclick=()=>tip(p,i+6);el('canais').appendChild(d);});
+function tip(name,i){const t=el('tip');t.querySelector('h3').textContent=name;
+ el('tipbody').innerHTML=`<p style="color:#9fb0cc">Clique numa casa, um prédio ou uma função. Role para o lado para ver toda a vila.</p>
+ <button class="tipbtn">Abrir projeto</button><button class="tipbtn">Ver funcionários</button><button class="tipbtn">Pedir vídeo</button><button class="tipbtn">Relatório</button>`;t.style.display='block';}
+/* log */
+const logs=['Vila: observando oportunidades no YouTube','Correio: conferindo a rota do canal Finanças','Oficina: revisando o roteiro 03 (anel)','Central de Análise: crescimento 4.6% em 7 min','Arquivo: guardando a lição aprendida','Observatório: novo nicho encontrado'];
+let li=0;function log(){const d=document.createElement('div');d.innerHTML='<b>'+new Date().toLocaleTimeString('pt-BR')+'</b> · '+logs[li++%logs.length];el('ticker').appendChild(d);el('ticker').scrollTop=99999;}
+setInterval(log,2600);for(let i=0;i<8;i++)log();
+/* toast */
+setInterval(()=>{const t=el('toast');t.textContent='Novo pedido aprovado — '+P[Math.floor(Math.random()*P.length)].slice(0,18);t.style.display='block';setTimeout(()=>t.style.display='none',2200)},9000);
+/* navegação / drone */
+let x=0,drag=false,last=0,auto=true;
+el('main').addEventListener('mousedown',e=>{drag=true;last=e.clientX;auto=false});
+window.addEventListener('mouseup',()=>drag=false);
+window.addEventListener('mousemove',e=>{if(drag){x+=e.clientX-last;last=e.clientX;}});
+function tick(){if(auto)x-=.35;const max=Math.max(0,el('world').scrollWidth-window.innerWidth+120);x=Math.max(-max,Math.min(0,x));el('world').style.transform='translateX('+x+'px)';requestAnimationFrame(tick);}
+tick();
+el('pedir').onclick=()=>{el('toast').textContent='Novo pedido: modo guiado ou avançado';el('toast').style.display='block';setTimeout(()=>el('toast').style.display='none',2400)};
 </script></body></html>
