@@ -25,7 +25,7 @@ let W = view.clientWidth, H = view.clientHeight;
 const renderer = new THREE.WebGLRenderer({ antialias:true }); renderer.setSize(W,H); view.appendChild(renderer.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b1220'); scene.fog = new THREE.Fog('#0b1220',30,90);
 const cam = new THREE.PerspectiveCamera(45,W/H,.1,300);
-const orbit = { th:.8, ph:1.05, r:34, target:new THREE.Vector3(0,1,0), auto:false };
+const orbit = { th:.8, ph:1.05, r:34, target:new THREE.Vector3(0,1,0), auto:true };
 function updateCam(){ cam.position.set(orbit.target.x+orbit.r*Math.sin(orbit.ph)*Math.sin(orbit.th),orbit.target.y+orbit.r*Math.cos(orbit.ph),orbit.target.z+orbit.r*Math.sin(orbit.ph)*Math.cos(orbit.th)); cam.lookAt(orbit.target); }
 scene.add(new THREE.HemisphereLight('#bfdbfe','#1e293b',1.1));
 const sun=new THREE.DirectionalLight('#ffd9a0',2); sun.position.set(-12,20,10); sun.castShadow=true; scene.add(sun);
@@ -57,6 +57,11 @@ renderer.domElement.addEventListener('wheel',e=>{orbit.r=Math.max(8,Math.min(80,
 document.getElementById('btnAuto').onclick=()=>{orbit.auto=!orbit.auto;document.getElementById('btnAuto').textContent=orbit.auto?'⏸ Pausar':'▶ Autoplay'};
 document.getElementById('btnSb').onclick=()=>window.open('storyboard-editor.html','_blank','width=1700,height=1000');
 document.getElementById('criar').onclick=()=>{document.getElementById('modo').textContent='Novo: '+document.getElementById('tipo').value+' · '+document.getElementById('modoNew').value+' (terreno livre)'};
-function tick(){const still=location.search.includes('still');if(!still)requestAnimationFrame(tick);updateCam();renderer.render(scene,cam);if(still&&!window.__frozen){window.__frozen=1;const im=document.createElement('img');im.src=renderer.domElement.toDataURL('image/png');im.style.cssText='position:absolute;inset:0;width:100%;height:100%;z-index:1';view.appendChild(im);}}
+const drone=new THREE.Group();
+const body=new THREE.Mesh(new THREE.BoxGeometry(2.4,.5,1.2),new THREE.MeshStandardMaterial({color:'#38bdf8',emissive:'#0c4a6e',emissiveIntensity:.5}));drone.add(body);
+for(const sx of [-1,1])for(const sz of [-1,1]){const rotor=new THREE.Mesh(new THREE.TorusGeometry(.55,.07,6,16),new THREE.MeshBasicMaterial({color:'#7dd3fc'}));rotor.rotation.x=Math.PI/2;rotor.position.set(sx*1.2,0,sz*.7);drone.add(rotor);}
+scene.add(drone);
+let clock=0;
+function tick(){const still=location.search.includes('still');if(!still)requestAnimationFrame(tick);clock+=.016;orbit.th+=orbit.auto?.0025:0;orbit.ph=1.05+Math.sin(clock*.35)*.08;orbit.r=34+Math.sin(clock*.2)*3;drone.position.set(Math.sin(clock*.3)*10,9+Math.sin(clock*.6)*1.2,Math.cos(clock*.3)*10);drone.lookAt(orbit.target);updateCam();renderer.render(scene,cam);if(still&&!window.__frozen){window.__frozen=1;const im=document.createElement('img');im.src=renderer.domElement.toDataURL('image/png');im.style.cssText='position:absolute;inset:0;width:100%;height:100%;z-index:1';view.appendChild(im);}}
 updateCam();tick();
 </script></body></html>
