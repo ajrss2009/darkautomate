@@ -1,0 +1,62 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Vila — FilmForge</title>
+<style>
+body{margin:0;background:#0b1220;color:#e6edf3;font:13px Segoe UI,Arial;overflow:hidden}
+header{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0b0f14;border-bottom:1px solid #223}
+#wrap{display:flex;height:calc(100vh - 48px)}aside{width:280px;background:#111827;border-right:1px solid #223;padding:12px;overflow:auto}
+#view{flex:1;position:relative}canvas{display:block;width:100%;height:100%}
+button{background:#1f2937;color:#e6edf3;border:1px solid #334155;border-radius:7px;padding:7px 10px;cursor:pointer}
+.pri{background:#0f766e;border-color:#14b8a6}.item{padding:8px;border:1px solid #334155;border-radius:6px;margin:5px 0;cursor:pointer;font-size:12px}
+.item.sel{border-color:#22c55e;background:#0b2e1f}label{display:block;color:#94a3b8;font-size:11px;margin:9px 0 2px}
+#hint{position:absolute;left:12px;bottom:12px;background:#000a;padding:6px 10px;border-radius:6px;font-size:11px}
+</style></head><body>
+<header><b>🏘️ Vila — FilmForge</b><span id="modo">Prédios = projetos e canais</span><span style="flex:1"></span>
+<button id="btnAuto">▶ Autoplay</button><button id="btnNovo" class="pri">+ Novo projeto</button><button id="btnSb">🎬 Editor de Storyboard</button></header>
+<div id="wrap"><aside><h3>Projetos na vila</h3><div id="lista"></div>
+<h3>Novo projeto</h3><label>Tipo de vídeo</label><select id="tipo"><option>microdrama</option><option>storyboard</option><option>clipe musical</option><option>documentário</option></select>
+<label>Modo</label><select id="modoNew"><option>guiado</option><option>avançado</option></select>
+<button id="criar" style="width:100%;margin-top:8px">Criar no terreno livre</button>
+<p class="small" style="color:#94a3b8;margin-top:16px">Clique num prédio para abrir. O drone passeia pela vila no autoplay.</p></aside>
+<div id="view"><div id="hint">arraste para orbitar · roda para zoom · clique no prédio</div></div></div>
+<script src="three.min.js"></script><script src="vila-data.js"></script>
+<script>
+const projetos = window.__PROJETOS || [];
+const view = document.getElementById('view');
+let W = view.clientWidth, H = view.clientHeight;
+const renderer = new THREE.WebGLRenderer({ antialias:true }); renderer.setSize(W,H); view.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b1220'); scene.fog = new THREE.Fog('#0b1220',30,90);
+const cam = new THREE.PerspectiveCamera(45,W/H,.1,300);
+const orbit = { th:.8, ph:1.05, r:34, target:new THREE.Vector3(0,1,0), auto:false };
+function updateCam(){ cam.position.set(orbit.target.x+orbit.r*Math.sin(orbit.ph)*Math.sin(orbit.th),orbit.target.y+orbit.r*Math.cos(orbit.ph),orbit.target.z+orbit.r*Math.sin(orbit.ph)*Math.cos(orbit.th)); cam.lookAt(orbit.target); }
+scene.add(new THREE.HemisphereLight('#bfdbfe','#1e293b',1.1));
+const sun=new THREE.DirectionalLight('#ffd9a0',2); sun.position.set(-12,20,10); sun.castShadow=true; scene.add(sun);
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(90,90),new THREE.MeshStandardMaterial({color:'#142238',roughness:1})); ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+/* ruas */
+for(let i=-2;i<=2;i++){ const r=new THREE.Mesh(new THREE.PlaneGeometry(90,1.2),new THREE.MeshBasicMaterial({color:'#1e3a5f'})); r.rotation.x=-Math.PI/2; r.position.z=i*9; scene.add(r);
+ const c=new THREE.Mesh(new THREE.PlaneGeometry(1.2,90),new THREE.MeshBasicMaterial({color:'#1e3a5f'})); c.rotation.x=-Math.PI/2; c.position.x=i*9; scene.add(c); }
+function label(text){ const c=document.createElement('canvas'); c.width=512;c.height=128;const x=c.getContext('2d');x.fillStyle='rgba(3,10,20,.8)';x.fillRect(0,0,512,128);x.fillStyle='#e6edf3';x.font='bold 44px Segoe UI';x.textAlign='center';x.fillText(text.slice(0,18),256,82);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));s.scale.set(5,1.25,1);return s; }
+const buildings=[]; const cores=['#22d3ee','#a78bfa','#34d399','#f59e0b','#f472b6','#60a5fa'];
+projetos.forEach((name,i)=>{
+ const col=cores[i%cores.length]; const h=2+((i*7)%5)*.8;
+ const g=new THREE.Group(); const b=new THREE.Mesh(new THREE.BoxGeometry(4,h,4),new THREE.MeshStandardMaterial({color:'#123047',roughness:.7})); b.position.y=h/2; b.castShadow=true; g.add(b);
+ const top=new THREE.Mesh(new THREE.BoxGeometry(4.3,.25,4.3),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.4})); top.position.y=h+.12; g.add(top);
+ const lb=label(name); lb.position.y=h+1.4; g.add(lb);
+ g.position.set((i%4-1.5)*9,0,(Math.floor(i/4)-.5)*9); g.userData={name,index:i}; scene.add(g); buildings.push(g);
+ const li=document.createElement('div'); li.className='item'; li.textContent=(i+1)+'. '+name; li.onclick=()=>select(g); document.getElementById('lista').appendChild(li);
+});
+const lot=new THREE.Mesh(new THREE.BoxGeometry(4,.2,4),new THREE.MeshStandardMaterial({color:'#f59e0b',emissive:'#92400e',emissiveIntensity:.4})); lot.position.set(18,0,0); lot.userData={lote:true}; scene.add(lot);
+const lbLot=label('Terreno livre'); lbLot.position.set(18,1.6,0); scene.add(lbLot);
+let sel=null;
+function select(g){ sel=g; document.querySelectorAll('.item').forEach(x=>x.classList.remove('sel')); const li=document.querySelectorAll('.item')[g.userData.index]; if(li)li.classList.add('sel'); document.getElementById('modo').textContent='Selecionado: '+g.userData.name; }
+const rc=new THREE.Raycaster(), pv=new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown',e=>{ pv.set((e.clientX/W)*2-1,-(e.clientY/H)*2+1);rc.setFromCamera(pv,cam);const hit=rc.intersectObjects(buildings,true)[0];if(hit){let o=hit.object;while(o.parent&&!buildings.includes(o))o=o.parent;select(o);} else if(rc.intersectObject(lot).length){ document.getElementById('modoNew').scrollIntoView(); } });
+let drag=false,lx=0,ly=0;
+renderer.domElement.addEventListener('pointerdown',e=>{drag=true;lx=e.clientX;ly=e.clientY});
+window.addEventListener('pointerup',()=>drag=false);
+window.addEventListener('pointermove',e=>{if(drag){orbit.th-=(e.clientX-lx)*.006;orbit.ph=Math.max(.3,Math.min(1.5,orbit.ph-(e.clientY-ly)*.004));lx=e.clientX;ly=e.clientY;updateCam();}});
+renderer.domElement.addEventListener('wheel',e=>{orbit.r=Math.max(8,Math.min(80,orbit.r+e.deltaY*.02));updateCam();e.preventDefault()},{passive:false});
+document.getElementById('btnAuto').onclick=()=>{orbit.auto=!orbit.auto;document.getElementById('btnAuto').textContent=orbit.auto?'⏸ Pausar':'▶ Autoplay'};
+document.getElementById('btnSb').onclick=()=>window.open('storyboard-editor.html','_blank','width=1700,height=1000');
+document.getElementById('criar').onclick=()=>{document.getElementById('modo').textContent='Novo: '+document.getElementById('tipo').value+' · '+document.getElementById('modoNew').value+' (terreno livre)'};
+function tick(){const still=location.search.includes('still');if(!still)requestAnimationFrame(tick);updateCam();renderer.render(scene,cam);if(still&&!window.__frozen){window.__frozen=1;const im=document.createElement('img');im.src=renderer.domElement.toDataURL('image/png');im.style.cssText='position:absolute;inset:0;width:100%;height:100%;z-index:1';view.appendChild(im);}}
+updateCam();tick();
+</script></body></html>
